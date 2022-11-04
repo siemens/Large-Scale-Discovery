@@ -241,4 +241,4 @@ Scan settings
 # Some entertainment
 
 [![Development History](Readme2.gif)](https://www.youtube.com/watch?v=)
-<br />[[Full Video](https://www.youtube.com/watch?v=)]
+<br />[[Full Video](https://youtu.be/I6YeXmt6cGY)]
