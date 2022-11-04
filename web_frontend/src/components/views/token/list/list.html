@@ -1,0 +1,88 @@
+<div id="divTokens">
+    <h2 class="ui dividing header">
+        Access Tokens
+        <span data-html="This section lists access tokens that are not bound to a user and valid for a prolonged time. You should *not* use such frivolously!"
+              data-position="right center" data-variation="tiny wide">
+                <i class="small question circle outline icon" style="margin-right: 0;"></i>
+            </span>
+    </h2>
+
+    <!-- ko if: tokenGrouped() === null -->
+    <div class="ui center aligned basic segment">
+        <i class="grey seedling icon"></i>
+        <span class="ui grey text"><i>Loading...</i></span>
+    </div>
+    <!-- /ko -->
+
+    <!-- ko if: tokenGrouped() !== null && tokenGrouped().length === 0 -->
+    <div class="ui center aligned basic segment" style="display: none">
+        <i class="grey seedling icon"></i>
+        <span class="ui grey text"><i>No access tokens generated. Good, you are awesome!</i></span>
+    </div>
+    <!-- /ko -->
+
+    <div class="ui container" style="display: none">
+
+        <!-- ko foreach: {data: tokenGrouped, afterRender: initTokenEntries} -->
+        <div class="ui attached message">
+            <h5><span
+                    data-bind="class: presentationClass(), text: $data[0].group_name ? $data[0].group_name : '-'"></span>
+            </h5>
+        </div>
+        <table class="ui attached small sortable celled table">
+            <thead>
+            <tr>
+                <th style="width: 90px;">View</th>
+                <th style="width: 150px;">Scope</th>
+                <th style="width: 165px;">Username</th>
+                <th>Description</th>
+                <th style="width: 150px;">Created By</th>
+                <th style="width: 64px;">Created</th>
+                <th style="width: 64px;">Expiry</th>
+                <th class="no-sort"></th>
+            </tr>
+            </thead>
+            <tbody>
+            <!-- ko foreach: {data: $data} -->
+            <tr class="top aligned">
+                <td style="max-width: 0;overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    <span data-bind="class: presentationClass(), text: view_name, attr: { title: view_name }"></span>
+                </td>
+                <td style="max-width: 0;overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    <span data-bind="class: presentationClass(), text: scope_name, attr: { title: scope_name }"></span>
+                </td>
+                <td style="max-width: 0;overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    <span data-bind="text: token.username, attr: { title: token.username }"></span>
+                </td>
+                <td style="max-width: 0;overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    <span data-bind="class: presentationClass(), text: token.description, attr: { title: token.description }"></span>
+                </td>
+                <td style="max-width: 0;overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    <span data-bind="class: presentationClass(), text: token.created_by, attr: { title: token.created_by }"></span>
+                </td>
+                <td data-bind="attr: {'data-sort-value': moment(token.created).unix()}">
+                        <span style="white-space: nowrap"
+                              data-bind="text: moment(token.created, datetimeFormatGolang).format(dateFormat)"></span>
+                </td>
+                <td data-bind="attr: {'data-sort-value': moment(token.expiry).unix()}">
+                        <span style="white-space: nowrap"
+                              data-bind="text: moment(token.expiry, datetimeFormatGolang).format(dateFormat), class: function(expiry){var now = moment(); var diff = moment(expiry).diff(now, 'days'); if(diff <= 7) { return 'ui red text'; } else if (diff <= 21) { return 'ui yellow text'; } else { return 'ui teal text'; }}(token.expiry)">
+                        </span>
+                </td>
+                <td class="right aligned" style="background-color: #f9fafb; width:1%; white-space:nowrap;">
+                    <button class="ui red mini icon button" type="button" data-tooltip="Revoke"
+                            data-position="top center"
+                            data-variation="tiny"
+                            data-bind="click: function(data, event) { $parents[1].revokeToken($parents[0], data, event) }">
+                        <i class="trash alternate outline icon"></i>
+                    </button>
+                </td>
+            </tr>
+            <!-- /ko -->
+            </tbody>
+        </table>
+        <div class="ui hidden clearing divider"></div>
+        <!-- /ko -->
+
+    </div>
+</div>

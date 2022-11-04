@@ -1,0 +1,20 @@
+<div class="sixteen wide column">
+
+    <!-- ko if: userAdmin() -->
+    <!-- ko component: { name: 'activity' } --><!-- /ko -->
+    <div class="ui hidden clearing  divider"></div>
+    <!-- /ko -->
+
+    <!-- ko if: userAdmin() || userOwner() -->
+    <!-- ko component: { name: 'agents' } --><!-- /ko -->
+    <div class="ui hidden clearing  divider"></div>
+    <!-- /ko -->
+
+    <!-- ko component: { name: 'views-granted' } --><!-- /ko -->
+
+    <!-- ko if: userAdmin() -->
+    <div class="ui hidden clearing  divider"></div>
+    <!-- ko component: { name: 'charts-access' } --><!-- /ko -->
+    <!-- /ko -->
+
+</div>

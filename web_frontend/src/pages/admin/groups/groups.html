@@ -1,0 +1,28 @@
+<div class="fourteen wide column">
+
+    <!-- ko if: actionComponent -->
+    <!-- ko component: { name: actionComponent, params: { parent: $data, args: actionArgs() } } --><!-- /ko -->
+    <!-- /ko -->
+
+    <div id="divGroups">
+        <h2 class="ui dividing header">
+            Groups
+            <span data-html="This section lists existing groups and allows to create new ones. Each group can create its own scan scopes and views according to configured limits."
+                  data-position="right center" data-variation="tiny wide">
+                <i class="small question circle outline icon" style="margin-right: 0;"></i>
+            </span>
+        </h2>
+
+        <div style="display: none">
+            <div id="divDataGridGroups"></div>
+            <div class="ui teal right floated buttons">
+                <button class="ui button" type="button" data-bind="click: showGroupAdd"><i class="plus icon"></i> Group
+                </button>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<div class="two wide column right aligned"
+     data-bind='component: { name: "nav-side", params: { sideNavItems: sideNavItems }  }'></div>

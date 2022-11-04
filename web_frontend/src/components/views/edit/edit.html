@@ -1,0 +1,29 @@
+<div id="divViewsEdit" style="display: none; margin-bottom: 56px;">
+    <h2 class="ui dividing header">Configure View</h2>
+    <form class="ui form" data-bind="submit: submitEdit">
+        <div class="three fields">
+            <div class="disabled field">
+                <label for="inputGroup">Group</label>
+                <input id="inputGroup" type="text" data-bind="textInput: args.scan_scope.group_name">
+            </div>
+            <div class="disabled field">
+                <label for="inputScope">Scope</label>
+                <input id="inputScope" type="text" data-bind="textInput: args.scan_scope.name">
+            </div>
+            <div class="required field">
+                <label for="inputName">View Name</label>
+                <input id="inputName" type="text" placeholder="Scope Name" data-bind="textInput: viewName">
+            </div>
+        </div>
+
+        <div class="ui right aligned grid">
+            <div class="column">
+                <div class="ui right floated buttons">
+                    <button class="ui button" type="button" data-bind="click: dispose">Cancel</button>
+                    <div class="or"></div>
+                    <button class="ui teal button" type="button" data-bind="click: submitEdit">Save</button>
+                </div>
+            </div>
+        </div>
+    </form>
+</div>

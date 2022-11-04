@@ -1,0 +1,430 @@
+Web App|URL Path|Optional: String matches checked if host always responds with 200 OK (Multiple strings separated by pipe ("|"))
+#
+# [1]   Application Name   : First column is the name of the application to be found.
+# [2]   Application Path   : Second column is the path where the application is expected to be found.
+# [3-n] Application Strings: Subsequent columns are string matches. If the dummy URL returns 200 OK a string 
+#                            match is required to identify an application. If any of those matches is found 
+#                            at the URL, it is considered to be the application named in column 1. String 
+#                            matches are case insensitive
+#
+Apache default content|/manual/
+Apache default content|/icons/
+APEX|/pls/apex
+APEX|/pls/apex/apex_admin
+Axis2 Happiness|/axis2/axis2-web/HappyAxis.jsp|Axis2 Happiness Page
+Axis2 LFI|/axis2/services/Version?xsd=../conf/axis2.xml|axisconfig|DrillDownToRootCauseForFaultReason
+Axis2 Monitoring|/axis2/monitoring
+Axis2 SAP BusinessObjects LFI|/dswsbobje/services/Session?xsd=../conf/axis2.xml|axisconfig|DrillDownToRootCauseForFaultReason
+Axis2 SAP BusinessObjects|/dswsbobje/
+Axis2 SAP BusinessObjects|/dswsbobje/axis2-web/HappyAxis.jsp|Axis2 Happiness Page
+Axis2 SAP BusinessObjects|/dswsbobje/services/listServices|Available services
+Axis2 SAP BusinessObjects|/dswsbobje/services/Session?wsdl
+Axis2 Services|/axis2/services/listServices|Available services
+Axis2|/axis2/axis2-admin/login|Axis2 administration console
+Axis2|/clm/ibm/console/logon.jsp|WebSphere Integrated Solutions Console|IBM WebSphere Application
+Axis2|/services/
+Cisco|/cisco/
+Cisco|/level/15/exec/-/
+Cisco|/oamp
+Citrix|/citrix/
+ColdFusion|/cf/
+ColdFusion|/cfdocs/
+ColdFusion|/cfcache/
+ColdFusion|/CFIDE/adminapi/
+ColdFusion|/CFIDE/administrator
+ColdFusion|/cfusion/
+ColdFusion|/coldfusion/
+CPanel|/cpanel/
+Drupal|/drupal/
+Drupal|/user/register
+Git|/git/
+Git|/gitweb/
+Git|/users/sign_in|href="https://about.gitlab.com/"|GitLab
+IIS server variables|/monitor/info.aspx
+IIS Root|/inetpub/
+Jira|/secure/admin
+JMX|/admin-console
+JMX|/invoker/JMXInvokerServlet
+JMX|/jmx-console
+JMX|/JMXSoapAdapter
+JMX|/web-console/Invoker
+Junos|/dana-na/auth/url_admin/welcome.cgi
+Lifesize|/accounts/login/
+Phpinfo|/phpinfo.php|Credits
+Phpinfo|/info.php|Credits
+PhpMyAdmin|/dbadmin/
+PhpMyAdmin|/myadmin/
+PhpMyAdmin|/mysql/
+PhpMyAdmin|/mysqladmin/
+PhpMyAdmin|/mysql-admin/
+PhpMyAdmin|/mysqlmanager/
+PhpMyAdmin|/p/m/a/
+PhpMyAdmin|/phpmanager/
+PhpMyAdmin|/phpmy-admin/
+PhpMyAdmin|/php-myadmin/
+PhpMyAdmin|/php-my-admin/
+PhpMyAdmin|/phpmyadmin/index.php|<input type="text" name="pma_username" id="input_username"|<label for="select_server">|function PMA_focusInput()
+PhpMyAdmin|/phpMyAdmin-2.2.3/
+PhpMyAdmin|/phpMyAdmin-2.2.6/
+PhpMyAdmin|/phpMyAdmin-2.5.1/
+PhpMyAdmin|/phpMyAdmin-2.5.4/
+PhpMyAdmin|/phpMyAdmin-2.5.5/
+PhpMyAdmin|/phpMyAdmin-2.5.5-pl1/
+PhpMyAdmin|/phpMyAdmin-2.5.5-rc1/
+PhpMyAdmin|/phpMyAdmin-2.5.5-rc2/
+PhpMyAdmin|/phpMyAdmin-2.5.6/
+PhpMyAdmin|/phpMyAdmin-2.5.6-rc1/
+PhpMyAdmin|/phpMyAdmin-2.5.6-rc2/
+PhpMyAdmin|/phpMyAdmin-2.5.7/
+PhpMyAdmin|/phpMyAdmin-2.5.7-pl1/
+PhpMyAdmin|/phpMyAdmin-2.6.0/
+PhpMyAdmin|/phpMyAdmin-2.6.0-alpha/
+PhpMyAdmin|/phpMyAdmin-2.6.0-alpha2/
+PhpMyAdmin|/phpMyAdmin-2.6.0-beta1/
+PhpMyAdmin|/phpMyAdmin-2.6.0-beta2/
+PhpMyAdmin|/phpMyAdmin-2.6.0-pl1/
+PhpMyAdmin|/phpMyAdmin-2.6.0-pl2/
+PhpMyAdmin|/phpMyAdmin-2.6.0-pl3/
+PhpMyAdmin|/phpMyAdmin-2.6.0-rc1/
+PhpMyAdmin|/phpMyAdmin-2.6.0-rc2/
+PhpMyAdmin|/phpMyAdmin-2.6.0-rc3/
+PhpMyAdmin|/phpMyAdmin-2.6.1/
+PhpMyAdmin|/phpMyAdmin-2.6.1-pl1/
+PhpMyAdmin|/phpMyAdmin-2.6.1-pl2/
+PhpMyAdmin|/phpMyAdmin-2.6.1-pl3/
+PhpMyAdmin|/phpMyAdmin-2.6.1-rc1/
+PhpMyAdmin|/phpMyAdmin-2.6.1-rc2/
+PhpMyAdmin|/phpMyAdmin-2.6.2/
+PhpMyAdmin|/phpMyAdmin-2.6.2-beta1/
+PhpMyAdmin|/phpMyAdmin-2.6.2-pl1/
+PhpMyAdmin|/phpMyAdmin-2.6.2-rc1/
+PhpMyAdmin|/phpMyAdmin-2.6.3/
+PhpMyAdmin|/phpMyAdmin-2.6.3-pl1/
+PhpMyAdmin|/phpMyAdmin-2.6.3-rc1/
+PhpMyAdmin|/phpMyAdmin-2.6.4/
+PhpMyAdmin|/phpMyAdmin-2.6.4-pl1/
+PhpMyAdmin|/phpMyAdmin-2.6.4-pl2/
+PhpMyAdmin|/phpMyAdmin-2.6.4-pl3/
+PhpMyAdmin|/phpMyAdmin-2.6.4-pl4/
+PhpMyAdmin|/phpMyAdmin-2.6.4-rc1/
+PhpMyAdmin|/phpMyAdmin-2.7.0/
+PhpMyAdmin|/phpMyAdmin-2.7.0-beta1/
+PhpMyAdmin|/phpMyAdmin-2.7.0-pl1/
+PhpMyAdmin|/phpMyAdmin-2.7.0-pl2/
+PhpMyAdmin|/phpMyAdmin-2.7.0-rc1/
+PhpMyAdmin|/phpMyAdmin-2.8.0.1/
+PhpMyAdmin|/phpMyAdmin-2.8.0.2/
+PhpMyAdmin|/phpMyAdmin-2.8.0.3/
+PhpMyAdmin|/phpMyAdmin-2.8.0.4/
+PhpMyAdmin|/phpMyAdmin-2.8.0/
+PhpMyAdmin|/phpMyAdmin-2.8.0-beta1/
+PhpMyAdmin|/phpMyAdmin-2.8.0-rc1/
+PhpMyAdmin|/phpMyAdmin-2.8.0-rc2/
+PhpMyAdmin|/phpMyAdmin-2.8.1/
+PhpMyAdmin|/phpMyAdmin-2.8.1-rc1/
+PhpMyAdmin|/phpMyAdmin-2.8.2/
+PhpMyAdmin|/phpMyAdmin2/
+PhpMyAdmin|/phpMyAdmin-2/
+PhpMyAdmin|/PMA/
+PhpMyAdmin|/PMA2005/
+PhpMyAdmin|/pma2005/
+PhpMyAdmin|/sqlmanager/
+PhpMyAdmin|/sqlweb/
+PhpMyAdmin|/webdb/
+PhpMyAdmin|/websql/
+PhpMyAdmin|/phpmyadmin
+Robots|/robots.txt
+SAP|/ctc/servlet
+SAP|/cgi-bin/SMTPSend.dll
+SAP|/sap/admin/
+SAP|/sap/admin/default.html
+SAP|/sap/public/info
+SAP|/sap/bc/soap/rfca
+SAP|/sap/bc/echo
+SAP|/sap/bc/FormToRfc
+SAP|/sap/bc/report
+SAP|/sap/bc/xrfc
+SAP|/sap/bc/xrfc_test
+SAP|/sap/bc/error
+SAP|/sap/bc/webrfc
+SAP|/sap/bc/bsp/sap/certreq
+SAP|/sap/bc/bsp/sap/certmap
+SAP|/sap/bc/gui/sap/its/CERTREQ
+SAP|/sap/bc/gui/sap/its/CERTMAP
+SAP|/sap/bc/bsp/sap/bsp_veri
+SAP|/sap/bc/bsp/sap/icf
+SAP|/sap/bc/IDoc_XML
+SAP|/sap/bc/srt/IDoc
+SAP|/sap/bc/icf/verification
+SAP|/sap/bc/bsp/sap/sbspext_htmlb
+SAP|/sap/bc/bsp/sap/sbspext_xhtmlb
+SAP|/sap/bc/bsp/sap/sbspext_phtmlb
+SAP|/sap/bc/bsp/sap/sbspext_table
+SAP|/sap/bc/bsp/sap/htmlb_samples
+SAP|/sap/bc/bsp/sap/bsp_model
+SAP|/sap/bc/bsp/sap/itmvc2
+SAP|/sap/bc/bsp/sap/it00
+SAP|/sap/bc/bsp/sap/it01
+SAP|/sap/bc/bsp/sap/it02
+SAP|/sap/bc/bsp/sap/it03
+SAP|/sap/bc/bsp/sap/it04
+SAP|/sap/bc/bsp/sap/it05
+SAP|/sap/bc/bsp/sap/itsm
+SAP|/sap/bc/bsp/sap/system_public
+SAP|/sap/bc/bsp/sap/system_private
+SAP|/sap/bc/bsp/sap/bsp_verification
+SAP|/sap/bw/xml/soap/xmla
+SAP|/sap/bc/webdynpro/sap/CONFIGURE_APPLICATION
+SAP|/sap/bc/webdynpro/sap/CONFIGURE_COMPONENT
+SAP|/sap/bc/webdynpro/sap/WD_ANALYZE_CONFIG_APPL
+SAP|/sap/bc/webdynpro/sap/WD_ANALYZE_CONFIG_COMP
+SAP|/sap/bc/webdynpro/sap/WD_ANALYZE_CONFIG_USER
+SAP|/sap/public
+SAP|/sap/bc/gui/sap/its/webgui
+Tomcat|/manager/html
+ScalanceM|/main.mwp
+ScalanceM|/v2_login.html
+SIMATIC|/Portal.mwsl
+SIMATIC|/Portal/Login.mwsl
+SIMATIC|/Login.mwsl
+Typo3|/typo3
+Various Admin Interface|/_adm/
+Various Admin Interface|/_admin/
+Various Admin Interface|/a/dminlogin.aspx
+Various Admin Interface|/account.html
+Various Admin Interface|/account.php
+Various Admin Interface|/adm.html
+Various Admin Interface|/adm.php
+Various Admin Interface|/adm/
+Various Admin Interface|/adm/admloginuser.php
+Various Admin Interface|/adm/index.html
+Various Admin Interface|/adm/index.php
+Various Admin Interface|/adm_auth.php
+Various Admin Interface|/admin.asp
+Various Admin Interface|/admin.aspx
+Various Admin Interface|/admin.html
+Various Admin Interface|/admin.php
+Various Admin Interface|/admin/
+Various Admin Interface|/admin/account.html
+Various Admin Interface|/admin/account.php
+Various Admin Interface|/admin/admin.html
+Various Admin Interface|/admin/admin.php
+Various Admin Interface|/admin/admin_login.html
+Various Admin Interface|/admin/admin_login.php
+Various Admin Interface|/admin/adminLogin.html
+Various Admin Interface|/admin/admin-login.html
+Various Admin Interface|/admin/adminLogin.php
+Various Admin Interface|/admin/admin-login.php
+Various Admin Interface|/admin/controlpanel.html
+Various Admin Interface|/admin/controlpanel.php
+Various Admin Interface|/admin/cp.html
+Various Admin Interface|/admin/cp.php
+Various Admin Interface|/admin/home.html
+Various Admin Interface|/admin/home.php
+Various Admin Interface|/admin/index.html
+Various Admin Interface|/admin/index.php
+Various Admin Interface|/admin/login.asp
+Various Admin Interface|/admin/login.aspx
+Various Admin Interface|/admin/login.html
+Various Admin Interface|/admin/login.php
+Various Admin Interface|/admin_/
+Various Admin Interface|/admin_area/
+Various Admin Interface|/admin_area/admin.html
+Various Admin Interface|/admin_area/admin.php
+Various Admin Interface|/admin_area/index.html
+Various Admin Interface|/admin_area/index.php
+Various Admin Interface|/admin_area/login.html
+Various Admin Interface|/admin_area/login.php
+Various Admin Interface|/admin_login.asp
+Various Admin Interface|/admin_login.aspx
+Various Admin Interface|/admin_login.html
+Various Admin Interface|/admin_login.php
+Various Admin Interface|/admin2.php
+Various Admin Interface|/admin2/index.php
+Various Admin Interface|/admin2/login.php
+Various Admin Interface|/adminarea/
+Various Admin Interface|/adminarea/admin.html
+Various Admin Interface|/adminarea/admin.php
+Various Admin Interface|/adminarea/index.html
+Various Admin Interface|/adminarea/index.php
+Various Admin Interface|/adminarea/login.html
+Various Admin Interface|/adminarea/login.php
+Various Admin Interface|/admin-console/
+Various Admin Interface|/admincontrol.html
+Various Admin Interface|/admincontrol.php
+Various Admin Interface|/admincontrol/login.html
+Various Admin Interface|/admincontrol/login.php
+Various Admin Interface|/admincp/index.asp
+Various Admin Interface|/admincp/index.html
+Various Admin Interface|/admincp/login.asp
+Various Admin Interface|/adminhome.asp
+Various Admin Interface|/adminhome.aspx
+Various Admin Interface|/administartorlogin.aspx
+Various Admin Interface|/administrator.html
+Various Admin Interface|/administrator.php
+Various Admin Interface|/administrator/
+Various Admin Interface|/administrator/account.html
+Various Admin Interface|/administrator/account.php
+Various Admin Interface|/administrator/index.html
+Various Admin Interface|/administrator/index.php
+Various Admin Interface|/administrator/login.html
+Various Admin Interface|/administrator/login.php
+Various Admin Interface|/administrator_login.asp
+Various Admin Interface|/administrator_login.aspx
+Various Admin Interface|/administratorlogin.asp
+Various Admin Interface|/administratorlogin.php
+Various Admin Interface|/administratorlogin/
+Various Admin Interface|/adminlogin.asp
+Various Admin Interface|/adminLogin.html
+Various Admin Interface|/admin-login.html
+Various Admin Interface|/adminLogin.php
+Various Admin Interface|/admin-login.php
+Various Admin Interface|/adminLogin/
+Various Admin Interface|/adminpanel.html
+Various Admin Interface|/adminpanel.php
+Various Admin Interface|/admins/
+Various Admin Interface|/admloginuser.php
+Various Admin Interface|/affiliate.php
+Various Admin Interface|/bb-admin/
+Various Admin Interface|/bb-admin/admin.html
+Various Admin Interface|/bb-admin/admin.php
+Various Admin Interface|/bb-admin/index.html
+Various Admin Interface|/bb-admin/index.php
+Various Admin Interface|/bb-admin/login.html
+Various Admin Interface|/bb-admin/login.php
+Various Admin Interface|/console/
+Various Admin Interface|/controlpanel.html
+Various Admin Interface|/controlpanel.php
+Various Admin Interface|/controlpanel/
+Various Admin Interface|/cp.html
+Various Admin Interface|/cp.php
+Various Admin Interface|/cpadmin/
+Various Admin Interface|/FCKeditor/
+Various Admin Interface|/home.html
+Various Admin Interface|/home.php
+Various Admin Interface|/instadmin/
+Various Admin Interface|/jboss/
+Various Admin Interface|/jbossas/
+Various Admin Interface|/jbossws/
+Various Admin Interface|/joomla/administrator
+Various Admin Interface|/login.html
+Various Admin Interface|/login.php
+Various Admin Interface|/login/admin.asp
+Various Admin Interface|/login/admin.aspx
+Various Admin Interface|/login/administrator.aspx
+Various Admin Interface|/memberadmin.php
+Various Admin Interface|/memberadmin/
+Various Admin Interface|/modelsearch/admin.html
+Various Admin Interface|/modelsearch/admin.php
+Various Admin Interface|/modelsearch/index.html
+Various Admin Interface|/modelsearch/index.php
+Various Admin Interface|/modelsearch/login.html
+Various Admin Interface|/modelsearch/login.php
+Various Admin Interface|/moderator.html
+Various Admin Interface|/moderator.php
+Various Admin Interface|/moderator/
+Various Admin Interface|/moderator/admin.html
+Various Admin Interface|/moderator/admin.php
+Various Admin Interface|/moderator/login.html
+Various Admin Interface|/moderator/login.php
+Various Admin Interface|/nsw/admin/login.php
+Various Admin Interface|/oprocmgr-status/
+Various Admin Interface|/pages/admin/admin-login.html
+Various Admin Interface|/pages/admin/admin-login.php
+Various Admin Interface|/panel-administracion/
+Various Admin Interface|/panel-administracion/admin.html
+Various Admin Interface|/panel-administracion/admin.php
+Various Admin Interface|/panel-administracion/index.html
+Various Admin Interface|/panel-administracion/index.php
+Various Admin Interface|/panel-administracion/login.html
+Various Admin Interface|/panel-administracion/login.php
+Various Admin Interface|/rcjakar/admin/login.php
+Various Admin Interface|/siteadmin/index.php
+Various Admin Interface|/siteadmin/login.html
+Various Admin Interface|/siteadmin/login.php
+Various Admin Interface|/SOAPMonitor/
+Various Admin Interface|/user.html
+Various Admin Interface|/user.php
+Various Admin Interface|/webadmin.html
+Various Admin Interface|/webadmin.php
+Various Admin Interface|/webadmin/
+Various Admin Interface|/webadmin/admin.html
+Various Admin Interface|/webadmin/admin.php
+Various Admin Interface|/webadmin/index.html
+Various Admin Interface|/webadmin/index.php
+Various Admin Interface|/webadmin/login.html
+Various Admin Interface|/webadmin/login.php
+Various Admin Interface|/webmin/
+Various Admin Interface|/web-console/
+Various Admin Interface|/wp-login.php
+Various Configs|/_conf/
+Various Configs|/conf/
+Various Configs|/config/
+Various Configs|/configure/
+Various Files|/.bash_history
+Various Files|/.bashrc
+Various Files|/.history
+Various Files|/.htaccess
+Various Files|/.htpasswd
+Various Files|/.passwd
+Various Files|/.ssh
+Various Files|/.web
+Various Files|/access.1
+Various Files|/access.log
+Various Files|/access_log
+Various Files|/access_log.1
+Various Files|/access-log
+Various Files|/access-log.1
+Various Files|/authorized_keys
+Various Files|/static/
+Various Files|/web.xml
+Various Source Code|/.cvsignore
+Various Source Code|/.svn
+Various Source Code|/.svn/entries
+Various Source Code|/artifactory/
+Various Source Code|/CVS/
+Various Source Code|/CVS/Entries
+Various Source Code|/CVS/Repository
+Various Source Code|/CVS/Root
+Various Source Code|/.git/
+Various Source Code|/.git/HEAD
+Various Source Code|/nexus/
+Various Source Code|/svn/
+Various Source Code|/websvn/
+Various|/_files/
+Various|/_old/
+Various|/_private/
+Various|/_test/
+Various|/access/
+Various|/api/
+Various|/awstats/
+Various|/backdoor/
+Various|/backup/
+Various|/backupdata/
+Various|/backups/
+Various|/certificates/
+Various|/certs/
+Various|/cgi-bin/test.cgi
+Various|/cgi-bin/test-cgi
+Various|/cgi-bin/printenv.cgi
+Various|/DB/
+Various|/debug/
+Various|/getaccess/
+Various|/hidden/
+Various|/jdbc
+Various|/log/
+Various|/logs/
+Various|/monitoring/
+Various|/server-info/
+Various|/server-status/
+Various|/stats/
+Various|/status/
+Various|/test/
+Various|/weblogs/
+Various|/WS_FTP/
+Various|/wwwstats/
+Weblogic|/weblogic/
+Websphere|/websphere/
+Well Known|/.well-known/
+Wordpress|/wp-admin
+WsMonitor|/wsMonitor/

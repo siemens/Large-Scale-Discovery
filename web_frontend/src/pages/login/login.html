@@ -1,0 +1,51 @@
+<div id="modalLogin" class="ui mini modal" style="z-index: 9999">
+    <div style="padding: 3em;">
+        <h2 class="ui center aligned header">Large-Scale Discovery</h2>
+        <div style="padding-left: 1.3em; padding-right: 1.3em;">
+            <form class="ui form" data-bind="submit: submit">
+
+                <div id="divEmail">
+                    <div class="field">
+                        <label for="inputEmail">&nbsp;</label>
+                        <div class="ui left icon input">
+                            <input id="inputEmail" type="text" autocomplete="username" placeholder="user@domain.tld"
+                                   data-bind="textInput: loginEmail">
+                            <i class="user icon"></i>
+                        </div>
+                    </div>
+                    <button class="ui labeled icon fluid teal button" type="button" data-bind="click: submitPreAuth">
+                        <i class="sign in icon"></i> Submit
+                    </button>
+                </div>
+
+                <div id="divPassword">
+                    <div class="field">
+                        <label for="inputPassword"></label>
+                        <div class="ui left icon input">
+                            <input id="inputPassword" type="password" autocomplete="current-password"
+                                   placeholder="Password"
+                                   data-bind="textInput: loginPassword">
+                            <i class="envelope icon"></i>
+                        </div>
+                    </div>
+                    <div class="ui fluid buttons">
+                        <button class="ui button" type="button" data-bind="click: cancelLogin">Cancel</button>
+                        <div class="or"></div>
+                        <button class="ui teal button" type="button" data-bind="click: submit">Login</button>
+
+                    </div>
+                </div>
+
+                <!-- Trick browser into suggesting previous inputs. Browsers do if there's a submit button -->
+                <button style="display: none;" type="submit"></button>
+            </form>
+
+            <!-- ko if: credentialsRegistration() || developmentLogin() -->
+            <div class="ui horizontal divider">Or</div>
+            <button class="ui labeled icon fluid button" type="button" data-bind='click: redirectRegister'>
+                <i class="add icon"></i> Register
+            </button>
+            <!-- /ko -->
+        </div>
+    </div>
+</div>

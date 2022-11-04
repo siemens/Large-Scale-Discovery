@@ -1,0 +1,44 @@
+<div id="modalFeedback" class="ui tiny modal" style="padding: 3em;z-index: 8888">
+    <i class="close icon"></i>
+
+    <h2 class="ui dividing header"
+        style="padding-left: 0; padding-top: 0; padding-bottom: 0.21428571rem; margin-bottom: 1em;">Contact &
+        Feedback</h2>
+
+    <form class="ui form" data-bind="submit: submitFeedback">
+        <div class="field">
+            <label for="inputName">Name</label>
+            <input id="inputName" type="text" disabled="disabled" data-bind="textInput: userFullName()"/>
+        </div>
+        <div class="field">
+            <label for="inputSubject">Subject</label>
+            <input id="inputSubject" type="text" data-bind="textInput: feedbackSubject"
+                   placeholder="Regarding a page or a feature"/>
+        </div>
+        <div class="field">
+            <label for="textareaMessage">Message</label>
+            <textarea id="textareaMessage" type="text" data-bind="textInput: feedbackMessage"
+                      placeholder="I have an issue...
+I am missing something..."></textarea>
+        </div>
+        <div class="ui right aligned grid">
+            <div class="column">
+                <div class="ui buttons">
+                    <button class="ui button" type="button" data-bind="click: closeFeedback">Cancel</button>
+                    <div class="or"></div>
+                    <button class="ui teal button" type="button" data-bind="click: submitFeedback">Submit</button>
+                </div>
+            </div>
+        </div>
+    </form>
+
+</div>
+
+<div>
+    <button class="ui vertical animated teal button" type="button" data-bind="click: openFeedback">
+        <div class="hidden content">Contact</div>
+        <div class="visible content">
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<i class="lightbulb icon"></i>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+        </div>
+    </button>
+</div>

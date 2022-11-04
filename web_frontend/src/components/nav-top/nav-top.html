@@ -1,0 +1,57 @@
+<div style="height:160px; background-color: teal; background-image: url('img/header2.jpg'); background-repeat: no-repeat; background-position: center bottom;"></div>
+<div id="divNavTop" class="ui borderless teal inverted pointing menu"
+     style="margin-top: -40px; background-color: transparent; z-index: 1111">
+    <div class="ui container">
+
+        <!-- ko if: authenticated -->
+        <a class="item" href="#home"
+           data-bind="style: { 'background-color': btnBackground('home', ''), 'color': btnColor('home', '') }">
+            <i class="igloo icon"></i>
+            Home
+        </a>
+        <!-- ko if: userAdmin() || userOwner() -->
+        <a class="item" href="#configuration/scopes"
+           data-bind="style: { 'background-color': btnBackground('configuration'), 'color': btnColor('configuration') }">
+            <i class="sliders horizontal icon"></i>
+            Configuration
+        </a>
+        <!-- /ko -->
+
+        <!-- ko if: userAdmin -->
+        <a class="item" href="#admin/users"
+           data-bind="style: { 'background-color': btnBackground('admin'), 'color': btnColor('admin') }">
+            <i class="user tie icon"></i>
+            Administration
+        </a>
+        <!-- /ko -->
+
+        <div class="right inverted menu">
+            <!-- ko if: userAdmin() || userOwner() -->
+            <a class="item" href="#installation"
+               data-bind="style: { 'background-color': btnBackground('installation'), 'color': btnColor('installation') }">
+                <i class="download icon"></i>
+                Scan Agent
+            </a>
+            <!-- /ko -->
+            <a class="item" href="#profile" style="padding: 0;"
+               data-bind="style: { 'background-color': btnBackground('profile'), 'color': btnColor('profile') }">
+                <div class="ui circular image" style="margin-left: 0.92857143em; width: 22px;"
+                     data-bind="style: { 'background-color': btnBackground('profile') == 'white' ? 'teal': 'rgba(255, 255, 255, 0.84)' }"></div>
+                <label style="padding: 0.92857143em 0.92857143em 0.92857143em 0.4em;"
+                       data-bind="text: userName()"></label>
+            </a>
+            <a class="item"
+               data-bind="click: submitLogout">
+                <i class="sign out icon"></i>
+                Logout
+            </a>
+            <!-- ko if: userAccess -->
+            <a class="item" style="background-color: #db2828;" data-bind="click: generateDatabasePassword">
+                <i class="key icon"></i>
+            </a>
+            <!-- /ko -->
+        </div>
+        <!-- /ko -->
+    </div>
+
+</div>

@@ -1,0 +1,545 @@
+<div class="sixteen wide column">
+
+    <div id="divTutorial">
+        <h2 class="ui dividing header">
+            Installation Guide
+            <span data-html="Running one or more scan agent(s) is required if you want to operate your own scan scope. Please check the support matrix to decide which operating system to use and follow the other steps to successfully deploy your scan agent."
+                  data-position="right center" data-variation="tiny wide">
+                <i class="small question circle outline icon" style="margin-right: 0;"></i>
+            </span>
+        </h2>
+
+        <div style="display: none">
+            <div class="ui small warning message" style="text-align:justify;">
+                <i class="close icon"></i>
+                <p>
+                    <i class="exclamation triangle icon"></i>
+                    &nbsp;&nbsp;Please make sure you <b>understand the implications</b> of executing network scans, as
+                    done by
+                    this scan agent.
+                    Deploy and run this scan agent on your <b>own risk</b>.
+                    Ensure your scan scope is limited to <b>systems you are responsible for</b>!
+                </p>
+                <p>
+                    The scan agent does not execute vulnerability scans, hence no dangerous payloads are sent against
+                    target
+                    systems.
+                    The scan agent merely uses standard protocols and enumeration techniques in order to discover
+                    systems and
+                    data.
+                    Nevertheless, an impact on your production networks may arise.
+                    In some edge cases, targets might show reduced response times or crash due to unexpected request
+                    parameters.
+                </p>
+            </div>
+
+            <div class="ui grid">
+
+                <div class="four wide column">
+                    <div class="ui fluid vertical mini steps">
+                        <div class="active step" data-bind="click: switchStep" target-id="divSupportMatrix">
+                            <i class="table icon"></i>
+                            <div class="content">
+                                <div class="title" style="color: black;">Support Matrix</div>
+                            </div>
+                        </div>
+                        <div class="step" data-bind="click: switchStep" target-id="divInstallNmap">
+                            <i class="wrench icon"></i>
+                            <div class="content">
+                                <div class="title" style="color: black;">Prepare Nmap</div>
+                            </div>
+                        </div>
+                        <div class="step" data-bind="click: switchStep" target-id="divInstallSslyze">
+                            <i class="screwdriver icon"></i>
+                            <div class="content">
+                                <div class="title" style="color: black;">Prepare Sslyze</div>
+                            </div>
+                        </div>
+                        <div class="step" data-bind="click: switchStep" target-id="divInstallAgent">
+                            <i class="hammer icon"></i>
+                            <div class="content">
+                                <div class="title" style="color: black;">Install Scan Agent</div>
+                            </div>
+                        </div>
+                        <div class="step" data-bind="click: switchStep" target-id="divLaunchAgent">
+                            <i class="rocket icon"></i>
+                            <div class="content">
+                                <div class="title" style="color: black;">Launch Scan Agent</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="twelve wide column">
+                    <div class="ui segment" style="height:100%;">
+
+                        <div id="divSupportMatrix" class="transition">
+                            <div class="ui tiny info message" style="margin-top: 1.5em;">
+                                <i class="info circle icon"></i>
+                                The support matrix below shows which scan agent features will work, depending on the
+                                operating environment the scan agent is running on.
+                            </div>
+                            <table class="ui small definition table">
+                                <thead>
+                                <tr>
+                                    <th></th>
+                                    <th class="center aligned"><i class="linux icon"></i>Linux</th>
+                                    <th class="center aligned"><i class="windows icon"></i>Windows</th>
+                                    <th class="center aligned"><i class="microsoft icon"></i>Windows (Domain)</th>
+                                </tr>
+                                </thead>
+                                <tbody data-bind="foreach: {data: supportData, afterRender: initSupportEntry}">
+                                <tr>
+                                    <td>
+                                        <!-- ko if: $data['subEntry'] -->
+                                        <span class="ui text" style="font-weight: normal;">
+                                            &nbsp;&nbsp;&nbsp;&nbsp;
+                                            <i class="clockwise rotated level up alternate icon"
+                                               style="padding: 0;"></i>
+                                            <span data-bind="text: $data['title']"></span>
+                                        </span>
+                                        <!-- /ko -->
+                                        <!-- ko if: !$data['subEntry'] -->
+                                        <span data-bind="text: $data['title']"></span>
+                                        <!-- /ko -->
+                                        <!-- ko if: $data['comment'] != "" -->
+                                        &nbsp;
+                                        <span
+                                                data-bind="attr: { 'data-html': $data['comment'] }"
+                                                data-position="right center" data-variation="tiny wide">
+                                            <i class="question circle outline icon"></i>
+                                        </span>
+                                        <!-- /ko -->
+                                    </td>
+                                    <td class="center aligned" style="width: 22%">
+                                        <!-- ko if: $data['linuxSupport'] === 2 -->
+                                        <i class="icons"
+                                           data-bind="attr: { 'data-html': $data['linuxSupportComment'] ? $data['linuxSupportComment'] : 'Partially Supported' }"
+                                           data-position="top center"
+                                           data-variation="tiny">
+                                            <i class="orange wave square icon"></i>
+                                        </i>
+                                        <!-- /ko -->
+                                        <!-- ko if: $data['linuxSupport'] === 1 -->
+                                        <i class="icons"
+                                           data-bind="attr: { 'data-html': $data['linuxSupportComment'] ? $data['linuxSupportComment'] : 'Fully Supported' }"
+                                           data-position="top center"
+                                           data-variation="tiny">
+                                            <i class="green check icon"></i>
+                                        </i>
+                                        <!-- /ko -->
+                                        <!-- ko if: $data['linuxSupport'] === 0 -->
+                                        <i class="icons"
+                                           data-bind="attr: { 'data-html': $data['linuxSupportComment'] ? $data['linuxSupportComment'] : 'Not Supported' }"
+                                           data-position="top center"
+                                           data-variation="tiny">
+                                            <i class="red times icon"></i>
+                                        </i>
+                                        <!-- /ko -->
+                                    </td>
+                                    <td class="center aligned" style="width: 22%">
+                                        <!-- ko if: $data['windowsSupport'] === 2 -->
+                                        <i class="icons"
+                                           data-bind="attr: { 'data-html': $data['windowsSupportComment'] ? $data['windowsSupportComment'] : 'Partially Supported' }"
+                                           data-position="top center"
+                                           data-variation="tiny">
+                                            <i class="orange wave square icon"></i>
+                                        </i>
+                                        <!-- /ko -->
+                                        <!-- ko if: $data['windowsSupport'] === 1 -->
+                                        <i class="icons"
+                                           data-bind="attr: { 'data-html': $data['windowsSupportComment'] ? $data['windowsSupportComment'] : 'Fully Supported' }"
+                                           data-position="top center"
+                                           data-variation="tiny">
+                                            <i class="green check icon"></i>
+                                        </i>
+                                        <!-- /ko -->
+                                        <!-- ko if: $data['windowsSupport'] === 0 -->
+                                        <i class="icons"
+                                           data-bind="attr: { 'data-html': $data['windowsSupportComment'] ? $data['windowsSupportComment'] : 'Not Supported' }"
+                                           data-position="top center"
+                                           data-variation="tiny">
+                                            <i class="red times icon"></i>
+                                        </i>
+                                        <!-- /ko -->
+                                    </td>
+                                    <td class="center aligned" style="width: 22%">
+                                        <!-- ko if: $data['domainSupport'] === 2 -->
+                                        <i class="icons"
+                                           data-bind="attr: { 'data-html': $data['domainSupportComment'] ? $data['domainSupportComment'] : 'Partially Supported' }"
+                                           data-position="top center"
+                                           data-variation="tiny">
+                                            <i class="orange wave square icon"></i>
+                                        </i>
+                                        <!-- /ko -->
+                                        <!-- ko if: $data['domainSupport'] === 1 -->
+                                        <i class="icons"
+                                           data-bind="attr: { 'data-html': $data['domainSupportComment'] ? $data['domainSupportComment'] : 'Fully Supported' }"
+                                           data-position="top center"
+                                           data-variation="tiny">
+                                            <i class="green check icon"></i>
+                                        </i>
+                                        <!-- /ko -->
+                                        <!-- ko if: $data['domainSupport'] === 0 -->
+                                        <i class="icons"
+                                           data-bind="attr: { 'data-html': $data['domainSupportComment'] ? $data['domainSupportComment'] : 'Not Supported' }"
+                                           data-position="top center"
+                                           data-variation="tiny">
+                                            <i class="red times icon"></i>
+                                        </i>
+                                        <!-- /ko -->
+                                    </td>
+                                </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div id="divInstallNmap" class="transition hidden">
+                            <div style="position: relative">
+                                <div class="ui two column very relaxed grid">
+                                    <div class="column">
+                                        <h5 class="ui header"><i class="windows icon"></i>Windows</h5>
+                                        <div class="ui clearing divider"></div>
+                                        <div class="ui  accordion">
+                                            <div class="active title">
+                                                <i class="dropdown icon"></i>
+                                                Download Nmap
+                                            </div>
+                                            <div class="active content" style="margin-left: 23px; text-align:justify;">
+                                                <i class="linkify icon"></i>
+                                                <a href="https://nmap.org/download.html" target="_blank">
+                                                    Nmap
+                                                </a>
+                                            </div>
+                                            <div class="title">
+                                                <i class="dropdown icon"></i>
+                                                Install Nmap
+                                            </div>
+                                            <div class="content" style="margin-left: 23px; text-align:justify;">
+                                                <p>Run the installer or extract the standalone version into your desired
+                                                    destination
+                                                    folder.</p>
+                                            </div>
+                                            <div class="title">
+                                                <i class="dropdown icon"></i>
+                                                Check <i>Npcap</i>
+                                            </div>
+                                            <div class="justified content"
+                                                 style="margin-left: 23px; text-align:justify;">
+                                                <p>
+                                                    On Windows, Nmap requires either <i>WinPcap</i> or the newer <i>Npcap</i>
+                                                    installed.
+                                                </p>
+                                                <p>
+                                                    If you did <b>*not*</b> use the Nmap installer, manually install
+                                                    <i>Npcap</i>
+                                                    shipped with the standalone version.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="column">
+                                        <h5 class="ui header"><i class="linux icon"></i>Linux</h5>
+                                        <div class="ui clearing divider"></div>
+                                        <div class="ui  accordion">
+                                            <div class="title active">
+                                                <i class="dropdown icon"></i>
+                                                Install Nmap
+                                            </div>
+                                            <div class="active content" style="margin-left: 23px; text-align:justify;">
+                                                <div class="ui segment"
+                                                     style="padding-top: 0.5em; padding-bottom: 0.6em;">
+                                                    <a class="ui mini teal right corner label"
+                                                       data-bind="click: toClipboard"><i
+                                                            class="terminal icon"></i></a>
+                                                    <div style="margin-left: 10px;">sudo apt-get install nmap</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="ui vertical divider">or</div>
+                            </div>
+                        </div>
+
+                        <div id="divInstallSslyze" class="transition hidden">
+                            <div style="position: relative">
+                                <div class="ui two column very relaxed grid">
+                                    <div class="column">
+                                        <h5 class="ui header"><i class="windows icon"></i>Windows</h5>
+                                        <div class="ui clearing divider"></div>
+                                        <div class="ui  accordion">
+                                            <div class="active title">
+                                                <i class="dropdown icon"></i>
+                                                Download SSLyze
+                                            </div>
+                                            <div class="active content" style="margin-left: 23px; text-align:justify;">
+                                                <i class="linkify icon"></i>
+                                                <a href="https://github.com/nabla-c0d3/sslyze/releases" target="_blank">
+                                                    SSLyze
+                                                </a>
+                                                <div class="ui tiny warning message">
+                                                    <i class="exclamation triangle icon"></i>
+                                                    Please chose the <b>executable</b> version!
+                                                </div>
+                                            </div>
+                                            <div class="title">
+                                                <i class="dropdown icon"></i>
+                                                Extract SSLyze
+                                            </div>
+                                            <div class="content" style="margin-left: 23px; text-align:justify;">
+                                                <p>Extract SSLyze into your desired destination folder.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="column">
+                                        <h5 class="ui header"><i class="linux icon"></i>Linux</h5>
+                                        <div class="ui clearing divider"></div>
+                                        <div class="ui  accordion">
+                                            <div class="active title">
+                                                <i class="dropdown icon"></i>
+                                                Install SSLyze
+                                            </div>
+                                            <div class="active content" style="margin-left: 23px; text-align:justify;">
+                                                <div class="ui segment"
+                                                     style="padding-top: 0.5em; padding-bottom: 0.6em;">
+                                                    <a class="ui mini teal right corner label"
+                                                       data-bind="click: toClipboard"><i
+                                                            class="terminal icon"></i></a>
+                                                    <div style="margin-left: 10px;">pip install --upgrade sslyze</div>
+                                                </div>
+                                                <div class="ui tiny warning message">
+                                                    <i class="exclamation triangle icon"></i>
+                                                    SSLyze required <b>Python >=3.7</b>!
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="ui vertical divider">or</div>
+                            </div>
+                            <div class="ui tiny info message" style="margin-top: 1.5em;">
+                                <i class="info circle icon"></i>
+                                SSLyze is only required if the SSL module, collecting data about SSL endpoints, is
+                                enabled in
+                                your scan scope.
+                            </div>
+                        </div>
+
+                        <div id="divInstallAgent" class="transition hidden">
+                            <div style="position: relative">
+                                <div class="ui two column very relaxed grid">
+                                    <div class="column">
+                                        <h5 class="ui header"><i class="windows icon"></i>Windows</h5>
+                                        <div class="ui clearing divider"></div>
+                                        <div class="ui  accordion">
+                                            <div class="active title">
+                                                <i class="dropdown icon"></i>
+                                                Download Scan Agent
+                                            </div>
+                                            <div class="active content" style="margin-left: 23px; text-align:justify;">
+                                                <i class="download icon"></i>
+                                                <a href="/app/downloads/agent.zip">
+                                                    Scan Agent
+                                                </a>
+                                            </div>
+                                            <div class="title">
+                                                <i class="dropdown icon"></i>
+                                                Setup Environment
+                                            </div>
+                                            <div class="content" style="margin-left: 23px; text-align:justify;">
+                                                <p>
+                                                    Some changes need to be made to your system in order to run the scan
+                                                    agent.
+                                                    The scan agent will take care of this for you:
+                                                </p>
+                                                <div class="ui segment"
+                                                     style="padding-top: 0.5em; padding-bottom: 0.6em;">
+                                                    <a class="ui mini teal right corner label"
+                                                       data-bind="click: toClipboard"><i
+                                                            class="terminal icon"></i></a>
+                                                    <div style="margin-left: 10px;">./agent.exe --setup</div>
+                                                </div>
+                                                <p>
+                                                    This setup routine requires admin rights to:
+                                                <ul class="ui list" style="margin-bottom: 0;">
+                                                    <li>Apply Nmap performance <b>registry patch</b></li>
+                                                    <li>Whitelist Nmap in <b>Firewall</b> settings</li>
+                                                    <li>Enable <b>NFS</b> control commands</li>
+                                                </ul>
+                                                </p>
+                                            </div>
+                                            <div class="title">
+                                                <i class="dropdown icon"></i>
+                                                Configure Scan Agent
+                                            </div>
+                                            <div class="content" style="margin-left: 23px; text-align:justify;">
+                                                <p>Open <i>agent.conf</i> and adapt your settings as required:</p>
+                                                <ul class="ui list" style="margin-bottom: 0;">
+                                                    <li>Set <b>path to Nmap</b> executable</li>
+                                                    <li>Set <b>path to SSLyze</b> executable</li>
+                                                    <li>Set scan <b>scope secret</b> to associate scan agent</li>
+                                                </ul>
+                                                <div class="ui tiny info message">
+                                                    <i class="info circle icon"></i>
+                                                    If no config file exists, run the agent to generate a default one.
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="column">
+                                        <h5 class="ui header"><i class="linux icon"></i>Linux</h5>
+                                        <div class="ui clearing divider"></div>
+                                        <div class="ui  accordion">
+                                            <div class="active title">
+                                                <i class="dropdown icon"></i>
+                                                Download Scan Agent
+                                            </div>
+                                            <div class="active content" style="margin-left: 23px; text-align:justify;">
+                                                <i class="download icon"></i>
+                                                <a href="/app/downloads/agent.zip">
+                                                    Scan Agent
+                                                </a>
+                                            </div>
+                                            <div class="title">
+                                                <i class="dropdown icon"></i>
+                                                Setup Environment
+                                            </div>
+                                            <div class="content" style="margin-left: 23px; text-align:justify;">
+                                                <p>
+                                                    Some changes need to be made to your system in order to run the scan
+                                                    agent.
+                                                    The scan agent will take care of this for you:
+                                                </p>
+                                                <div class="ui segment"
+                                                     style="padding-top: 0.5em; padding-bottom: 0.6em;">
+                                                    <a class="ui mini teal right corner label"
+                                                       data-bind="click: toClipboard"><i
+                                                            class="terminal icon"></i></a>
+                                                    <div style="margin-left: 10px;">./agent.bin --setup</div>
+                                                </div>
+                                                <p>
+                                                    This setup routine requires admin rights to:
+                                                <ul class="ui list" style="margin-bottom: 0;">
+                                                    <li>Add the executing user to sudoers file to allow <b>NFS
+                                                        commands</b></li>
+                                                </ul>
+                                                </p>
+                                            </div>
+                                            <div class="title">
+                                                <i class="dropdown icon"></i>
+                                                Configure Scan Agent
+                                            </div>
+                                            <div class="content" style="margin-left: 23px; text-align:justify;">
+                                                <p>Open <i>agent.conf</i> and adapt your settings as required:</p>
+                                                <ul class="ui list" style="margin-bottom: 0;">
+                                                    <li>Set <b>path to Nmap</b> executable</li>
+                                                    <li>Set scan <b>scope secret</b> to associate scan agent</li>
+                                                </ul>
+                                                <div class="ui tiny info message">
+                                                    <i class="info circle icon"></i>
+                                                    If no config file exists, run the agent to generate a default one.
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="ui vertical divider">or</div>
+                            </div>
+                        </div>
+
+                        <div id="divLaunchAgent" class="transition hidden">
+                            <div style="position: relative">
+                                <div class="ui two column very relaxed grid">
+                                    <div class="column">
+                                        <h5 class="ui header"><i class="windows icon"></i>Windows</h5>
+                                        <div class="ui clearing divider"></div>
+                                        <div class="ui  accordion">
+                                            <div class="active title">
+                                                <i class="dropdown icon"></i>
+                                                Launch Scan Agent
+                                            </div>
+                                            <div class="active content" style="margin-left: 23px; text-align:justify;">
+                                                <div class="ui segment"
+                                                     style="padding-top: 0.5em; padding-bottom: 0.6em;">
+                                                    <a class="ui mini teal right corner label"
+                                                       data-bind="click: toClipboard"><i
+                                                            class="terminal icon"></i></a>
+                                                    <div style="margin-left: 10px;">./agent.exe</div>
+                                                </div>
+                                                <div class="ui tiny warning message">
+                                                    <i class="exclamation triangle icon"></i>
+                                                    The scan agent does <b>*not*</b> require admin privileges to
+                                                    execute! Please
+                                                    run
+                                                    it in user mode.
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="column">
+                                        <h5 class="ui header"><i class="linux icon"></i>Linux</h5>
+                                        <div class="ui clearing divider"></div>
+                                        <div class="ui  accordion">
+                                            <div class="title active">
+                                                <i class="dropdown icon"></i>
+                                                Launch Scan Agent
+                                            </div>
+                                            <div class="active content" style="margin-left: 23px; text-align:justify;">
+                                                <div class="ui segment"
+                                                     style="padding-top: 0.5em; padding-bottom: 0.6em;">
+                                                    <a class="ui mini teal right corner label"
+                                                       data-bind="click: toClipboard"><i
+                                                            class="terminal icon"></i></a>
+                                                    <div style="margin-left: 10px;">./agent</div>
+                                                </div>
+                                                <div class="ui tiny warning message">
+                                                    <i class="exclamation triangle icon"></i>
+                                                    The scan agent does <b>*not*</b> require admin privileges to
+                                                    execute! Please
+                                                    run
+                                                    it in user mode.
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="ui vertical divider">or</div>
+                            </div>
+                            <div class="ui tiny info message" style="margin-top: 1.5em;">
+                                <p>
+                                    <i class="info circle icon"></i>
+                                    The scan agent authenticates using the configured <b>scope secret</b> and will be
+                                    assigned
+                                    to the according <b>scan scope</b> by the broker.
+                                </p>
+                                <p>
+                                    <i class="info circle icon"></i> Scan process:
+                                <ul>
+                                    <li>
+                                        The scan agent will connect to the broker and request scan tasks to execute
+                                    </li>
+                                    <li>
+                                        The broker manages outstanding scan tasks and assigns them to the scan agent
+                                        accordingly
+                                    </li>
+                                    <li>
+                                        After successful execution, the scan agent sends results to the broker
+                                    </li>
+                                </ul>
+                                </p>
+                                <p>
+                                    <i class="info circle icon"></i>
+                                    Multiple scan agents can work on the same scan scope in order to boost execution
+                                    time.
+                                </p>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>

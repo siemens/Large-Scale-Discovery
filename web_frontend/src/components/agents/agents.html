@@ -1,0 +1,172 @@
+<div id="divAgents">
+    <h2 class="ui dividing header">
+        Scan Agents
+    </h2>
+
+    <!-- ko if: agentStats() === null -->
+    <div class="ui center aligned basic segment">
+        <i class="grey seedling icon"></i>
+        <span class="ui grey text"><i>Loading...</i></span>
+    </div>
+    <!-- /ko -->
+
+    <!-- ko if: agentStats() !== null && agentStats().length === 0 -->
+    <div class="ui center aligned basic segment" style="display: none">
+        <i class="grey seedling icon"></i>
+        <span class="ui grey text"><i>No scan agents registered yet.</i></span>
+    </div>
+    <!-- /ko -->
+
+    <style>
+        .first {
+            background-image: linear-gradient(rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.2)), none, linear-gradient(rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.2)), none;
+            background-repeat: no-repeat;
+            background-size: 8px 2px;
+            background-position: top left, top right, bottom left, bottom right;
+            border-left: solid rgba(0, 0, 0, 0.2);
+            text-align: justify;
+            border-width: 0 2px;
+            display: inline-block;
+            vertical-align: top;
+            border-radius: 4px;
+        }
+    </style>
+
+    <!-- ko if: agentStats() !== null && agentStats().length > 0 -->
+    <div class="ui container" style="display: none">
+
+        <div class="ui horizontal list">
+            <!-- ko foreach: {data: agentStats} -->
+            <!-- ko foreach: {data: agents, afterRender: $parent.initAgentEntry} -->
+            <div class="item"
+                 style="padding-top: 3px; padding-bottom: 3px; margin-top: 5px; margin-bottom: 5px; margin-right: 11px;"
+                 data-bind="class: $index() === 0 ? 'first' : '', style: {'padding-left': $index() === 0 ? '8px' : '10px' }">
+                <div style="max-width: 0; overflow: visible; white-space: nowrap; margin-bottom: 5px;"
+                     data-bind="class: presentationClass()">
+                    <h3 class="ui header">
+                        <!-- ko if: $index() === 0 -->
+                        <span style="color: rgba(0, 0, 0, 0.3);" data-bind="text: $parent.scope_name"></span>
+                        <!-- /ko -->
+                        <!-- ko if: $index() !== 0 -->
+                        &nbsp;
+                        <!-- /ko -->
+                    </h3>
+                </div>
+                <div class="ui image" style="width: 38px; padding-right: 0;"
+                     data-bind="style: { filter: last_seen_text === 'weeks ago' ? 'grayscale(100%)' : '' }"></div>
+                <div class="ui content" style="width: 157px"
+                     data-bind="style: {color: last_seen_text === 'weeks ago' ? last_seen_color : ''}">
+                    <div style="max-width: 100%;overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        <b data-bind="attr: {title: name, 'data-html': '<b>' + host + '</b> ' + ip + '', 'data-position': 'top center', 'data-variation': 'tiny'}">
+                            <span style="text-transform: capitalize;" data-bind="text: name"></span>
+                        </b>
+                    </div>
+                    <div>
+                            <span data-bind="style: {color: cpu_rate > 90 && last_seen_text !== 'weeks ago' ? '#db2828' : ''}"><i
+                                    class="microchip icon"
+                                    data-bind="style: {color: last_seen_text === 'weeks ago' ? last_seen_color : 'gray'}"></i><span
+                                    data-bind="floatFloor: cpu_rate, decimalPlaces: 0"></span>%&nbsp;&nbsp;
+                            </span>
+                        <span data-bind="style: {color: memory_rate > 90 && last_seen_text !== 'weeks ago' ? '#db2828' : ''}"><i
+                                class="memory icon"
+                                data-bind="style: {color: last_seen_text === 'weeks ago' ? last_seen_color : 'gray'}"></i><span
+                                data-bind="floatFloor: memory_rate, decimalPlaces: 0"></span>%&nbsp;
+                            </span>
+                        <!-- ko if: platform !== '' -->
+                        <span data-bind="attr: {'data-html': ['<b>' + platform + '</b>', platform_family, platform_version].join('<br/>'), 'data-position': 'right center', 'data-variation': 'tiny wide'}"><i
+                                class="icon"
+                                data-bind="class: platform.toLowerCase().includes('windows') ? 'windows' : platform.toLowerCase().includes('ubuntu') ? 'ubuntu' : platform.toLowerCase().includes('centos') ? 'centos' : platform.toLowerCase().includes('fedora') ? 'fedora' : platform.toLowerCase().includes('redhat') ? 'redhat' : platform.toLowerCase().includes('suse') ? 'suse' : 'linux', style: {color: last_seen_text === 'weeks ago' ? last_seen_color : 'gray'}"></i>
+                            </span>
+                        <!-- /ko -->
+                    </div>
+                    <div>
+                            <span data-bind="attr: {'data-tooltip': moment(last_seen, datetimeFormatGolang).format(datetimeFormat), 'data-position': 'bottom center', 'data-variation': 'tiny'}">
+                                Last seen <b><span
+                                    data-bind="text: last_seen_text, style: {color: last_seen_color}"></span></b>
+                            </span>
+                        <!-- ko if: show_delete -->
+                        <a data-bind="click: function(data, event){$parents[1].deleteAgent(data, event, $parent.scope_id, $parent.scope_name)}, attr: {'data-tooltip': 'Dispossess', 'data-position': 'bottom center', 'data-variation': 'tiny'}"><i
+                                class="small grey eraser icon"></i></a>
+                        <!-- /ko -->
+                    </div>
+                </div>
+
+                <!-- ko if: tasks != null -->
+                <div class="ui popup">
+                    <table class="ui tiny very compact very basic table">
+                        <thead>
+                        <tr>
+                            <th colspan="4" class="center aligned">Active Tasks</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <tr>
+                            <td style="padding-left: 4px; padding-right: 4px;" class="right aligned"
+                                data-bind="style: { color: !tasks.Discovery ? 'gray' : ''}"><span
+                                    data-bind="text: tasks.Discovery || 0"></span>x
+                            </td>
+                            <td style="padding-left: 0;" data-bind="style: { color: !tasks.Discovery ? 'gray' : ''}">
+                                Discovery
+                            </td>
+                            <td style="padding-left: 4px; padding-right: 4px;" class="right aligned"
+                                data-bind="style: { color: !tasks.Banner ? 'gray' : ''}"><span
+                                    data-bind="text: tasks.Banner || 0"></span>x
+                            </td>
+                            <td style="padding-left: 0;" data-bind="style: { color: !tasks.Banner ? 'gray' : ''}">
+                                Banner
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding-left: 4px; padding-right: 4px;" class="right aligned"
+                                data-bind="style: { color: !tasks.Nfs ? 'gray' : ''}"><span
+                                    data-bind="text: tasks.Nfs || 0"></span>x
+                            </td>
+                            <td style="padding-left: 0;" data-bind="style: { color: !tasks.Nfs ? 'gray' : ''}">NFS</td>
+                            <td style="padding-left: 4px; padding-right: 4px;" class="right aligned"
+                                data-bind="style: { color: !tasks.Smb ? 'gray' : ''}"><span
+                                    data-bind="text: tasks.Smb || 0"></span>x
+                            </td>
+                            <td style="padding-left: 0;" data-bind="style: { color: !tasks.Smb ? 'gray' : ''}">SMB</td>
+                        </tr>
+                        <tr>
+                            <td style="padding-left: 4px; padding-right: 4px;" class="right aligned"
+                                data-bind="style: { color: !tasks.Ssh ? 'gray' : ''}"><span
+                                    data-bind="text: tasks.Ssh || 0"></span>x
+                            </td>
+                            <td style="padding-left: 0;" data-bind="style: { color: !tasks.Ssh ? 'gray' : ''}">SSH</td>
+                            <td style="padding-left: 4px; padding-right: 4px;" class="right aligned"
+                                data-bind="style: { color: !tasks.Ssl ? 'gray' : ''}"><span
+                                    data-bind="text: tasks.Ssl || 0"></span>x
+                            </td>
+                            <td style="padding-left: 0;" data-bind="style: { color: !tasks.Ssl ? 'gray' : ''}">SSL</td>
+                        </tr>
+                        <tr>
+                            <td style="padding-left: 4px; padding-right: 4px;" class="right aligned"
+                                data-bind="style: { color: !tasks.Webcrawler ? 'gray' : ''}"><span
+                                    data-bind="text: tasks.Webcrawler || 0"></span>x
+                            </td>
+                            <td style="padding-left: 0;" data-bind="style: { color: !tasks.Webcrawler ? 'gray' : ''}">
+                                Webcrawler
+                            </td>
+                            <td style="padding-left: 4px; padding-right: 4px;" class="right aligned"
+                                data-bind="style: { color: !tasks.Webenum ? 'gray' : ''}"><span
+                                    data-bind="text: tasks.Webenum || 0"></span>x
+                            </td>
+                            <td style="padding-left: 0;" data-bind="style: { color: !tasks.Webenum ? 'gray' : ''}">
+                                Webenum
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <!-- /ko -->
+
+            </div>
+            <!-- /ko -->
+            <!-- /ko -->
+        </div>
+
+    </div>
+    <!-- /ko -->
+
+</div>

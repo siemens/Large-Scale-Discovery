@@ -1,0 +1,110 @@
+/*
+* Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
+*
+* Copyright (c) Siemens AG, 2016-2021.
+*
+* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+* directory or visit <https://opensource.org/licenses/MIT>.
+*
+ */
+
+html {
+    position: relative;
+    min-height: 100%;
+    height: unset;
+}
+
+h2.dividing.header {
+    font-size: 2em;
+    font-weight: normal;
+    margin: 2em 0 1em 0;
+}
+
+body {
+    overflow-y: scroll; /* Always show scrollbar to prevent content repositioning when needed */
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+a {
+    color: #009C95;
+}
+
+a:hover {
+    color: teal;
+}
+
+.sensitive {
+    filter: blur(4px);
+}
+
+/*
+ * Make spans always vertically align content
+ */
+/*
+span {
+    display: inline-flex;
+    align-items: center;
+}
+*/
+
+.footer {
+    border-top: 1px solid #DDDDDD;
+    box-shadow: 0 2px 3px rgba(0, 0, 0, 0.08) inset;
+    background-color: #FAFAFA;
+    padding-top: 2em;
+    padding-bottom: 3em;
+    /*margin-top: 3em;*/
+
+    flex-shrink: 0;
+}
+
+/*
+ * Styling for sticky loading bar
+ */
+#loading-bar {
+    margin: 3em 0 0;
+    position: sticky;
+    bottom: 0;
+}
+
+#loading-bar .bar {
+    height: 20px;
+}
+
+#loading-bar .bar .progress {
+    font-size: 0.8em;
+}
+
+/*
+ * Tabulator JS
+ */
+.tabulator .col-disabled {
+    color: darkgrey;
+}
+
+.tabulator .col-border {
+    border-left: 1px dashed lightgrey;
+}
+
+.tabulator-header-filter > input {
+    background: #fff;
+    border: 1px solid rgba(34, 36, 38, .15);
+    color: rgba(0, 0, 0, .87);
+    border-radius: .28571429rem;
+    margin-top: 1em;
+}
+
+.tabulator-header-filter > input:focus {
+    border-color: teal;
+}
+
+.tabulator .tabulator-footer .tabulator-page.active {
+    color: teal;
+}
+
+.tabulator-row .tabulator-cell.tabulator-editing {
+    border-color: teal;
+    line-height: 3em;
+}

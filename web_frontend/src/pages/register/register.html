@@ -1,0 +1,53 @@
+<div id="modalRegister" class="ui mini modal">
+    <div style="padding: 3em;">
+        <h2 class="ui center aligned header">Large-Scale Discovery</h2>
+        <div style="padding-left: 1.3em; padding-right: 1.3em;">
+            <form class="ui form" data-bind="submit: submitRegister">
+
+                <div class="field">
+                    <label for="inputEmail">E-Mail</label>
+                    <div class="ui left icon input">
+                        <input id="inputEmail" type="email" placeholder="E-mail" data-bind="textInput: registerEmail">
+                        <i class="envelope icon"></i>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label for="inputPassword">Password</label>
+                    <div class="ui left icon input">
+                        <input id="inputPassword" type="password" placeholder="Password"
+                               data-bind="textInput: registerPassword">
+                        <i class="envelope icon"></i>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label for="inputName">Name</label>
+                    <div class="ui left icon input">
+                        <input id="inputName" type="text" placeholder="Name" data-bind="textInput: registerName">
+                        <i class="user icon"></i>
+                    </div>
+                </div>
+                <div class="field">
+                    <label for="inputSurname">Surname</label>
+                    <div class="ui left icon input">
+                        <input id="inputSurname" type="text" placeholder="Surname"
+                               data-bind="textInput: registerSurname">
+                        <i class="users icon"></i>
+                    </div>
+                </div>
+
+                <div class="ui center aligned grid">
+                    <div class="column">
+                        <div class="ui buttons">
+                            <button class="ui button" type="button" data-bind="click: redirectLogin">Cancel</button>
+                            <div class="or"></div>
+                            <button class="ui teal button" type="button" data-bind="click: submitRegister">Register
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

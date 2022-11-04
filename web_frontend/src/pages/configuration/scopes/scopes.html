@@ -1,0 +1,13 @@
+<div class="fourteen wide column">
+
+    <!-- ko if: actionComponent -->
+    <!-- ko component: { name: actionComponent, params: { parent: $data, type: actionName(), args: actionArgs() } } -->
+    <!-- /ko -->
+    <!-- /ko -->
+
+    <!-- ko component: { name: 'scopes-list', params: { parent: $data } } --><!-- /ko -->
+
+</div>
+
+<div class="two wide column right aligned"
+     data-bind='component: { name: "nav-side", params: { sideNavItems: sideNavItems }  }'></div>

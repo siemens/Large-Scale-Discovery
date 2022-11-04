@@ -1,0 +1,482 @@
+<div id="divScopesEdit" style="display: none; margin-bottom: 56px;">
+    <h2 class="ui dividing header">Scope Scan Settings</h2>
+    <form class="ui form" data-bind="submit: submitEdit">
+
+        <div class="two fields">
+            <div class="disabled field">
+                <label for="inputGroup">Group</label>
+                <input id="inputGroup" type="text" data-bind="textInput: args().group_name">
+            </div>
+            <div class="disabled field">
+                <label for="inputName">Scope Name</label>
+                <input id="inputName" type="text" placeholder="Scope Name" data-bind="textInput: args().name">
+            </div>
+        </div>
+
+        <div class="fields" style="margin-bottom: 0;">
+            <div class="four wide field">
+                <div class="field">
+                    <label>
+                        Scan Days
+                        <span data-html="Day range in which new scans will be started. The given range respects the target's local date. Active scans and submodule scans may continue outside of this time frame!"
+                              data-position="right center" data-variation="tiny wide"><i
+                                class="question circle outline icon"></i></span>
+                    </label>
+                    <div class="ui small circular labels" style="margin-top: 10px;">
+                        <a class="ui label" data-tooltip="Monday" data-variation="tiny"
+                           data-bind="click: function (data) { updateSkipDays(1) }, css: { blue: !skipDays()[1] }">
+                            M
+                        </a>
+                        <a class="ui label" data-tooltip="Tuesday" data-variation="tiny"
+                           data-bind="click: function (data) { updateSkipDays(2) }, css: { blue: !skipDays()[2] }">
+                            T
+                        </a>
+                        <a class="ui label" data-tooltip="Wednesday" data-variation="tiny"
+                           data-bind="click: function (data) { updateSkipDays(3) }, css: { blue: !skipDays()[3] }">
+                            W
+                        </a>
+                        <a class="ui label" data-tooltip="Thursday" data-variation="tiny"
+                           data-bind="click: function (data) { updateSkipDays(4) }, css: { blue: !skipDays()[4] }">
+                            T
+                        </a>
+                        <a class="ui label" data-tooltip="Friday" data-variation="tiny"
+                           data-bind="click: function (data) { updateSkipDays(5) }, css: { blue: !skipDays()[5] }">
+                            F
+                        </a>
+                        <a class="ui label" data-tooltip="Saturday" data-variation="tiny"
+                           data-bind="click: function (data) { updateSkipDays(6) }, css: { blue: !skipDays()[6] }">
+                            S
+                        </a>
+                        <a class="ui label" data-tooltip="Sunday" data-variation="tiny"
+                           data-bind="click: function (data) { updateSkipDays(0) }, css: { blue: !skipDays()[0] }">
+                            S
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <div class="four wide field">
+                <div class="field">
+                    <label>
+                        Scan Time
+                        <span data-html="Time range in which new scans will be started. The given range respects the target's local time. Active scans and submodule scans may continue outside of this time frame!"
+                              data-position="right center" data-variation="tiny wide"><i
+                                class="question circle outline icon"></i></span>
+                    </label>
+                    <div class="fields" style="margin-bottom: 0;">
+                        <div class="eight wide field">
+                            <div class="ui calendar" id="calendarStart">
+                                <div class="ui input left icon">
+                                    <i class="clock icon"></i>
+                                    <label for="inputWorkingHoursStart"></label>
+                                    <input id="inputWorkingHoursStart" type="text" placeholder="Start">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="eight wide field">
+                            <div class="ui calendar" id="calendarEnd">
+                                <div class="ui input left icon">
+                                    <i class="clock icon"></i>
+                                    <label for="inputWorkingHoursEnd"></label>
+                                    <input id="inputWorkingHoursEnd" type="text" placeholder="End">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="eight wide field">
+                <label for="inputSensitivePorts">
+                    Sensitive Ports&nbsp;
+                    <span data-html="Ports to exclude from scanning, which are known to cause issues."
+                          data-position="right center" data-variation="tiny wide"><i
+                            class="question circle outline icon"></i></span>
+                </label>
+                <input type="text" id="inputSensitivePorts"
+                       placeholder="515, 631, 9100, 9101, 9102, 9103"
+                       data-bind="textInput: args().scan_settings.sensitive_ports">
+            </div>
+        </div>
+
+
+        <h4 class="ui horizontal divider header">
+            Agent Processes
+            <span
+                    data-html="A scan agent executes multiple instances of each scan module in parallel."
+                    data-position="right center" data-variation="tiny">
+                <i class="question circle outline icon"></i>
+            </span>
+        </h4>
+        <div class="ui middle aligned grid">
+
+            <div class="row" style="padding-bottom: 0;">
+                <div class="two wide column">
+                    <label>
+                        Discovery
+                        <span data-html="The discovery module is required to feed other modules."
+                              data-position="right center" data-variation="tiny">
+                            <i class="question circle outline icon"></i>
+                        </span>
+                    </label>
+                </div>
+                <div class="four wide column">
+                    <div id="sliderDiscovery" class="ui teal slider"></div>
+                </div>
+                <div class="two wide column">
+                    <div class="field">
+                        <label for="inputInstancesDiscovery">
+                            <input id="inputInstancesDiscovery" type="text" disabled=""
+                                   data-bind="textInput: maxInstancesDiscovery">
+                        </label>
+                    </div>
+                </div>
+                <div class="two wide column">
+                    <label>Banner</label>
+                </div>
+                <div class="four wide column">
+                    <div id="sliderBanner" class="ui teal slider"></div>
+                </div>
+                <div class="two wide column">
+                    <div class="field">
+                        <label for="inputInstancesBanner">
+                            <input id="inputInstancesBanner" type="text" disabled=""
+                                   data-bind="textInput: maxInstancesBanner">
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row" style="padding: 0;">
+                <div class="two wide column">
+                    <label>NFS</label>
+                </div>
+                <div class="four wide column">
+                    <div id="sliderNFS" class="ui teal slider"></div>
+                </div>
+                <div class="two wide column">
+                    <div class="field">
+                        <label for="inputInstancesNfs">
+                            <input id="inputInstancesNfs" type="text" disabled=""
+                                   data-bind="textInput: maxInstancesNfs">
+                        </label>
+                    </div>
+                </div>
+                <div class="two wide column">
+                    <label>SMB</label>
+                </div>
+                <div class="four wide column">
+                    <div id="sliderSMB" class="ui teal slider"></div>
+                </div>
+                <div class="two wide column">
+                    <div class="field">
+                        <label for="inputInstancesSmb">
+                            <input id="inputInstancesSmb" type="text" disabled=""
+                                   data-bind="textInput: maxInstancesSmb">
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row" style="padding: 0;">
+                <div class="two wide column">
+                    <label>SSH</label>
+                </div>
+                <div class="four wide column">
+                    <div id="sliderSSH" class="ui teal slider"></div>
+                </div>
+                <div class="two wide column">
+                    <div class="field">
+                        <label for="inputInstancesSsh">
+                            <input id="inputInstancesSsh" type="text" disabled=""
+                                   data-bind="textInput: maxInstancesSsh">
+                        </label>
+                    </div>
+                </div>
+                <div class="two wide column">
+                    <label>SSL</label>
+                </div>
+                <div class="four wide column">
+                    <div id="sliderSSL" class="ui teal slider"></div>
+                </div>
+                <div class="two wide column">
+                    <div class="field">
+                        <label for="inputInstancesSsl">
+                            <input id="inputInstancesSsl" type="text" disabled=""
+                                   data-bind="textInput: maxInstancesSsl">
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row" style="padding: 0;">
+                <div class="two wide column">
+                    <label>Web Crawler</label>
+                </div>
+                <div class="four wide column">
+                    <div id="sliderWebcrawler" class="ui teal slider"></div>
+                </div>
+                <div class="two wide column">
+                    <div class="field">
+                        <label for="inputInstancesWebcrawler">
+                            <input id="inputInstancesWebcrawler" type="text" disabled=""
+                                   data-bind="textInput: maxInstancesWebcrawler">
+                        </label>
+                    </div>
+                </div>
+                <div class="two wide column">
+                    <label>Web Enum</label>
+                </div>
+                <div class="four wide column">
+                    <div id="sliderWebenum" class="ui teal slider"></div>
+                </div>
+                <div class="two wide column">
+                    <div class="field">
+                        <label for="inputInstancesWebenum">
+                            <input id="inputInstancesWebenum" type="text" disabled=""
+                                   data-bind="textInput: maxInstancesWebenum">
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+
+        <h4 class="ui horizontal divider header">
+            Scan Settings
+            <span data-html="Scan modules can be tailored to better suite your needs."
+                  data-position="right center" data-variation="tiny">
+                <i class="question circle outline icon"></i>
+            </span>
+        </h4>
+
+        <div class="field" data-bind="css: maxInstancesDiscovery() > 0 ? '' : 'disabled'">
+            <label for="inputNmapArgs">
+                Nmap Args&nbsp;
+                <span data-html="Nmap arguments to use for port scanning, version detection and script execution"
+                      data-position="right center" data-variation="tiny wide"><i
+                        class="question circle outline icon"></i></span>
+            </label>
+            <textarea id="inputNmapArgs"
+                      placeholder="-PE -PP -Pn -sS -sU -O -p U:53,67,68,161,162,1900,T:0-65535 -sV -T4 --randomize-hosts --host-timeout 6h --max-retries 2 --traceroute --script=default"
+                      rows="2"
+                      data-bind="textInput: args().scan_settings.discovery_nmap_args">
+            </textarea>
+        </div>
+
+        <div class="fields">
+            <div class="twelve wide field"
+                 data-bind="css: maxInstancesWebcrawler() > 0 || maxInstancesWebenum() > 0 ? '' : 'disabled'">
+                <label for="inputHttpUserAgent">
+                    HTTP User Agent&nbsp;
+                    <span data-html="HTTP user agent used by the web crawler and web enumerator when sending requests"
+                          data-position="right center" data-variation="tiny wide"><i
+                            class="question circle outline icon"></i></span>
+                </label>
+                <div class="ui input left icon">
+                    <i class="user secret icon"></i>
+                    <input type="text" id="inputHttpUserAgent"
+                           placeholder="Mozilla/5.0 (Windows NT 10.0; WOW64; rv:60.0) Gecko/20100101 Firefox/60.0"
+                           data-bind="textInput: args().scan_settings.http_user_agent">
+                </div>
+            </div>
+            <div class="four wide field"
+                 data-bind="css: maxInstancesDiscovery() > 0 || maxInstancesBanner() > 0 || maxInstancesNfs() > 0 || maxInstancesSmb() > 0 || maxInstancesSsh() > 0 || maxInstancesSsl() > 0 || maxInstancesWebcrawler() > 0 || maxInstancesWebenum() > 0 ? '' : 'disabled'">
+                <label for="inputNetworkTimeout">
+                    Network Timeout&nbsp;
+                    <span data-html="Time to wait socket connections before aborting"
+                          data-position="right center" data-variation="tiny wide"><i
+                            class="question circle outline icon"></i></span>
+                </label>
+                <div class="ui right labeled input">
+                    <input id="inputNetworkTimeout" type="text" placeholder="8"
+                           data-bind="textInput: args().scan_settings.network_timeout_seconds">
+                    <div class="ui label" style="width: 80px">
+                        Seconds
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="fields">
+            <div class="four wide field" data-bind="css: maxInstancesSmb() > 0 ? '' : 'disabled'">
+                <label for="inputSmbExcludeShares">
+                    SMB Exclude Shares&nbsp;
+                    <span data-html="Enter comma separated list of shares you would like to ignore"
+                          data-position="right center" data-variation="tiny wide"><i
+                            class="question circle outline icon"></i></span>
+                </label>
+                <textarea id="inputSmbExcludeShares"
+                          rows="4"
+                          placeholder="print$, W7DP$, LSDP, LSDP_mosaic$, LSDP_test$, LSDP.WW005, lsdp-backup, lsdp_drivers_ww300$, LSDPW7$, custom_root$, gplmshare, SCCMContentLib$, SCCMContentLibD$, WsusContent"
+                          data-bind="textInput: args().scan_settings.smb_exclude_shares">
+                </textarea>
+            </div>
+            <div class="four wide field" data-bind="css: maxInstancesSmb() > 0 ? '' : 'disabled'">
+                <label for="inputSmbExcludeFolders">
+                    SMB Exclude Folders&nbsp;
+                    <span data-html="Enter comma separated list of folders you would like to ignore"
+                          data-position="right center" data-variation="tiny wide"><i
+                            class="question circle outline icon"></i></span>
+                </label>
+                <textarea id="inputSmbExcludeFolders"
+                          type="text"
+                          rows="4"
+                          placeholder="Comma, separated, list, of, folder, names"
+                          data-bind="textInput: args().scan_settings.smb_exclude_folders">
+                </textarea>
+            </div>
+            <div class="four wide field" data-bind="css: maxInstancesSmb() > 0 ? '' : 'disabled'">
+                <label for="inputSmbExcludeExtensions">
+                    SMB Exclude Extensions&nbsp;
+                    <span data-html="Enter comma separated list of file extensions you would like to ignore"
+                          data-position="right center" data-variation="tiny wide"><i
+                            class="question circle outline icon"></i></span>
+                </label>
+                <textarea id="inputSmbExcludeExtensions"
+                          type="text"
+                          rows="4"
+                          placeholder="Comma, separated, list, of, file, extensions"
+                          data-bind="textInput: args().scan_settings.smb_exclude_extensions">
+                </textarea>
+            </div>
+            <div class="four wide field" data-bind="css: maxInstancesSmb() > 0 ? '' : 'disabled'">
+                <label for="inputSmbExcludeFileSize">
+                    SMB Exclude Size&nbsp;
+                    <span data-html="File size below which files are skipped during crawling"
+                          data-position="right center" data-variation="tiny wide"><i
+                            class="question circle outline icon"></i></span>
+                </label>
+                <div class="ui right labeled input">
+                    <input id="inputSmbExcludeFileSize" type="text" placeholder="1024"
+                           data-bind="textInput: args().scan_settings.smb_exclude_file_size_below">
+                    <div class="ui label" style="width: 80px">
+                        Bytes
+                    </div>
+                </div>
+                <label for="inputSmbExcludeModified" style="padding-top: 13px;">
+                    SMB Exclude Old Files&nbsp;
+                    <span data-html="File modification date below which files are skipped during crawling"
+                          data-position="right center" data-variation="tiny wide"><i
+                            class="question circle outline icon"></i></span>
+                </label>
+                <div class="ui calendar" id="calendarExclude">
+                    <div class="ui input left icon">
+                        <i class="calendar icon"></i>
+                        <input id="inputSmbExcludeModified" type="text">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="four fields">
+            <div class="field" data-bind="css: maxInstancesSmb() > 0 ? '' : 'disabled'">
+                <label for="inputSmbDepth">
+                    SMB Depth&nbsp;
+                    <span data-html="Depth of the share's folder structure to go down. -1 = no limit."
+                          data-position="right center" data-variation="tiny wide"><i
+                            class="question circle outline icon"></i></span>
+                </label>
+                <input type="text" id="inputSmbDepth" placeholder="-1"
+                       data-bind="textInput: args().scan_settings.smb_depth">
+            </div>
+            <div class="field" data-bind="css: maxInstancesSmb() > 0 ? '' : 'disabled'">
+                <label for="inputSmbThreads">
+                    SMB Threads&nbsp;
+                    <span data-html="Amount of parallel requests per SMB target"
+                          data-position="right center" data-variation="tiny wide"><i
+                            class="question circle outline icon"></i></span>
+                </label>
+                <input type="text" id="inputSmbThreads" placeholder="4"
+                       data-bind="textInput: args().scan_settings.smb_threads">
+            </div>
+
+            <div class="field" data-bind="css: maxInstancesWebcrawler() > 0 ? '' : 'disabled'">
+                <label for="inputWebcrawlerDepth">
+                    Web Crawler Depth&nbsp;
+                    <span data-html="Depth of the site's navigation tree to go down. -1 = no limit."
+                          data-position="right center" data-variation="tiny wide"><i
+                            class="question circle outline icon"></i></span>
+                </label>
+                <input type="text" id="inputWebcrawlerDepth" placeholder="-1"
+                       data-bind="textInput: args().scan_settings.webcrawler_depth">
+            </div>
+            <div class="field" data-bind="css: maxInstancesWebcrawler() > 0 ? '' : 'disabled'">
+                <label for="inputWebcrawlerThreads">
+                    Web Crawler Threads&nbsp;
+                    <span data-html="Amount of parallel requests per HTTP target"
+                          data-position="right center" data-variation="tiny wide"><i
+                            class="question circle outline icon"></i></span>
+                </label>
+                <input type="text" id="inputWebcrawlerThreads" placeholder="4"
+                       data-bind="textInput: args().scan_settings.webcrawler_max_threads">
+            </div>
+        </div>
+
+        <div class="field" data-bind="css: maxInstancesWebcrawler() > 0 ? '' : 'disabled'">
+            <label for="inputWebcrawlerFollowTypes">
+                Web Crawler Follow Types&nbsp;
+                <span data-html="Response content types to follow"
+                      data-position="right center" data-variation="tiny wide"><i
+                        class="question circle outline icon"></i></span>
+            </label>
+            <textarea
+                    id="inputWebcrawlerFollowTypes"
+                    rows="2"
+                    placeholder="text/html, text/plain, text/javascript, application/javascript, application/json, application/atom+xml, application/rss+xml, application/xhtml+xml, application/x-latex, application/xml, application/xml-dtd, application/x-sh, application/x-tex, application/x-texinfo, text/cache-manifest, text/calendar, text/css, text/csv, text/csv-schema, text/directory, text/dns, text/ecmascript, text/encaprtp, text/example, text/fwdred, text/grammar-ref-list, text/jcr-cnd, text/markdown, text/mizar, text/n3, text/parameters, text/provenance-notation, text/prs.fallenstein.rst, text/prs.lines.tag, text/raptorfec, text/RED, text/rfc822-headers, text/rtf, text/rtp-enc-aescm128, text/rtploopback, text/rtx, text/SGML, text/t140, text/tab-separated-values, text/troff, text/turtle, text/ulpfec, text/uri-list, text/vcard, text/vnd.abc, text/vnd.debian.copyright, text/vnd.DMClientScript, text/vnd.dvb.subtitle, text/vnd.esmertec.theme-descriptor, text/vnd.fly, text/vnd.fmi.flexstor, text/vnd.graphviz, text/vnd.in3d.3dml, text/vnd.in3d.spot, text/vnd.IPTC.NewsML, text/vnd.IPTC.NITF, text/vnd.latex-z, text/vnd.motorola.reflex, text/vnd.ms-mediapackage, text/vnd.net2phone.commcenter.command, text/vnd.radisys.msml-basic-layout, text/vnd.si.uricatalogue, text/vnd.sun.j2me.app-descriptor, text/vnd.trolltech.linguist, text/vnd.wap.si, text/vnd.wap.sl, text/vnd.wap.wmlscript, text/vnd.wap-wml, text/vnd-a, text/vnd-curl, text/xml, text/xml-external-parsed-entity"
+                    data-bind="textInput: args().scan_settings.webcrawler_follow_types">
+            </textarea>
+        </div>
+
+        <div class="ui middle aligned grid">
+            <div class="four wide column">
+                <div class="field" data-bind="css: maxInstancesWebcrawler() > 0 ? '' : 'disabled'">
+                    <div class="ui toggle checkbox" style="margin-top: 0">
+                        <input id="inputWebcrawlerFollowQs" type="checkbox" tabindex="0" data-bind="checked: followQs">
+                        <label for="inputWebcrawlerFollowQs">
+                            Web <b>Crawler</b> QS
+                            <span data-html="Query strings are parameters in URLs that might lead to different page contents, but they might also cause the crawler to stall. Enable to include query strings in requests."
+                                  data-position="right center" data-variation="tiny wide"><i
+                                    class="question circle outline icon"></i></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="five wide column">
+                <div class="field" data-bind="css: maxInstancesWebcrawler() > 0 ? '' : 'disabled'">
+                    <div class="ui toggle checkbox" style="margin-top: 0">
+                        <input id="inputWebcrawlerStoreRoot" type="checkbox" tabindex="0"
+                               data-bind="checked: storeRoot">
+                        <label for="inputWebcrawlerStoreRoot">
+                            Web <b>Crawler</b> Save Root
+                            <span data-html="Usually the web crawler only saves success responses. In case of the index page, other responses might be interesting too. Enable to save index page independent of response code."
+                                  data-position="right center" data-variation="tiny wide"><i
+                                    class="question circle outline icon"></i></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="four wide column">
+                <div class="field" data-bind="css: maxInstancesWebenum() > 0 ? '' : 'disabled'">
+                    <div class="ui toggle checkbox" style="margin-top: 0">
+                        <input id="inputWebenumProbeRobots" type="checkbox" tabindex="0"
+                               data-bind="checked: probeRobots">
+                        <label for="inputWebenumProbeRobots">
+                            Web <b>Enum</b> robots.txt
+                            <span data-html="Sometimes robots.txt leaks information about hidden resources. Enable to add found entries to the enumeration URLs."
+                                  data-position="right center" data-variation="tiny wide"><i
+                                    class="question circle outline icon"></i></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="three wide column">
+                <div class="ui right floated buttons">
+                    <button class="ui button" type="button" data-bind="click: dispose">Cancel</button>
+                    <div class="or"></div>
+                    <button class="ui teal button" type="button" data-bind="click: submitEdit">Save</button>
+                </div>
+            </div>
+        </div>
+
+    </form>
+</div>

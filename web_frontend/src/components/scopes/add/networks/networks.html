@@ -1,0 +1,225 @@
+<div id="divScopesAddNetwork" style="display: none; margin-bottom: 56px;">
+    <h2 class="ui dividing header">
+        <!-- ko if: !updateMode() -->
+        Create
+        <span data-bind="text: type" style="text-transform:capitalize;"></span>
+        Scope
+        <!-- /ko -->
+        <!-- ko if: updateMode() -->
+        Update
+        <span data-bind="text: type" style="text-transform:capitalize;"></span>
+        Scope
+        <!-- /ko -->
+    </h2>
+    <form class="ui form" data-bind="submit: submitNetworks">
+        <div class="fields">
+            <!-- ko if: !updateMode() -->
+            <div class="required six wide field">
+                <label for="selectGroup">Group</label>
+                <select id="selectGroup" class="ui search dropdown"
+                        data-bind="options: groupsAvailable, optionsText: 'name', optionsValue: 'id', optionsCaption:'Please Select', value: groupSelected">
+                    <!--<option value="">Please select</option>-->
+                </select>
+            </div>
+            <!-- /ko -->
+            <!-- ko if: updateMode() -->
+            <div class="disabled six wide field">
+                <label for="inputGroup">Group</label>
+                <input id="inputGroup" type="text" data-bind="textInput: groupName">
+            </div>
+            <!-- /ko -->
+            <div class="required five wide field">
+                <label for="inputName">Scope Name</label>
+                <input id="inputName" type="text" placeholder="Scope Name" data-bind="textInput: scopeName">
+            </div>
+            <div class="five wide field">
+                <label for="inputScopeRetention">
+                    Retention
+                    <span data-html="Set the amount of (full) scan cycles you want to retain. Scan results of older scan cycles will be cleaned up."
+                          data-position="right center" data-variation="tiny wide"><i
+                            class="question circle outline icon"></i></span>
+                </label>
+                <div class="ui right labeled input">
+                    <input id="inputScopeRetention" type="text" placeholder="-1"
+                           data-bind="textInput: scopeRetention() === 1 ? scopeRetention() + ' cycle' : scopeRetention() + ' cycles'">
+                    <div class="ui icon buttons">
+                        <div class="ui icon button" data-bind="click: scopeRetentionSub"><i class="minus icon"></i>
+                        </div>
+                        <div class="ui icon button" data-bind="click: scopeRetentionAdd"><i class="plus icon"></i></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <h4 class="ui dividing header">
+            Filters (AND)
+            <span
+                    data-html="Use the following columns to configure scan result visibility. By default all assets are retrieved, unless at least one filter is set."
+                    data-position="right center" data-variation="tiny">
+                <i class="question circle outline icon"></i>
+            </span>
+        </h4>
+
+        <div class="fields">
+            <div class="six wide field">
+                <label for="selectCompanies">
+                    Companies
+                    <i class="question circle outline icon"
+                       data-html="Company names. You can enter multiple values. Leave empty for any."
+                       data-position="right center" data-variation="tiny wide"></i>
+                </label>
+                <select id="selectCompanies" multiple="" class="ui search dropdown"
+                        data-bind="selectedOptions: scopeAssetCompanies, options: scopeAssetCompaniesPossible">
+                </select>
+            </div>
+            <div class="five wide field">
+                <label for="selectDepartments">
+                    Departments, Inclusive Subdivision
+                    <i class="question circle outline icon"
+                       data-html="Department codes. You can enter multiple values. Leave empty for any. Sub-departments will automatically be inlcuded!"
+                       data-position="right center" data-variation="tiny wide"></i>
+                </label>
+                <select id="selectDepartments" multiple="" class="ui search dropdown"
+                        data-bind="selectedOptions: scopeAssetDepartments, options: scopeAssetDepartmentsPossible">
+                </select>
+            </div>
+            <div class="five wide field">
+                <label for="selectContacts">
+                    Contact GIDs
+                    <i class="question circle outline icon"
+                       data-html="Contact GIDs. You can enter multiple values. Leave empty for any."
+                       data-position="right center" data-variation="tiny wide"></i>
+                </label>
+                <select id="selectContacts" multiple="" class="ui search dropdown"
+                        data-bind="selectedOptions: scopeAssetContacts, options: scopeAssetContactsPossible">
+                </select>
+            </div>
+        </div>
+
+        <div class="fields">
+            <div class="six wide field">
+                <label for="selectRoutingDomains">
+                    Routing Domains
+                    <i class="question circle outline icon"
+                       data-html="Routing domains. You can enter multiple values. Leave empty for any."
+                       data-position="right center" data-variation="tiny wide"></i>
+                </label>
+                <select id="selectRoutingDomains" multiple="" class="ui search dropdown"
+                        data-bind="selectedOptions: scopeAssetRoutingDomains, options: scopeAssetRoutingDomainsPossible">
+                </select>
+            </div>
+            <div class="five wide field">
+                <label for="selectZones">
+                    Zones
+                    <i class="question circle outline icon"
+                       data-html="Zone names. You can enter multiple values. Leave empty for any."
+                       data-position="right center" data-variation="tiny wide"></i>
+                </label>
+                <select id="selectZones" multiple="" class="ui search dropdown"
+                        data-bind="selectedOptions: scopeAssetZones, options: scopeAssetZonesPossible">
+                </select>
+            </div>
+            <div class="five wide field">
+                <label for="selectPurposes">
+                    Purposes
+                    <i class="question circle outline icon"
+                       data-html="Network purpose descriptions. You can enter multiple values. Leave empty for any."
+                       data-position="right center" data-variation="tiny wide"></i>
+                </label>
+                <select id="selectPurposes" multiple="" class="ui search dropdown"
+                        data-bind="selectedOptions: scopeAssetPurposes, options: scopeAssetPurposesPossible">
+                </select>
+            </div>
+        </div>
+
+        <div class="fields">
+            <div class="six wide field">
+                <label for="selectCountries">
+                    Country Codes
+                    <i class="question circle outline icon"
+                       data-html="Country codes. You can enter multiple values. Leave empty for any."
+                       data-position="right center" data-variation="tiny wide"></i>
+                </label>
+                <select id="selectCountries" multiple="" class="ui search dropdown"
+                        data-bind="selectedOptions: scopeAssetCountries, options: scopeAssetCountriesPossible">
+                </select>
+            </div>
+            <div class="five wide field">
+                <label for="selectLocations">
+                    Location Codes
+                    <i class="question circle outline icon"
+                       data-html="Location codes. You can enter multiple values. Leave empty for any."
+                       data-position="right center" data-variation="tiny wide"></i>
+                </label>
+                <select id="selectLocations" multiple="" class="ui search dropdown"
+                        data-bind="selectedOptions: scopeAssetLocations, options: scopeAssetLocationsPossible">
+                </select>
+            </div>
+            <div class="five wide field">
+                <label for="selectExcludeKeywords">
+                    Exclude Keywords
+                    <i class="question circle outline icon"
+                       data-html="Keywords to skip. All fields are searched for those keywords! You can enter multiple values. Leave empty for any."
+                       data-position="right center" data-variation="tiny wide"></i>
+                </label>
+                <select id="selectExcludeKeywords" multiple="" class="ui search dropdown"
+                        data-bind="selectedOptions: scopeAssetExcludeKeywords, options: scopeAssetExcludeKeywordsPossible">
+                </select>
+            </div>
+        </div>
+
+        <div class="ui small visible warning message">
+            <i class="exclamation triangle icon"></i>
+            You are <b>responsible</b> for diligent scan target selection.
+            Scans may <b>impact</b> target systems.
+            Only scan systems you are responsible and have a scan <b>approval</b> for!
+        </div>
+
+        <div class="ui middle aligned grid">
+            <div class="four wide column">
+                <div class="field" style="">
+                    <div class="ui toggle checkbox">
+                        <input id="inputCycles" type="checkbox" data-bind="checked: scopeCycles">
+                        <label for="inputCycles">
+                            Scan continuously
+                            <i class="question circle outline icon"
+                               data-html="Initiate new scan cycle after all targets were scanned."
+                               data-position="bottom center" data-variation="tiny wide"></i>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="four wide column">
+                <div class="field" style="">
+                    <div class="ui toggle checkbox">
+                        <input id="inputSync" type="checkbox" data-bind="checked: scopeSync"/>
+                        <label for="inputSync">
+                            Sync scan targets
+                            <i class="question circle outline icon"
+                               data-html="Regularly update scan input targets."
+                               data-position="bottom center" data-variation="tiny wide"></i>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="four wide column">
+                &nbsp;
+            </div>
+            <div class="four wide column">
+                <div class="ui right floated buttons">
+                    <button class="ui button" type="button" data-bind="click: dispose">Cancel</button>
+                    <div class="or"></div>
+                    <button class="ui teal button" type="button" data-bind="click: submitNetworks">
+                        <!-- ko if: !updateMode() -->
+                        Create
+                        <!-- /ko -->
+                        <!-- ko if: updateMode() -->
+                        Update
+                        <!-- /ko -->
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </form>
+</div>

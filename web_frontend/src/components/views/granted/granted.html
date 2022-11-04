@@ -1,0 +1,250 @@
+<div id="divAccessible">
+    <h2 class="ui dividing header">
+        Accessible Views
+        <span data-html="This section lists all accessible database views. A view is a (possibly limited) representation of a scan."
+              data-position="right center" data-variation="tiny wide">
+                <i class="small question circle outline icon" style="margin-right: 0;"></i>
+            </span>
+    </h2>
+
+    <!-- ko if: views() === null -->
+    <div class="ui center aligned basic segment">
+        <i class="grey seedling icon"></i>
+        <span class="ui grey text"><i>Loading...</i></span>
+    </div>
+    <!-- /ko -->
+
+    <!-- ko if: views() !== null && views().length === 0 -->
+    <div class="ui center aligned basic segment" style="display: none">
+        <i class="grey seedling icon"></i>
+        <span class="ui grey text"><i>No access granted yet.</i></span>
+    </div>
+    <!-- /ko -->
+
+    <div class="ui container" style="display: none">
+
+        <div class="ui four cards" data-bind="foreach: {data: views, afterRender: initViewEntry}">
+            <div class="card transition hidden" style="padding: 0.3em;">
+                <div class="content">
+                    <div class="header"
+                         style="padding-top: 0.5em;padding-bottom: 0.5em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #9f9f9f;">
+                        <div data-bind="class: presentationClass()">
+                                <span class="ui tiny text meta"
+                                      data-bind="text: name"></span>
+                            <span class="right floated" style="color:rgba(0, 0, 0, 0.68);padding-right: 2px;">
+                                    <span class="ui small text">
+                                        <span data-bind="text: scan_scope.name"></span>
+                                        <i class="icons">
+                                            <i class="database icon" style="margin-left: 0;"></i>
+                                        </i>
+                                    </span>
+                                </span>
+                        </div>
+                    </div>
+
+                    <div class="meta"></div>
+
+                    <div class="description">
+                        <div class="ui shape">
+                            <div class="sides">
+                                <div class="side active">
+
+                                    <!-- ko if: !scan_scope.enabled -->
+                                    <div class="ui active inverted dimmer">
+                                        <h2 class="ui icon header">
+                                                <span style="color: #9d9d9d">
+                                                    <i class="pause icon"></i>
+                                                    <br/>
+                                                    Paused
+                                                </span>
+                                        </h2>
+                                    </div>
+                                    <!-- /ko -->
+
+                                    <table class="ui very basic collapsing celled table"
+                                           style="width: 220px; color:rgba(0, 0, 0, 0.68);">
+                                        <tbody>
+                                        <tr data-tooltip="Scope Type" data-position="left center"
+                                            data-variation="tiny">
+                                            <td style="padding-left: 10px;">
+                                                <i class="icons">
+                                                    <i class="archive icon"></i>
+                                                </i>
+                                            </td>
+                                            <td>
+                                                    <span data-bind="text: scan_scope.type"
+                                                          style="text-transform:capitalize;"></span> Input
+                                            </td>
+                                        </tr>
+                                        <tr data-tooltip="Scope Targets" data-position="left center"
+                                            data-variation="tiny">
+                                            <td style="padding-left: 10px;">
+                                                <i class="icons">
+                                                    <i class="bullseye icon"></i>
+                                                </i>
+                                            </td>
+                                            <td>
+                                                    <span data-bind="text: new Intl.NumberFormat().format(scan_scope.size)"
+                                                          style="text-transform:capitalize;"></span> IPs
+                                                <!-- ko if: scan_scope.attributes.sync -->
+                                                &nbsp;
+                                                <span data-bind="attr: {'data-html': (moment(scan_scope.last_sync, datetimeFormatGolang).isBefore(moment('0001-01-02', 'YYYY-MM-DD')) ? '<i>Targets not synchronized</i>' : 'Last Sync: ' + moment(scan_scope.last_sync, datetimeFormatGolang).format(datetimeFormat))}"
+                                                      data-position="top center"
+                                                      data-variation="tiny">
+                                                        <i class="teal small sync icon"></i>
+                                                    </span>
+                                                <!-- /ko -->
+                                            </td>
+                                        </tr>
+                                        <tr data-tooltip="Scope Created" data-position="left center"
+                                            data-variation="tiny">
+                                            <td style="padding-left: 10px;">
+                                                <i class="icons">
+                                                    <i class="calendar plus outline icon"></i>
+                                                </i>
+                                            </td>
+                                            <td>
+                                                <span data-bind="text: moment(scan_scope.created, datetimeFormatGolang).format(dateFormat)"></span>
+                                            </td>
+                                        </tr>
+                                        <tr data-tooltip="Current Cycle" data-position="left center"
+                                            data-variation="tiny">
+                                            <td style="padding-left: 10px;">
+                                                <i class="icons">
+                                                    <i class="redo icon" style="margin-left: 0;"></i>
+                                                </i>
+                                            </td>
+                                            <td>
+                                                Cycle <span
+                                                    data-bind="text: new Intl.NumberFormat().format(scan_scope.cycle)"></span>
+                                            </td>
+                                        </tr>
+                                        <tr data-tooltip="Cycle Started" data-position="left center"
+                                            data-variation="tiny">
+                                            <td style="padding-left: 10px;">
+                                                <i class="icons">
+                                                    <i class="redo icon"></i>
+                                                    <i class="bottom right corner calendar outline icon"></i>
+                                                </i>
+                                            </td>
+                                            <td>
+                                                <span data-bind="text: moment(scan_scope.cycle_started, datetimeFormatGolang).format(dateFormat) + ' | ' +  (moment().diff(moment(scan_scope.cycle_started, datetimeFormatGolang), 'days') === 1 ? ' 1 day ago' : moment().diff(moment(scan_scope.cycle_started, datetimeFormatGolang), 'days') +' days ago')"></span>
+                                            </td>
+                                        </tr>
+                                        <tr data-tooltip="Cycles Retention" data-position="left center"
+                                            data-variation="tiny">
+                                            <td style="padding-left: 10px;">
+                                                <i class="icons">
+                                                    <i class="eraser icon"></i>
+                                                </i>
+                                            </td>
+                                            <td>
+                                                <span data-bind="text: 'Retaining ' + (scan_scope.cycles_retention === -1 ? 'all' : 'last ' + scan_scope.cycles_retention) + ' cycles'"></span>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td class="center aligned" colspan="3">
+                                                <div class="ui small multiple progress" data-total="100"
+                                                     data-bind="attr: {'data-value': scan_scope.cycle_progress}"
+                                                     style="margin: 13px 10px 0;">
+                                                    <div class="teal bar">
+                                                        <div class="progress"></div>
+                                                    </div>
+                                                    <div class="red bar">
+                                                        <div class="progress"></div>
+                                                    </div>
+                                                    <div class="yellow bar">
+                                                        <div class="progress"></div>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        </tbody>
+                                    </table>
+
+                                </div>
+                                <div class="side">
+
+                                    <table class="ui very basic collapsing celled table"
+                                           style="width: 220px; color: rgba(0, 0, 0, 0.68);">
+                                        <tbody>
+                                        <tr data-tooltip="Database Server" data-position="left center">
+                                            <td style="padding-left: 10px;">
+                                                <i class="icons">
+                                                    <i class="server icon"></i>
+                                                </i>
+                                            </td>
+                                            <td>
+                                                    <span style="display:block;width:150px;float:left;overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                                                          data-bind="text: scan_scope.connection.host + ' : ' + scan_scope.connection.port, attr: {title: scan_scope.connection.host + ' : ' + scan_scope.connection.port}"></span>
+                                                <span class="right floated">
+                                                        <a href="#"><i class="copy outline icon"
+                                                                       data-bind="attr: { 'data-value': scan_scope.connection.host + ':' + scan_scope.connection.port}, click: $parent.toClipboard"></i></a>
+                                                    </span>
+                                            </td>
+                                        </tr>
+                                        <tr data-tooltip="Database Name" data-position="left center">
+                                            <td style="padding-left: 10px;">
+                                                <i class="icons">
+                                                    <i class="database icon"></i>
+                                                </i>
+                                            </td>
+                                            <td>
+                                                    <span style="display:block;width:150px;float:left;overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                                                          data-bind="text: scan_scope.connection.database, class: presentationClass()"></span>
+                                                <span class="right floated">
+                                                        <a href="#"><i class="copy outline icon"
+                                                                       data-bind="attr: { 'data-value': scan_scope.connection.database}, click: $parent.toClipboard"></i></a>
+                                                    </span>
+                                            </td>
+                                        </tr>
+                                        <tr data-tooltip="Username" data-position="left center">
+                                            <td style="padding-left: 10px;">
+                                                <i class="icons">
+                                                    <i class="user icon"></i>
+                                                </i>
+                                            </td>
+                                            <td>
+                                                    <span style="display:block;width:150px;float:left;overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                                                          data-bind="text: userEmail(), class: presentationClass()"></span>
+                                                <span class="right floated">
+                                                        <a href="#"><i class="copy outline icon"
+                                                                       data-bind="attr: { 'data-value': userEmail()}, click: $parent.toClipboard"></i></a>
+                                                    </span>
+                                            </td>
+                                        </tr>
+                                        <tr data-tooltip="Accessible Views" data-position="left center">
+                                            <td style="padding-left: 10px; padding-bottom: 0;">
+                                                <i class="icons">
+                                                    <i class="table icon"></i>
+                                                </i>
+                                            </td>
+                                            <td style="padding-bottom: 0;" data-bind="foreach: view_names">
+                                                <div class="ui teal tiny horizontal label" data-bind="text: $data"
+                                                     style="white-space:nowrap;"></div>
+                                            </td>
+                                        </tr>
+                                        </tbody>
+                                    </table>
+
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+                <div class="extra center aligned content">
+                    <button class="ui tiny button" type="button" data-tooltip="Connection Details"
+                            data-position="bottom center"
+                            data-variation="tiny"
+                            data-bind="click: $parent.toggleDatabase">
+                        <i class="database icon"></i> Connection Details
+                    </button>
+                </div>
+
+            </div>
+        </div>
+
+    </div>
+</div>

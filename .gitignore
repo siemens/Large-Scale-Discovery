@@ -1,0 +1,34 @@
+# Goland (developer-specific stuff)
+.idea/workspace.xml
+
+# Unit test output
+_test/
+
+# Compiled executables
+_bin/*.exe
+_bin/*.bin
+
+# Log files, no matter where
+*.log
+*.log.*
+
+# 3rd party tools
+_bin/tools/
+
+# Application generated files
+_bin/.instance
+_bin/*.conf
+_bin/*.sqlite
+_bin/*.sqlite-shm
+_bin/*.sqlite-wal
+_bin/data/os_truststore.pem
+_bin/download_urls.csv
+
+# Production keys
+_bin/keys/manager.key
+_bin/keys/manager.crt
+_bin/keys/broker.key
+_bin/keys/broker.crt
+_bin/keys/backend.key
+_bin/keys/backend.crt
+_bin/keys/scdasldap.siemens.net.pem

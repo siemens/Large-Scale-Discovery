@@ -1,0 +1,18 @@
+<div class="fourteen wide column">
+
+    <!-- ko if: actionComponent -->
+    <!-- ko component: { name: actionComponent, params: { parent: $data, args: actionArgs() } } --><!-- /ko -->
+    <!-- /ko -->
+
+    <!-- ko component: { name: 'views-list', params: { parent: $data } } --><!-- /ko -->
+
+    <div class="ui hidden clearing divider"></div>
+
+    <!-- ko if: views() !== null && views().length !== 0 -->
+    <!-- ko component: { name: 'views-token-list', params: { parent: $data } } --><!-- /ko -->
+    <!-- /ko -->
+
+</div>
+
+<div class="two wide column right aligned"
+     data-bind='component: { name: "nav-side", params: { sideNavItems: sideNavItems }  }'></div>

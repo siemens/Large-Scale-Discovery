@@ -1,0 +1,145 @@
+<div id="divViews">
+    <h2 class="ui dividing header">
+        Views
+        <span data-html="This section lists views you are allowed to administrate. A view is an accessible data set of a specific scan scope, respectively, its scan results. It can be filtered and you can chose who may access it."
+              data-position="right center" data-variation="tiny wide">
+                <i class="small question circle outline icon" style="margin-right: 0;"></i>
+            </span>
+    </h2>
+
+    <!-- ko if: inactiveUsers().length > 0 -->
+    <div class="ui small warning message">
+        <i class="exclamation triangle icon"></i>
+        <!-- ko if: inactiveUsers().length == 1 -->
+        <span data-bind="html: '<b>' + inactiveUsers() + '</b>', class: presentationClass()"></span> has access rights
+        but did not login in for at
+        least <b>six months</b>!
+        <!-- /ko -->
+        <!-- ko if: inactiveUsers().length > 1 -->
+        The following users have access rights but did not login in for at least <b>six months</b>:
+        <ul class="ui list" data-bind="foreach: inactiveUsers" style="padding-left: 40px;">
+            <li><b data-bind="text: $data, class: presentationClass()"></b></li>
+        </ul>
+        <!-- /ko -->
+    </div>
+    <!-- /ko -->
+
+    <!-- ko if: viewsGrouped() === null -->
+    <div class="ui center aligned basic segment">
+        <i class="grey seedling icon"></i>
+        <span class="ui grey text"><i>Loading...</i></span>
+    </div>
+    <!-- /ko -->
+
+    <!-- ko if: viewsGrouped() !== null && viewsGrouped().length === 0 -->
+    <div class="ui center aligned basic segment" style="display: none">
+        <i class="grey seedling icon"></i>
+        <span class="ui grey text"><i>No views configured yet.</i></span>
+    </div>
+    <!-- /ko -->
+
+    <div class="ui container" style="display: none">
+
+        <!-- ko foreach: {data: viewsGrouped, afterRender: initViewEntries} -->
+        <div class="ui attached message">
+            <h5><span
+                    data-bind="class: presentationClass(), text: $data[0].scan_scope.group_name ? $data[0].scan_scope.group_name : '-'"></span>
+            </h5>
+        </div>
+        <table class="ui attached small sortable celled table">
+            <thead>
+            <tr>
+                <th>Name</th>
+                <th style="width: 150px;">Scope</th>
+                <th style="width: 180px;">Filter</th>
+                <th style="width: 310px;">Users</th>
+                <th class="no-sort" style="width:1%;"></th>
+            </tr>
+            </thead>
+            <tbody>
+            <!-- ko foreach: {data: $data} -->
+            <tr class="top aligned">
+                <td style="max-width: 0;overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    <span data-bind="class: presentationClass(), text: name, attr: { title: name }"></span>
+                </td>
+                <td style="max-width: 0;overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    <span data-bind="class: presentationClass(), text: scan_scope.name, attr: { title: scan_scope.name }"></span>
+                </td>
+                <!-- ko if: filter_strings.length > 0 -->
+                <td data-bind="foreach: filter_strings">
+                    <div class="ui teal mini label" style="white-space: nowrap;">
+                        <span data-bind="text: $data[0]"></span>
+                        <span class="detail" data-bind="text: $data[1]"></span>
+                    </div>
+                </td>
+                <!-- /ko -->
+                <!-- ko if: filter_strings.length <= 0 -->
+                <td>
+                    <div class="ui tiny horizontal label">No Filters</div>
+                </td>
+                <!-- /ko -->
+                <!-- ko if: users_by_company.length > 0 -->
+                <td data-bind="foreach: users_by_company">
+                    <div class="ui grey tiny sub header">
+                        <div data-bind="class: presentationClass(), text: $data[0].user_company === '' ? '' : $data[0].user_company"></div>
+                    </div>
+                    <div data-bind="foreach: $data">
+                        <div class="ui mini label" style="white-space: nowrap;"
+                             data-bind="class: is_inactive ? 'red' : user_is_admin ? 'blue' : (user_is_owner ? 'blue' : 'teal')">
+                            <span data-bind="class: presentationClass(), text: $data.username"></span>
+                            <!-- ko if: $data.user_department -->
+                            <span class="detail"
+                                  data-bind="class: presentationClass(), text: '(' + $data.user_department + ')'"></span>
+                            <!-- /ko -->
+                            <i class="close icon"
+                               data-bind="click: function(data, event) { $parents[3].revokeUser($parents[1], data, event) }"></i>
+                        </div>
+                    </div>
+                </td>
+                <!-- /ko -->
+                <!-- ko if: users_by_company.length <= 0 -->
+                <td>
+                    <div class="ui tiny horizontal label">No Users</div>
+                </td>
+                <!-- /ko -->
+                <td class="right aligned" style="background-color: #f9fafb; white-space:nowrap;">
+                    <button class="ui teal mini icon button" type="button" data-tooltip="Edit"
+                            data-position="top center"
+                            data-variation="tiny"
+                            data-bind="click: function(data, event) { $parents[1].showViewEdit(data, event)}">
+                        <i class="pen icon"></i>
+                    </button>
+                    <button class="ui teal mini icon button" type="button" data-tooltip="Access Rights"
+                            data-position="top center"
+                            data-variation="tiny"
+                            data-bind="click: function(data, event) { $parents[1].showViewAccess(data, event)}">
+                        <i class="users icon"></i>
+                    </button>
+                    <button class="ui yellow mini icon button" type="button" data-tooltip="Generate Access Token"
+                            data-position="top center"
+                            data-variation="tiny"
+                            data-bind="click: function(data, event) { $parents[1].showTokenAdd(data, event)}">
+                        <i class="skull crossbones icon"></i>
+                    </button>
+                    <button class="ui red mini icon button" type="button" data-tooltip="Delete"
+                            data-position="top center"
+                            data-variation="tiny"
+                            data-bind="click: function(data, event) { $parents[1].deleteView(data, event)}">
+                        <i class="trash alternate outline icon"></i>
+                    </button>
+                </td>
+            </tr>
+            <!-- /ko -->
+            </tbody>
+        </table>
+        <div class="ui hidden clearing divider"></div>
+        <!-- /ko -->
+
+        <div class="ui teal right floated buttons">
+            <button class="ui button" type="button"
+                    data-bind="click: function(data, event) { showViewAdd(data, event)}"><i class="plus icon"></i> View
+            </button>
+        </div>
+
+    </div>
+</div>

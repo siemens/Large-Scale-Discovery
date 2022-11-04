@@ -1,0 +1,32 @@
+<div id="divGroupOwners" style="display: none; margin-bottom: 56px;">
+    <h2 class="ui dividing header">Group Owners</h2>
+    <form class="ui form" data-bind="submit: submitOwners">
+        <div class="fields">
+            <div class="four wide disabled field">
+                <label for="inputGroup">Group</label>
+                <input id="inputGroup" type="text" placeholder="Group Name" data-bind="textInput: args().name">
+            </div>
+            <div class="twelve wide field">
+                <label for="selectOwners">
+                    Owners
+                    <span
+                            data-html="Owners are allowed to create and edit scans within the groups boundaries. If a user is not suggested, you can initialize it by entering it manually. Simply enter the user's e-mail address and confirm it with semicolon, tab or enter."
+                            data-position="right center" data-variation="tiny">
+                        <i class="question circle outline icon"></i>
+                    </span>
+                </label>
+                <select id="selectOwners" multiple="" class="ui search dropdown"
+                        data-bind="options: groupOwnersPossible, selectedOptions: groupOwners"></select>
+            </div>
+        </div>
+        <div class="ui right aligned grid">
+            <div class="column">
+                <div class="ui right floated buttons">
+                    <button class="ui button" type="button" data-bind="click: dispose">Cancel</button>
+                    <div class="or"></div>
+                    <button class="ui teal button" type="button" data-bind="click: submitOwners">Submit</button>
+                </div>
+            </div>
+        </div>
+    </form>
+</div>

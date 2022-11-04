@@ -1,0 +1,57 @@
+<div id="divTokensAdd" style="display: none; margin-bottom: 56px;">
+
+    <h2 class="ui dividing header">Generate Access Token</h2>
+
+    <div class="ui small warning message">
+        <i class="exclamation triangle icon"></i>
+        <b>Increased security risk!</b>
+        Access tokens are valid for a prolonged time frame and not bound to a single user. The risk of lost
+        or stolen access tokens is thereby increased. Any risk originating from generated access tokens must
+        be accepted and taken over by <b>you</b>. Please rather grant access to users directly instead!
+    </div>
+
+    <form class="ui form" data-bind="submit: submitGenerate">
+
+        <div class="fields">
+            <div class="disabled five wide field">
+                <label for="inputGroup">Group</label>
+                <input id="inputGroup" type="text" data-bind="textInput: args.scan_scope.group_name">
+            </div>
+            <div class="disabled five wide field">
+                <label for="inputScope">Scope</label>
+                <input id="inputScope" type="text" data-bind="textInput: args.scan_scope.name">
+            </div>
+            <div class="disabled six wide field">
+                <label for="inputName">View Name</label>
+                <input id="inputName" type="text" data-bind="textInput: args.name">
+            </div>
+        </div>
+        <div class="fields">
+            <div class="required six wide field">
+                <label for="inputDescription">Description</label>
+                <input id="inputDescription" type="text" placeholder="Access token for XYZ"
+                       data-bind="textInput: tokenDescription">
+            </div>
+            <div class="eight wide field">
+                <label for="sliderExpiry">Expiry</label>
+                <div id="sliderExpiry" class="ui teal slider"></div>
+            </div>
+            <div class="two wide field">
+                <label for="inputExpiryDays">&nbsp;</label>
+                <div id="inputExpiryDays" class="ui teal slider" data-bind="text: tokenExpiryDays() + ' day(s)'"
+                     style="text-align: right;"></div>
+            </div>
+        </div>
+
+        <div class="ui right aligned grid">
+            <div class="column">
+                <div class="ui right floated buttons">
+                    <button class="ui button" type="button" data-bind="click: dispose">Cancel</button>
+                    <div class="or"></div>
+                    <button class="ui teal button" type="button" data-bind="click: submitGenerate">Generate</button>
+                </div>
+            </div>
+        </div>
+
+    </form>
+</div>

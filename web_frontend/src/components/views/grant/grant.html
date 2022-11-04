@@ -1,0 +1,43 @@
+<div id="divViewsAccess" style="display: none; margin-bottom: 56px;">
+    <h2 class="ui dividing header">View Access Rights</h2>
+    <form class="ui form" data-bind="submit: submitEdit">
+        <div class="three fields">
+            <div class="disabled field">
+                <label for="inputGroup">Group</label>
+                <input id="inputGroup" type="text" data-bind="textInput: args.scan_scope.group_name">
+            </div>
+            <div class="disabled field">
+                <label for="inputScope">Scope</label>
+                <input id="inputScope" type="text" data-bind="textInput: args.scan_scope.name">
+            </div>
+            <div class="disabled field">
+                <label for="inputName">View</label>
+                <input id="inputName" type="text" placeholder="View Name" data-bind="textInput: args.name">
+            </div>
+        </div>
+
+        <div class="field">
+            <label for="selectGrants">
+                Access Rights
+                <span
+                        data-html="If a user is not suggested, you can initialize it by entering it manually. Simply enter the user's e-mail address and confirm it with semicolon, tab or enter."
+                        data-position="right center" data-variation="tiny">
+                    <i class="question circle outline icon"></i>
+                </span>
+            </label>
+            <select id="selectGrants" multiple="" class="ui search dropdown"
+                    data-bind="selectedOptions: viewGrants, options: viewGrantsPossible"></select>
+        </div>
+
+        <div class="ui right aligned grid">
+            <div class="column">
+                <div class="ui right floated buttons">
+                    <button class="ui button" type="button" data-bind="click: dispose">Cancel</button>
+                    <div class="or"></div>
+                    <button class="ui teal button" type="button" data-bind="click: submitEdit">Save</button>
+                </div>
+            </div>
+        </div>
+
+    </form>
+</div>

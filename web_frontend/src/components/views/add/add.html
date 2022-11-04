@@ -1,0 +1,111 @@
+<div id="divViewsAdd" style="display: none; margin-bottom: 56px;">
+    <h2 class="ui dividing header">Create View</h2>
+    <form class="ui form" data-bind="submit: submitView">
+        <div class="two fields">
+            <div class="required field">
+                <label for="inputName">View Name</label>
+                <input id="inputName" type="text" placeholder="View Name" data-bind="textInput: viewName">
+            </div>
+            <div class="required field">
+                <label for="selectScope">Source Scope</label>
+                <select id="selectScope" class="ui search dropdown"
+                        data-bind="options: scopesAvailable, optionsText: 'name', optionsValue: 'id', optionsCaption: 'Please Select', value: scopeSelected">
+                </select>
+            </div>
+        </div>
+
+        <h4 class="ui dividing header">
+            Filters (OR)
+            <span
+                    data-html="Use the following columns to configure scan result visibility. By default all results are visible, unless at least one filter is set."
+                    data-position="right center" data-variation="tiny">
+                <i class="question circle outline icon"></i>
+            </span>
+        </h4>
+
+        <div class="ui small warning message" style="display: block;">
+            <i class="exclamation triangle icon"></i>
+            By default all results are accessible, unless at least one filter is set. All filters are OR-combined,
+            loosening access one by one.
+        </div>
+
+        <div class="field">
+            <label for="selectTargets">Scope Input Targets</label>
+            <select id="selectTargets" multiple="" class="ui search dropdown"
+                    data-bind="selectedOptions: inputTargets, options: inputTargetsPossible"></select>
+        </div>
+
+        <div class="three fields">
+            <div class="field">
+                <label for="selectCountries">Country Code</label>
+                <select id="selectCountries" multiple="" class="ui search dropdown"
+                        data-bind="selectedOptions: inputCountries"></select>
+            </div>
+            <div class="field">
+                <label for="selectLocations">Location Code</label>
+                <select id="selectLocations" multiple="" class="ui search dropdown"
+                        data-bind="selectedOptions: inputLocations"></select>
+            </div>
+            <div class="field">
+                <label for="selectRoutingDomains">Routing Domain</label>
+                <select id="selectRoutingDomains" multiple="" class="ui search dropdown"
+                        data-bind="selectedOptions: inputRoutingDomains"></select>
+            </div>
+        </div>
+
+        <div class="three fields">
+            <div class="field">
+                <label for="selectZones">Zone</label>
+                <select id="selectZones" multiple="" class="ui search dropdown"
+                        data-bind="selectedOptions: inputZones"></select>
+            </div>
+            <div class="field">
+                <label for="selectPurposes">Purpose</label>
+                <select id="selectPurposes" multiple="" class="ui search dropdown"
+                        data-bind="selectedOptions: inputPurposes"></select>
+            </div>
+            <div class="field">
+                <label for="selectCompanies">Company</label>
+                <select id="selectCompanies" multiple="" class="ui search dropdown"
+                        data-bind="selectedOptions: inputCompanies"></select>
+            </div>
+        </div>
+
+        <div class="three fields">
+            <div class="field">
+                <label for="selectDepartments">Department</label>
+                <select id="selectDepartments" multiple="" class="ui search dropdown"
+                        data-bind="selectedOptions: inputDepartments"></select>
+            </div>
+            <div class="field">
+                <label for="selectManagers">Manager</label>
+                <select id="selectManagers" multiple="" class="ui search dropdown"
+                        data-bind="selectedOptions: inputManagers"></select>
+            </div>
+            <div class="field">
+                <label for="selectContacts">Contact</label>
+                <select id="selectContacts" multiple="" class="ui search dropdown"
+                        data-bind="selectedOptions: inputContacts"></select>
+            </div>
+        </div>
+
+        <div class="three fields">
+            <div class="field">
+                <label for="selectComments">Comment</label>
+                <select id="selectComments" multiple="" class="ui search dropdown"
+                        data-bind="selectedOptions: inputComments"></select>
+            </div>
+            <div class="field">
+            </div>
+            <div class="field">
+                <label for="buttons">&nbsp;</label>
+                <div id="buttons" class="ui right floated buttons">
+                    <button class="ui button" type="button" data-bind="click: dispose">Cancel</button>
+                    <div class="or"></div>
+                    <button class="ui teal button" type="button" data-bind="click: submitView">Create</button>
+                </div>
+            </div>
+        </div>
+
+    </form>
+</div>

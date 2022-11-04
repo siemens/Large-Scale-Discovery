@@ -1,0 +1,42 @@
+<div id="divAccess">
+    <h2 class="ui dividing header">
+        Access Requests
+    </h2>
+
+    <!-- ko if: dataset() === null -->
+    <div class="ui center aligned basic segment">
+        <i class="grey seedling icon"></i>
+        <span class="ui grey text"><i>Loading...</i></span>
+    </div>
+    <!-- /ko -->
+
+    <!-- ko if: dataset() !== null && dataset().length === 0 -->
+    <div class="ui center aligned basic segment" style="display: none">
+        <i class="grey seedling icon"></i>
+        <span class="ui grey text"><i>No access requests recorded yet.</i></span>
+    </div>
+    <!-- /ko -->
+
+    <!-- ko if: dataset() !== null && dataset().length > 0 -->
+    <div style="display: none" class="ui container">
+        <canvas id="canvasAccess" data-bind="class: presentationClass()"></canvas>
+        <div class="ui aligned grid">
+            <div class="right aligned column" style="padding-top: 0; padding-right: 29px">
+                <span data-bind="attr: {'data-tooltip': datasetOrder() === 'count' ? 'Order by company' : 'Order by amount'}"
+                      data-position="top center"
+                      data-variation="tiny">
+                    <i class="tiny grey icon"
+                       data-bind="click: toggleOrder, class: datasetOrder() === 'count' ? 'circle' : 'circle outline'"></i>
+                </span>
+                <span data-bind="attr: {'data-tooltip': datasetAggregate() ? 'Don\'t aggregate' : 'Aggregate'}"
+                      data-position="top center"
+                      data-variation="tiny">
+                    <i class="tiny grey icon"
+                       data-bind="click: toggleAggregate, class: datasetAggregate() ? 'circle' : 'circle outline'"></i>
+                </span>
+            </div>
+        </div>
+    </div>
+    <!-- /ko -->
+
+</div>

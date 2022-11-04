@@ -1,0 +1,4 @@
+<div class="ui secondary vertical pointing menu fluid right" data-bind='initSticky, foreach: sideNavItems'>
+    <a class="item"
+       data-bind="text: title, attr: { href: href, target: target }, css: { active: '#' + $root.route().request_ === href }"></a>
+</div>

@@ -1,0 +1,132 @@
+<div id="divScopesAddCustom" style="display: none; margin-bottom: 56px;">
+    <h2 class="ui dividing header">
+        <!-- ko if: !updateMode() -->
+        Create Custom Scope
+        <!-- /ko -->
+        <!-- ko if: updateMode() -->
+        Update Custom Scope
+        <!-- /ko -->
+    </h2>
+    <form class="ui form" data-bind="submit: submitCustom">
+        <div class="fields">
+            <!-- ko if: !updateMode() -->
+            <div class="required six wide field">
+                <label for="selectGroup">Group</label>
+                <select id="selectGroup" class="ui search dropdown"
+                        data-bind="options: groupsAvailable, optionsText: 'name', optionsValue: 'id', optionsCaption:'Please Select', value: groupSelected">
+                    <!--<option value="">Please select</option>-->
+                </select>
+            </div>
+            <!-- /ko -->
+            <!-- ko if: updateMode() -->
+            <div class="disabled six wide field">
+                <label for="inputGroup">Group</label>
+                <input id="inputGroup" type="text" data-bind="textInput: groupName">
+            </div>
+            <!-- /ko -->
+            <div class="required six wide field">
+                <label for="inputName">Scope Name</label>
+                <input id="inputName" type="text" placeholder="Scope Name" data-bind="textInput: scopeName">
+            </div>
+            <div class="four wide field">
+                <label for="inputScopeRetention">
+                    Retention
+                    <span data-html="Set the amount of (full) scan cycles you want to retain. Scan results of older scan cycles will be cleaned up."
+                          data-position="right center" data-variation="tiny wide"><i
+                            class="question circle outline icon"></i></span>
+                </label>
+                <div class="ui right labeled input">
+                    <input id="inputScopeRetention" type="text" placeholder="-1"
+                           data-bind="textInput: scopeRetention() === 1 ? scopeRetention() + ' cycle' : scopeRetention() + ' cycles'">
+                    <div class="ui icon buttons">
+                        <div class="ui icon button" data-bind="click: scopeRetentionSub"><i class="minus icon"></i>
+                        </div>
+                        <div class="ui icon button" data-bind="click: scopeRetentionAdd"><i class="plus icon"></i></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="required field">
+            <label for="textareaTargets">
+                Scan Targets
+                <span data-html="Insert scan targets and optional meta data. You can also copy the columns to Excel or paste them from Excel."
+                      data-position="right center" data-variation="tiny wide"><i
+                        class="question circle outline icon"></i></span>
+            </label>
+            <div class="ui small visible info message">
+                <i class="info circle icon"></i>
+                You can update, reduce or extend scan targets at any time.
+                The backend will compare the new list with the previous one, based on the <i>Scan Input</i> column.
+                <ul class="ui list" style="padding-left: 40px;">
+                    <li>Changed inputs get updated. Scan states (waiting, running, completed) continue. Fresh results
+                        are stored with updated details.
+                    </li>
+                    <li>Vanished inputs get removed. Existing results are kept.</li>
+                    <li>New inputs get added.</li>
+                    <li>If you remove a scan target and add the same one again later, it will behave like a new and
+                        distinct entry.
+                    </li>
+                </ul>
+            </div>
+            <!-- ko if: synchronizationOngoing() === null  && updateMode() === true-->
+            <div class="ui center aligned basic segment">
+                <i class="grey seedling icon"></i>
+                <span class="ui grey text"><i>Loading scope targets...</i></span>
+            </div>
+            <!-- /ko -->
+            <!-- ko if: synchronizationOngoing() === true -->
+            <div class="ui small visible warning message" style="text-align: center;">
+                <b>Previous scope synchronization still ongoing.</b>
+            </div>
+            <!-- /ko -->
+            <!-- ko if: synchronizationOngoing() === false || updateMode() === false -->
+            <input id="textareaTargets" type="hidden"/>
+            <div id="divDataGridTargets" class="ui container"></div>
+            <div class="ui small visible warning message">
+                <i class="exclamation triangle icon"></i>
+                You are <b>responsible</b> for diligent scan target selection.
+                Scans may <b>impact</b> target systems.
+                Only scan systems you are responsible and have a scan <b>approval</b> for!
+            </div>
+            <!-- /ko -->
+        </div>
+
+        <div class="ui middle aligned grid">
+            <div class="four wide column">
+                <div class="field">
+                    <div class="ui toggle checkbox">
+                        <input id="inputCycles" type="checkbox" data-bind="checked: scopeCycles">
+                        <label for="inputCycles">
+                            Scan continuously
+                            <i class="question circle outline icon"
+                               data-html="Initiate new scan cycle after all targets were scanned."
+                               data-position="right center" data-variation="tiny wide"></i>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="four wide column">
+                &nbsp;
+            </div>
+            <div class="four wide column">
+                &nbsp;
+            </div>
+            <div class="four wide column">
+                <div class="ui right floated buttons">
+                    <button class="ui button" type="button" data-bind="click: dispose">Cancel</button>
+                    <div class="or"></div>
+                    <button class="ui teal button" type="button" data-bind="click: submitCustom">
+                        <!-- ko if: !updateMode() -->
+                        Create
+                        <!-- /ko -->
+                        <!-- ko if: updateMode() -->
+                        Update
+                        <!-- /ko -->
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </form>
+</div>

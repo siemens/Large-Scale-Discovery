@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Large-Scale Discovery</title>
+
+    <!-- build:css -->
+    <link href="../node_modules/fomantic-ui-css/semantic.css" rel="stylesheet">
+    <link href="../node_modules/tabulator-tables/dist/css/semantic-ui/tabulator_semantic-ui.css" rel="stylesheet">
+    <link href="css/styles.css" rel="stylesheet">
+    <!-- endbuild -->
+
+
+    <!-- build:js -->
+    <script src="app/require.js"></script>
+    <script src="../node_modules/requirejs/require.js" data-main="app/main"></script>
+    <!-- endbuild -->
+
+</head>
+<body>
+
+<div data-bind='component: { name: "nav-top", params: { currentRoute: route } }'></div>
+
+<div class="ui container" style="padding: 1em;flex: 1 0 auto;">
+    <div id="divPage" class="ui grid" style="min-height: 400px; margin-top: 20px;"
+         data-bind="component: { name: route().componentName }"></div>
+</div>
+
+<div id="loading-bar" class="ui grey slow indeterminate progress"
+     data-bind="style: { visibility: activeRequests().length > 0 ? 'visible': 'hidden' }">
+    <div class="bar">
+        <div class="progress">Loading</div>
+    </div>
+</div>
+
+<div data-bind='component: { name: "footer" }'></div>
+
+</body>
+</html>

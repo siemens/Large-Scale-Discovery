@@ -1,0 +1,3 @@
+<component name="DependencyValidationManager">
+  <scope name="Frontend Files" pattern="(file:gulpfile.js||file[web_frontend]:src//*)&amp;&amp;!file:src/js/avatars.js&amp;&amp;!file:src/js/avatars-bottts.js&amp;&amp;!file:src/js/avatars-avataaars.js" />
+</component>

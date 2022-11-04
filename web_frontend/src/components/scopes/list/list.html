@@ -1,0 +1,179 @@
+<div id="divScopes">
+    <h2 class="ui dividing header">
+        Scopes
+        <span data-html="This section lists scan scopes you are allowed to administrate. A scan scope is a dedicated database which can be filled with arbitrary scan targets. One or more scan agents must be run <b>by you</b> in order to process your scan scope."
+              data-position="right center" data-variation="tiny wide">
+                    <i class="small question circle outline icon" style="margin-right: 0;"></i>
+                </span>
+    </h2>
+
+    <!-- ko if: scopesGrouped() === null -->
+    <div class="ui center aligned basic segment">
+        <i class="grey seedling icon"></i>
+        <span class="ui grey text"><i>Loading...</i></span>
+    </div>
+    <!-- /ko -->
+
+    <!-- ko if: scopesGrouped() !== null && scopesGrouped().length === 0 -->
+    <div class="ui center aligned basic segment" style="display: none">
+        <i class="grey seedling icon"></i>
+        <span class="ui grey text"><i>No scopes configured yet.</i></span>
+    </div>
+    <!-- /ko -->
+
+    <div class="ui container" style="display: none">
+
+        <!-- ko foreach: {data: scopesGrouped, afterRender: initScopeEntries} -->
+        <div class="ui attached message">
+            <h5><span
+                    data-bind="class: presentationClass(), text: $data[0].group_name ? $data[0].group_name : '-'"></span>
+            </h5>
+        </div>
+        <table class="ui attached small sortable celled table">
+            <thead>
+            <tr>
+                <th>Name</th>
+                <th style="width: 150px;">Created By</th>
+                <th style="width: 64px;">Created</th>
+                <th style="width: 76px;">Type</th>
+                <th style="width: 74px;">Config</th>
+                <th style="width: 150px;">Cycle Progress</th>
+                <th class="no-sort" style="width:1%;"></th>
+            </tr>
+            </thead>
+            <tbody>
+            <!-- ko foreach: {data: $data} -->
+            <tr>
+                <td style="max-width: 0;overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    <span data-bind="class: presentationClass(), text: name, attr: { title: name }"></span>
+                </td>
+                <td style="max-width: 0;overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    <span data-bind="class: presentationClass(), text: created_by, attr: { title: created_by }"></span>
+                </td>
+                <td style="white-space:nowrap;" data-bind="attr: {'data-sort-value': moment(created).unix()}"><span
+                        data-bind="text: moment(created, datetimeFormatGolang).format(dateFormat)"></span></td>
+                <td style="white-space:nowrap;">
+                    <span data-bind="text: type" style="text-transform:capitalize;"></span>
+                </td>
+                <td style="white-space:nowrap;"
+                    data-bind="attr: {'data-sort-value': (cycles ? 100 : 0) + (cycles_retention > 0 ? 10 : 0) + (attributes.sync ? 1 : 0)}">
+
+                    <i class="icons" data-bind="style: { color: cycles ? 'teal' : '#bbbbbb' }"
+                       data-tooltip="Scan continuously" data-position="top center" data-variation="tiny">
+                        <i class="redo alternate icon"></i>
+                    </i>
+                    &nbsp;
+                    <i class="icons"
+                       data-bind="style: { color: cycles_retention > 0 ? 'teal' : '#bbbbbb' }, attr: {'data-tooltip': cycles_retention === -1 ? 'Retain all cycles' : ('Retain last ' + cycles_retention + (cycles_retention > 1 ? ' cycles' : ' cycle'))}"
+                       data-position="top center" data-variation="tiny">
+                        <i class="eraser icon"></i>
+                    </i>
+                    <!-- ko if: attributes.hasOwnProperty('sync') -->
+                    &nbsp;
+                    <i class="icons" data-bind="style: { color: attributes.sync ? 'teal' : '#bbbbbb' }"
+                       data-tooltip="Sync scan targets" data-position="top center" data-variation="tiny">
+                        <i class="sync icon"></i>
+                    </i>
+                    <!-- /ko -->
+
+                </td>
+                <td style="white-space:nowrap;"
+                    data-bind="attr: {'data-sort-value': cycle_progress[0] + cycle_progress[1] + cycle_progress[2]}">
+                    <div data-bind="attr: { 'data-html': '<i class=\'icons\'><i class=\'bullseye icon\'></i></i> ' + new Intl.NumberFormat().format(size) + ' IPs</br><i class=\'icons\'><i class=\'bullseye icon\'></i><i class=\'bottom right corner calendar outline icon\'></i></i> ' + (moment(last_sync, datetimeFormatGolang).isBefore(moment('0001-01-02', 'YYYY-MM-DD')) ? '<i>Targets not synchronized</i>' : moment(last_sync, datetimeFormatGolang).format(datetimeFormat)) + '</br><i class=\'icons\'><i class=\'redo icon\'></i></i> Cycle ' + new Intl.NumberFormat().format(cycle) + '</br><i class=\'icons\'><i class=\'redo icon\'></i><i class=\'bottom right corner calendar outline icon\'></i></i> ' + moment(cycle_started, datetimeFormatGolang).format(dateFormat) + ' | ' +  (moment().diff(moment(cycle_started, datetimeFormatGolang), 'days') === 1 ? ' 1 day ago' : moment().diff(moment(cycle_started, datetimeFormatGolang), 'days') +' days ago')}"
+                         data-position="top center" data-variation="tiny">
+                        <div class="ui small multiple progress" style="margin: 0;"
+                             data-total="100"
+                             data-bind="attr: {'data-value': cycle_progress}">
+                            <div class="teal bar">
+                                <div class="progress"></div>
+                            </div>
+                            <div class="red bar">
+                                <div class="progress"></div>
+                            </div>
+                            <div class="yellow bar">
+                                <div class="progress"></div>
+                            </div>
+                        </div>
+                    </div>
+                </td>
+                <td class="right aligned" style="background-color: #f9fafb; white-space:nowrap;">
+                    <button class="ui teal mini icon button" type="button" data-tooltip="Scan Targets"
+                            data-position="top center"
+                            data-variation="tiny"
+                            data-bind="click: function(data, event) { $parents[1].showScopeTargets(data, event)}">
+                        <i class="bullseye icon"></i>
+                    </button>
+                    <button class="ui teal mini icon button" type="button" data-tooltip="Scan Settings"
+                            data-position="top center"
+                            data-variation="tiny"
+                            data-bind="click: function(data, event) { $parents[1].showScopeSettings(data, event)}">
+                        <i class="wrench icon"></i>
+                    </button>
+                    <button class="ui teal mini icon button" type="button" data-tooltip="New Scan Cycle"
+                            data-position="top center"
+                            data-variation="tiny"
+                            data-bind="click: function(data, event) { $parents[1].newScanCycle(data, event)}">
+                        <i class="redo icon"></i>
+                    </button>
+                    <button class="ui mini icon button" type="button" data-position="top center"
+                            data-variation="tiny"
+                            data-bind="click: function(data, event) { $parents[1].pauseScope(data, event)}, class: enabled ? 'teal' : '' ,attr: {'data-tooltip': enabled ? 'Pause Scan Queue' : 'Resume Scan Queue' }">
+                        <!-- ko if: enabled -->
+                        <i class="pause icon"></i>
+                        <!-- /ko -->
+                        <!-- ko if: !enabled -->
+                        <i class="play icon"></i>
+                        <!-- /ko -->
+                    </button>
+                    <button class="ui yellow mini icon button" type="button" data-tooltip="Reset Scope Secret"
+                            data-position="top center"
+                            data-variation="tiny"
+                            data-bind="click: function(data, event) { $parents[1].resetScopeSecret(data, event)}">
+                        <i class=" icons">
+                            <i class="mask icon"></i>
+                        </i>
+                    </button>
+                    <button class="ui red mini icon button" type="button" data-tooltip="Delete"
+                            data-position="top center"
+                            data-variation="tiny"
+                            data-bind="click: function(data, event) { $parents[1].deleteScope(data, event)}">
+                        <i class="trash alternate outline icon"></i>
+                    </button>
+                </td>
+            </tr>
+            <!-- /ko -->
+            </tbody>
+        </table>
+        <div class="ui hidden clearing divider"></div>
+        <!-- /ko -->
+
+        <div class="ui teal right floated buttons">
+            <button class="ui button" type="button" data-bind="click: showScopeAddRecent">
+                <i class="plus icon"></i> Custom
+            </button>
+            <div class="ui floating dropdown icon button" type="button">
+                <i class="dropdown icon"></i>
+                <div class="menu">
+                    <div class="item"
+                         data-bind="click: function(data, event){showScopeAdd(data, event, 'custom')}">
+                        <i class="plus icon"></i> Custom
+                    </div>
+                    <div class="item"
+                         data-bind="click: function(data, event){showScopeAdd(data, event, 'caremore')}">
+                        <i class="plus icon"></i> Caremore
+                    </div>
+                    <!--
+                    <div class="item"
+                        data-bind="click: function(data, event){showScopeAdd(data, event, 'itam')}">
+                        <i class="plus icon"></i> Itam</div>
+                    -->
+                    <div class="item"
+                         data-bind="click: function(data, event){showScopeAdd(data, event, 'snic')}">
+                        <i class="plus icon"></i> Snic
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
