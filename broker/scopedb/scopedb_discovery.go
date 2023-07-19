@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -188,12 +188,20 @@ func SaveDiscoveryResult(
 				address = hostResult.Ip
 			}
 
+			// Decide critical flag
+			critical := false
+			if hostResult.Ad.CriticalObject || hostResult.Critical {
+				critical = true
+			}
+
 			// Create structs that are the same for host, service and script entries
 			columnsHost := managerdb.ColumnsHost{
 				Address:    utils.ValidUtf8String(address),
 				Ip:         utils.ValidUtf8String(hostResult.Ip),
 				DnsName:    utils.ValidUtf8String(hostResult.DnsName),
 				OtherNames: utils.ValidUtf8String(strings.Join(hostResult.OtherNames, DbValueSeparator)),
+				OtherIps:   utils.ValidUtf8String(strings.Join(hostResult.OtherIps, DbValueSeparator)),
+				Critical:   critical,
 				Hops:       utils.ValidUtf8String(strings.Join(hostResult.Hops, DbValueSeparator)),
 				ScanCycle:  scanScope.Cycle,
 			}
@@ -207,6 +215,11 @@ func SaveDiscoveryResult(
 				},
 				OsAdminUsers: utils.ValidUtf8String(strings.Join(hostResult.AdminUsers, DbValueSeparator)),
 				OsRdpUsers:   utils.ValidUtf8String(strings.Join(hostResult.RdpUsers, DbValueSeparator)),
+			}
+			columnsAsset := managerdb.ColumnsAsset{
+				AssetCompany:    utils.ValidUtf8String(hostResult.Company),
+				AssetDepartment: utils.ValidUtf8String(hostResult.Department),
+				AssetOwner:      utils.ValidUtf8String(hostResult.Owner),
 			}
 			columnsScan := managerdb.ColumnsScan{
 				ScanStarted:  inputTarget.ScanStarted,
@@ -249,10 +262,8 @@ func SaveDiscoveryResult(
 				AdManagedByGid:         utils.ValidUtf8String(hostResult.Ad.ManagedByGid),
 				AdManagedByDepartment:  utils.ValidUtf8String(hostResult.Ad.ManagedByDepartment),
 				AdOs:                   utils.ValidUtf8String(hostResult.Ad.Os),
-				AdOsServicePack:        utils.ValidUtf8String(hostResult.Ad.OsServicePack),
 				AdOsVersion:            utils.ValidUtf8String(hostResult.Ad.OsVersion),
 				AdServicePrincipalName: utils.ValidUtf8String(strings.Join(hostResult.Ad.ServicePrincipalName, DbValueSeparator)),
-				AdCriticalObject:       hostResult.Ad.CriticalObject,
 			}
 
 			// Prepare host entry
@@ -263,6 +274,7 @@ func SaveDiscoveryResult(
 				ColumnsHost:         columnsHost,
 				PortsOpen:           len(hostResult.Services),
 				ColumnsOs:           columnsOs,
+				ColumnsAsset:        columnsAsset,
 				ColumnsScan:         columnsScan,
 				ColumnsInput:        columnsInput,
 				ColumnsInputDetails: columnsInputDetails,
@@ -310,6 +322,7 @@ func SaveDiscoveryResult(
 					ServiceFlavor:       serviceResult.Flavor,
 					ServiceTtl:          serviceResult.Ttl,
 					ColumnsOs:           columnsOs,
+					ColumnsAsset:        columnsAsset,
 					ColumnsScan:         columnsScan,
 					ColumnsInput:        columnsInput,
 					ColumnsInputDetails: columnsInputDetails,
@@ -339,6 +352,7 @@ func SaveDiscoveryResult(
 					ScriptName:          scriptResult.Name,
 					ScriptOutput:        strings.Trim(scriptResult.Result, "\n"), // Some NSE outputs start with newline
 					ColumnsOs:           columnsOs,
+					ColumnsAsset:        columnsAsset,
 					ColumnsScan:         columnsScan,
 					ColumnsInput:        columnsInput,
 					ColumnsInputDetails: columnsInputDetails,

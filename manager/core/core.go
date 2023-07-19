@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -103,8 +103,8 @@ func Init() error {
 			logger.Infof("Deploying sample data completed.")
 		}
 
-		// Automigrate all scope databases
-		errScopeDb := database.AutomigrateScopeDbs(logger)
+		// Automigrate all scan scope tables
+		errScopeDb := database.AutomigrateScanScopes(logger)
 		if errScopeDb != nil {
 			return fmt.Errorf("could not initialize scope db: %s", errScopeDb)
 		}

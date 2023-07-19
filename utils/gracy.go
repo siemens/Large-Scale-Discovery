@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -22,9 +22,10 @@ import (
 // Goroutines right away and jumps into the signal handling function. So, Gracy will keep track of everything you want
 // to cleanup instead.
 type Gracy struct {
-	shutdownFns  []func()
-	registerOnce sync.Once
-	shutdownOnce sync.Once
+	shutdownFns   []func()
+	registerOnce  sync.Once
+	shutdownOnce  sync.Once
+	shutdownMutex sync.Mutex
 }
 
 // NewGracy yields a fresh Gracy keeping track of registered shutdown functions.
@@ -55,13 +56,26 @@ func (g *Gracy) Promote() {
 
 // Register registers a function to be executed on shutdown. Comparable to the defer statement.
 func (g *Gracy) Register(shutdownFn func()) {
+
+	// Avoid manipulation of shutdown functions while they might be executed
+	g.shutdownMutex.Lock()
+	defer g.shutdownMutex.Unlock()
+
+	// Register shutdown function
 	g.shutdownFns = append(g.shutdownFns, shutdownFn)
 }
 
 // Shutdown executes all registered shutdown functions sequentially in reverse order. Comparable to the execution of
 // deferred statements.
 func (g *Gracy) Shutdown() {
+
+	// Avoid manipulation of shutdown functions while they might be executed
+	g.shutdownMutex.Lock()
+	defer g.shutdownMutex.Unlock()
+
+	// Execute shutdown functions, but only once if called multiple times
 	g.shutdownOnce.Do(func() {
+
 		for i := len(g.shutdownFns) - 1; i >= 0; i-- {
 			g.shutdownFns[i]()
 		}

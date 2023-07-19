@@ -2,10 +2,10 @@
 .idea/*.iml
 .idea/workspace.xml
 
-# Don't track build output
-dist/
-
 # Don't track npm directories
 .DS_Store
 node_modules/
 bower_modules/
+
+# Don't track build files
+dist/

@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -141,7 +141,7 @@ func validEvent(event Event) error {
 	case EventLogin, EventDbPassword, EventScopeCreate, EventViewGrant, EventViewToken:
 		// Ok
 	default:
-		return fmt.Errorf("invalid event type")
+		return fmt.Errorf("invalid event type '%s'", event)
 	}
 
 	// Return nil as everything went fine

@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -28,7 +28,7 @@ define(["knockout", "text!./users.html", "postbox", "jquery", "tabulator-tables"
 
             // Check privileges and redirect to home if necessary
             if (userAdmin() === false) {
-                postbox.publish("redirect", "home");
+                postbox.publish("redirect", home());
                 return;
             }
 
@@ -65,6 +65,8 @@ define(["knockout", "text!./users.html", "postbox", "jquery", "tabulator-tables"
                     {
                         field: 'active',
                         title: 'Active',
+                        headerFilter: "tickCross",
+                        headerFilterParams: {"tristate": true},
                         formatter: "tickCross",
                         align: "center",
                         width: 60,
@@ -73,6 +75,8 @@ define(["knockout", "text!./users.html", "postbox", "jquery", "tabulator-tables"
                     {
                         field: 'admin',
                         title: 'Admin',
+                        headerFilter: "tickCross",
+                        headerFilterParams: {"tristate": true},
                         formatter: "tickCross",
                         align: "center",
                         width: 60,

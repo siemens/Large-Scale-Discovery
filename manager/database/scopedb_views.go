@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -19,7 +19,9 @@ var viewDefinitions = map[string]string{
 			ip,
 			dns_name,
 			other_names,
+			other_ips,
 			hops,
+			critical,
 			scan_cycle,
 
 			ports_open,
@@ -37,6 +39,10 @@ var viewDefinitions = map[string]string{
 			scan_ip,
 			scan_hostname,
 
+			asset_company,
+			asset_department,
+			asset_owner,
+
 			input,
 			input_size,
 
@@ -67,10 +73,8 @@ var viewDefinitions = map[string]string{
 			ad_managed_by_gid,
 			ad_managed_by_ou,
 			ad_os,
-			ad_os_service_pack,
 			ad_os_version,
-			ad_service_principal_name,
-			ad_critical_object
+			ad_service_principal_name
 		FROM 
 			t_discovery_hosts;
 	`,
@@ -83,6 +87,9 @@ var viewDefinitions = map[string]string{
 			ip,
 			dns_name,
 			other_names,
+			other_ips,
+			hops,
+			critical,
 			scan_cycle,
 
 			port,
@@ -95,6 +102,12 @@ var viewDefinitions = map[string]string{
 			service_flavor,
 			service_ttl,
 
+			scan_started,
+			scan_finished,
+			scan_status,
+			scan_ip,
+			scan_hostname,
+
 			os_guess,
 			os_smb,
 			os_last_boot,
@@ -102,11 +115,9 @@ var viewDefinitions = map[string]string{
 			os_admin_users,
 			os_rdp_users,
 
-			scan_started,
-			scan_finished,
-			scan_status,
-			scan_ip,
-			scan_hostname,
+			asset_company,
+			asset_department,
+			asset_owner,
 
 			input,
 			input_size,
@@ -138,10 +149,8 @@ var viewDefinitions = map[string]string{
 			ad_managed_by_gid,
 			ad_managed_by_ou,
 			ad_os,
-			ad_os_service_pack,
 			ad_os_version,
-			ad_service_principal_name,
-			ad_critical_object
+			ad_service_principal_name
 		FROM 
 			t_discovery_services;
 	`,
@@ -154,6 +163,9 @@ var viewDefinitions = map[string]string{
 			ip,
 			dns_name,
 			other_names,
+			other_ips,
+			hops,
+			critical,
 			scan_cycle,
 
 			port,
@@ -162,6 +174,12 @@ var viewDefinitions = map[string]string{
 			script_name,
 			script_output,
 
+			scan_started,
+			scan_finished,
+			scan_status,
+			scan_ip,
+			scan_hostname,
+
 			os_guess,
 			os_smb,
 			os_last_boot,
@@ -169,11 +187,9 @@ var viewDefinitions = map[string]string{
 			os_admin_users,
 			os_rdp_users,
 
-			scan_started,
-			scan_finished,
-			scan_status,
-			scan_ip,
-			scan_hostname,
+			asset_company,
+			asset_department,
+			asset_owner,
 
 			input,
 			input_size,
@@ -205,10 +221,8 @@ var viewDefinitions = map[string]string{
 			ad_managed_by_gid,
 			ad_managed_by_ou,
 			ad_os,
-			ad_os_service_pack,
 			ad_os_version,
-			ad_service_principal_name,
-			ad_critical_object
+			ad_service_principal_name
 		FROM 
 			t_discovery_scripts;
 	`,
@@ -221,6 +235,9 @@ var viewDefinitions = map[string]string{
 			t_discovery_services.ip,
 			t_discovery_services.dns_name,
 			t_discovery_services.other_names,
+			t_discovery_services.other_ips,
+			t_discovery_services.hops,
+			t_discovery_services.critical,
 			t_discovery_services.scan_cycle,
 			t_discovery_services.port,
 			t_discovery_services.protocol,
@@ -242,12 +259,17 @@ var viewDefinitions = map[string]string{
 			t_discovery_services.service_version,
 			t_discovery_services.service_device_type,
 			t_discovery_services.service_ttl,
+
 			t_discovery_services.os_guess,
 			t_discovery_services.os_smb,
 			t_discovery_services.os_last_boot,
 			t_discovery_services.os_uptime,
 			t_discovery_services.os_admin_users,
 			t_discovery_services.os_rdp_users,
+
+			t_discovery_services.asset_company,
+			t_discovery_services.asset_department,
+			t_discovery_services.asset_owner,
 
 			t_discovery_services.input,
 			t_discovery_services.input_size,
@@ -279,10 +301,8 @@ var viewDefinitions = map[string]string{
 			t_discovery_services.ad_managed_by_gid,
 			t_discovery_services.ad_managed_by_ou,
 			t_discovery_services.ad_os,
-			t_discovery_services.ad_os_service_pack,
 			t_discovery_services.ad_os_version,
-			t_discovery_services.ad_service_principal_name,
-			t_discovery_services.ad_critical_object
+			t_discovery_services.ad_service_principal_name
 		FROM t_banners
 			LEFT JOIN t_discovery_services ON t_banners.id_t_discovery_service = t_discovery_services.id;
 	`,
@@ -295,6 +315,9 @@ var viewDefinitions = map[string]string{
 			t_discovery_services.ip,
 			t_discovery_services.dns_name,
 			t_discovery_services.other_names,
+			t_discovery_services.other_ips,
+			t_discovery_services.hops,
+			t_discovery_services.critical,
 			t_discovery_services.scan_cycle,
 			t_discovery_services.port,
 			t_discovery_services.protocol,
@@ -328,12 +351,17 @@ var viewDefinitions = map[string]string{
 			t_discovery_services.service_version,
 			t_discovery_services.service_device_type,
 			t_discovery_services.service_ttl,
+
 			t_discovery_services.os_guess,
 			t_discovery_services.os_smb,
 			t_discovery_services.os_last_boot,
 			t_discovery_services.os_uptime,
 			t_discovery_services.os_admin_users,
 			t_discovery_services.os_rdp_users,
+
+			t_discovery_services.asset_company,
+			t_discovery_services.asset_department,
+			t_discovery_services.asset_owner,
 
 			t_discovery_services.input,
 			t_discovery_services.input_size,
@@ -365,10 +393,8 @@ var viewDefinitions = map[string]string{
 			t_discovery_services.ad_managed_by_gid,
 			t_discovery_services.ad_managed_by_ou,
 			t_discovery_services.ad_os,
-			t_discovery_services.ad_os_service_pack,
 			t_discovery_services.ad_os_version,
-			t_discovery_services.ad_service_principal_name,
-			t_discovery_services.ad_critical_object
+			t_discovery_services.ad_service_principal_name
 		FROM t_smb_files
 			LEFT JOIN t_discovery_services ON t_smb_files.id_t_discovery_service = t_discovery_services.id
 			LEFT JOIN t_smb ON t_smb_files.id_t_smb = t_smb.id;
@@ -382,6 +408,9 @@ var viewDefinitions = map[string]string{
 			t_discovery_services.ip,
 			t_discovery_services.dns_name,
 			t_discovery_services.other_names,
+			t_discovery_services.other_ips,
+			t_discovery_services.hops,
+			t_discovery_services.critical,
 			t_discovery_services.scan_cycle,
 			t_discovery_services.port,
 			t_discovery_services.protocol,
@@ -416,12 +445,17 @@ var viewDefinitions = map[string]string{
 			t_discovery_services.service_version,
 			t_discovery_services.service_device_type,
 			t_discovery_services.service_ttl,
+
 			t_discovery_services.os_guess,
 			t_discovery_services.os_smb,
 			t_discovery_services.os_last_boot,
 			t_discovery_services.os_uptime,
 			t_discovery_services.os_admin_users,
 			t_discovery_services.os_rdp_users,
+
+			t_discovery_services.asset_company,
+			t_discovery_services.asset_department,
+			t_discovery_services.asset_owner,
 
 			t_discovery_services.input,
 			t_discovery_services.input_size,
@@ -453,10 +487,8 @@ var viewDefinitions = map[string]string{
 			t_discovery_services.ad_managed_by_gid,
 			t_discovery_services.ad_managed_by_ou,
 			t_discovery_services.ad_os,
-			t_discovery_services.ad_os_service_pack,
 			t_discovery_services.ad_os_version,
-			t_discovery_services.ad_service_principal_name,
-			t_discovery_services.ad_critical_object
+			t_discovery_services.ad_service_principal_name
 		FROM t_nfs_files
 			LEFT JOIN t_discovery_services ON t_nfs_files.id_t_discovery_service = t_discovery_services.id
 			LEFT JOIN t_nfs ON t_nfs_files.id_t_nfs = t_nfs.id;
@@ -470,6 +502,9 @@ var viewDefinitions = map[string]string{
 			t_discovery_services.ip,
 			t_discovery_services.dns_name,
 			t_discovery_services.other_names,
+			t_discovery_services.other_ips,
+			t_discovery_services.hops,
+			t_discovery_services.critical,
 			t_discovery_services.scan_cycle,
 			t_discovery_services.port,
 			t_discovery_services.protocol,
@@ -494,12 +529,17 @@ var viewDefinitions = map[string]string{
 			t_discovery_services.service_version,
 			t_discovery_services.service_device_type,
 			t_discovery_services.service_ttl,
+
 			t_discovery_services.os_guess,
 			t_discovery_services.os_smb,
 			t_discovery_services.os_last_boot,
 			t_discovery_services.os_uptime,
 			t_discovery_services.os_admin_users,
 			t_discovery_services.os_rdp_users,
+
+			t_discovery_services.asset_company,
+			t_discovery_services.asset_department,
+			t_discovery_services.asset_owner,
 
 			t_discovery_services.input,
 			t_discovery_services.input_size,
@@ -531,10 +571,8 @@ var viewDefinitions = map[string]string{
 			t_discovery_services.ad_managed_by_gid,
 			t_discovery_services.ad_managed_by_ou,
 			t_discovery_services.ad_os,
-			t_discovery_services.ad_os_service_pack,
 			t_discovery_services.ad_os_version,
-			t_discovery_services.ad_service_principal_name,
-			t_discovery_services.ad_critical_object
+			t_discovery_services.ad_service_principal_name
 		FROM t_ssh
 			LEFT JOIN t_discovery_services ON t_ssh.id_t_discovery_service = t_discovery_services.id;
 	`,
@@ -547,6 +585,9 @@ var viewDefinitions = map[string]string{
 			t_discovery_services.ip,
 			t_discovery_services.dns_name,
 			t_discovery_services.other_names,
+			t_discovery_services.other_ips,
+			t_discovery_services.hops,
+			t_discovery_services.critical,
 			t_discovery_services.scan_cycle,
 			t_discovery_services.port,
 			t_discovery_services.protocol,
@@ -596,12 +637,17 @@ var viewDefinitions = map[string]string{
 			t_discovery_services.service_cpes,
 			t_discovery_services.service_flavor,
 			t_discovery_services.service_ttl,
+
 			t_discovery_services.os_guess,
 			t_discovery_services.os_smb,
 			t_discovery_services.os_last_boot,
 			t_discovery_services.os_uptime,
 			t_discovery_services.os_admin_users,
 			t_discovery_services.os_rdp_users,
+
+			t_discovery_services.asset_company,
+			t_discovery_services.asset_department,
+			t_discovery_services.asset_owner,
 
 			t_discovery_services.input,
 			t_discovery_services.input_size,
@@ -633,10 +679,8 @@ var viewDefinitions = map[string]string{
 			t_discovery_services.ad_managed_by_gid,
 			t_discovery_services.ad_managed_by_ou,
 			t_discovery_services.ad_os,
-			t_discovery_services.ad_os_service_pack,
 			t_discovery_services.ad_os_version,
-			t_discovery_services.ad_service_principal_name,
-			t_discovery_services.ad_critical_object
+			t_discovery_services.ad_service_principal_name
 		FROM t_ssl_issues
 			LEFT JOIN t_discovery_services ON t_ssl_issues.id_t_discovery_service = t_discovery_services.id
 			LEFT JOIN t_ssl ON t_ssl_issues.id_t_ssl = t_ssl.id;
@@ -650,6 +694,9 @@ var viewDefinitions = map[string]string{
 			t_discovery_services.ip,
 			t_discovery_services.dns_name,
 			t_discovery_services.other_names,
+			t_discovery_services.other_ips,
+			t_discovery_services.hops,
+			t_discovery_services.critical,
 			t_discovery_services.scan_cycle,
 			t_discovery_services.port,
 			t_discovery_services.protocol,
@@ -695,12 +742,17 @@ var viewDefinitions = map[string]string{
 			t_discovery_services.service_version,
 			t_discovery_services.service_device_type,
 			t_discovery_services.service_ttl,
+
 			t_discovery_services.os_guess,
 			t_discovery_services.os_smb,
 			t_discovery_services.os_last_boot,
 			t_discovery_services.os_uptime,
 			t_discovery_services.os_admin_users,
 			t_discovery_services.os_rdp_users,
+
+			t_discovery_services.asset_company,
+			t_discovery_services.asset_department,
+			t_discovery_services.asset_owner,
 
 			t_discovery_services.input,
 			t_discovery_services.input_size,
@@ -732,10 +784,8 @@ var viewDefinitions = map[string]string{
 			t_discovery_services.ad_managed_by_gid,
 			t_discovery_services.ad_managed_by_ou,
 			t_discovery_services.ad_os,
-			t_discovery_services.ad_os_service_pack,
 			t_discovery_services.ad_os_version,
-			t_discovery_services.ad_service_principal_name,
-			t_discovery_services.ad_critical_object
+			t_discovery_services.ad_service_principal_name
 		FROM t_ssl_ciphers
 			LEFT JOIN t_discovery_services ON t_ssl_ciphers.id_t_discovery_service = t_discovery_services.id
 			LEFT JOIN t_ssl ON t_ssl_ciphers.id_t_ssl = t_ssl.id;
@@ -749,6 +799,9 @@ var viewDefinitions = map[string]string{
 			t_discovery_services.ip,
 			t_discovery_services.dns_name,
 			t_discovery_services.other_names,
+			t_discovery_services.other_ips,
+			t_discovery_services.hops,
+			t_discovery_services.critical,
 			t_discovery_services.scan_cycle,
 			t_discovery_services.port,
 			t_discovery_services.protocol,
@@ -793,12 +846,17 @@ var viewDefinitions = map[string]string{
 			t_discovery_services.service_version,
 			t_discovery_services.service_device_type,
 			t_discovery_services.service_ttl,
+
 			t_discovery_services.os_guess,
 			t_discovery_services.os_smb,
 			t_discovery_services.os_last_boot,
 			t_discovery_services.os_uptime,
 			t_discovery_services.os_admin_users,
 			t_discovery_services.os_rdp_users,
+
+			t_discovery_services.asset_company,
+			t_discovery_services.asset_department,
+			t_discovery_services.asset_owner,
 
 			t_discovery_services.input,
 			t_discovery_services.input_size,
@@ -830,10 +888,8 @@ var viewDefinitions = map[string]string{
 			t_discovery_services.ad_managed_by_gid,
 			t_discovery_services.ad_managed_by_ou,
 			t_discovery_services.ad_os,
-			t_discovery_services.ad_os_service_pack,
 			t_discovery_services.ad_os_version,
-			t_discovery_services.ad_service_principal_name,
-			t_discovery_services.ad_critical_object
+			t_discovery_services.ad_service_principal_name
 		FROM t_ssl_certificates
 			LEFT JOIN t_discovery_services ON t_ssl_certificates.id_t_discovery_service = t_discovery_services.id
 			LEFT JOIN t_ssl ON t_ssl_certificates.id_t_ssl = t_ssl.id;
@@ -847,6 +903,9 @@ var viewDefinitions = map[string]string{
 			t_discovery_services.ip,
 			t_discovery_services.dns_name,
 			t_discovery_services.other_names,
+			t_discovery_services.other_ips,
+			t_discovery_services.hops,
+			t_discovery_services.critical,
 			t_discovery_services.scan_cycle,
 			t_discovery_services.port,
 			t_discovery_services.protocol,
@@ -879,12 +938,17 @@ var viewDefinitions = map[string]string{
 			t_discovery_services.service_version,
 			t_discovery_services.service_device_type,
 			t_discovery_services.service_ttl,
+
 			t_discovery_services.os_guess,
 			t_discovery_services.os_smb,
 			t_discovery_services.os_last_boot,
 			t_discovery_services.os_uptime,
 			t_discovery_services.os_admin_users,
 			t_discovery_services.os_rdp_users,
+
+			t_discovery_services.asset_company,
+			t_discovery_services.asset_department,
+			t_discovery_services.asset_owner,
 
 			t_discovery_services.input,
 			t_discovery_services.input_size,
@@ -916,10 +980,8 @@ var viewDefinitions = map[string]string{
 			t_discovery_services.ad_managed_by_gid,
 			t_discovery_services.ad_managed_by_ou,
 			t_discovery_services.ad_os,
-			t_discovery_services.ad_os_service_pack,
 			t_discovery_services.ad_os_version,
-			t_discovery_services.ad_service_principal_name,
-			t_discovery_services.ad_critical_object
+			t_discovery_services.ad_service_principal_name
 		FROM t_webcrawler_pages
 			LEFT JOIN t_discovery_services ON t_webcrawler_pages.id_t_discovery_service = t_discovery_services.id
 			LEFT JOIN t_webcrawler ON t_webcrawler_pages.id_t_webcrawler = t_webcrawler.id
@@ -934,6 +996,9 @@ var viewDefinitions = map[string]string{
 			t_discovery_services.ip,
 			t_discovery_services.dns_name,
 			t_discovery_services.other_names,
+			t_discovery_services.other_ips,
+			t_discovery_services.hops,
+			t_discovery_services.critical,
 			t_discovery_services.scan_cycle,
 			t_discovery_services.port,
 			t_discovery_services.protocol,
@@ -965,12 +1030,17 @@ var viewDefinitions = map[string]string{
 			t_discovery_services.service_version,
 			t_discovery_services.service_device_type,
 			t_discovery_services.service_ttl,
+
 			t_discovery_services.os_guess,
 			t_discovery_services.os_smb,
 			t_discovery_services.os_last_boot,
 			t_discovery_services.os_uptime,
 			t_discovery_services.os_admin_users,
 			t_discovery_services.os_rdp_users,
+
+			t_discovery_services.asset_company,
+			t_discovery_services.asset_department,
+			t_discovery_services.asset_owner,
 
 			t_discovery_services.input,
 			t_discovery_services.input_size,
@@ -1002,10 +1072,8 @@ var viewDefinitions = map[string]string{
 			t_discovery_services.ad_managed_by_gid,
 			t_discovery_services.ad_managed_by_ou,
 			t_discovery_services.ad_os,
-			t_discovery_services.ad_os_service_pack,
 			t_discovery_services.ad_os_version,
-			t_discovery_services.ad_service_principal_name,
-			t_discovery_services.ad_critical_object
+			t_discovery_services.ad_service_principal_name
 		FROM t_webenum_results
 			LEFT JOIN t_discovery_services ON t_webenum_results.id_t_discovery_service = t_discovery_services.id
 			LEFT JOIN t_webenum ON t_webenum_results.id_t_webenum = t_webenum.id;

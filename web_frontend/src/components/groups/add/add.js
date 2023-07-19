@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -23,6 +23,9 @@ define(["knockout", "text!./add.html", "postbox", "jquery", "semantic-ui-modal"]
             this.groupMaxViews = ko.observable("*");
             this.groupMaxTargets = ko.observable("*");
             this.groupMaxOwners = ko.observable("*");
+            this.allowCustom = ko.observable(true);
+            this.allowNetwork = ko.observable(false);
+            this.allowAsset = ko.observable(false);
 
             // Get reference to the view model's actual HTML within the DOM
             this.$domComponent = $('#divGroupAdd');
@@ -47,6 +50,9 @@ define(["knockout", "text!./add.html", "postbox", "jquery", "semantic-ui-modal"]
                     inputMaxOwners: ['numberOrUnlimited'],
                 },
             });
+
+            // Initialize tooltips
+            this.$domComponent.find('[data-html]').popup();
 
             // Fade in
             this.$domComponent.transition('fade up');
@@ -103,7 +109,10 @@ define(["knockout", "text!./add.html", "postbox", "jquery", "semantic-ui-modal"]
                 max_scopes: maxScopes,
                 max_views: maxViews,
                 max_targets: maxTargets,
-                max_owners: maxOwners
+                max_owners: maxOwners,
+                allow_custom: this.allowCustom(),
+                allow_network: this.allowNetwork(),
+                allow_asset: this.allowAsset()
             };
 
             // Send request

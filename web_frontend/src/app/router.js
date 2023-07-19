@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -46,6 +46,13 @@ define(["knockout", "postbox", "crossroads", "hasher"],
 
         // Redirect channel listening for redirect requests
         postbox.subscribe('redirect', function (url) {
+
+            // Remember originally URL if user got redirected to the login page
+            if (url === "login" && hasher.getHash() !== "") {
+                sessionStorage.setItem("redirect", hasher.getHash())
+            }
+
+            // Redirect to new URL
             hasher.setHash(url);
         });
 

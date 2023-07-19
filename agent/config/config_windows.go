@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -23,6 +23,7 @@ var templatePaths = Paths{
 }
 
 var templateAuthentication = Authentication{
+	map[string]map[string]string{},
 	templateCredentialsLdap,
 	templateCredentialsSmb,
 	templateCredentialsWeb,
@@ -114,8 +115,9 @@ func (p *Paths) UnmarshalJSON(b []byte) error {
 }
 
 type Authentication struct {
-	Ldap       Credentials `json:"ldap"`       // Used by Discovery module for AD queries
-	Smb        Credentials `json:"smb"`        // Used by SMB module for testing
-	Webcrawler Credentials `json:"webcrawler"` // Used by webcrawler module for testing
-	Webenum    Credentials `json:"webenum"`    // Used by webenum module for testing
+	Inventories map[string]map[string]string `json:"inventories"` // Flexible configuration construct for asset inventory plugins
+	Ldap        Credentials                  `json:"ldap"`        // Used by Discovery module for AD queries
+	Smb         Credentials                  `json:"smb"`         // Used by SMB module for testing
+	Webcrawler  Credentials                  `json:"webcrawler"`  // Used by webcrawler module for testing
+	Webenum     Credentials                  `json:"webenum"`     // Used by webenum module for testing
 }

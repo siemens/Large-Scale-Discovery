@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -136,7 +136,7 @@ define(["knockout", "text!./groups.html", "postbox", "jquery", "tabulator-tables
 
             // Check privileges and redirect to home if necessary
             if (userAdmin() === false) {
-                postbox.publish("redirect", "home");
+                postbox.publish("redirect", home());
                 return;
             }
 
@@ -188,7 +188,7 @@ define(["knockout", "text!./groups.html", "postbox", "jquery", "tabulator-tables
                             outputFormat: datetimeFormat,
                             invalidPlaceholder: " "
                         },
-                        width: 160,
+                        width: 110,
                     },
                     {
                         field: 'max_scopes',
@@ -221,6 +221,36 @@ define(["knockout", "text!./groups.html", "postbox", "jquery", "tabulator-tables
                         headerFilterPlaceholder: "Filter...",
                         editor: "number",
                         validator: ["required", "min:-1"],
+                    },
+                    {
+                        field: 'allow_custom',
+                        title: 'Custom Scopes',
+                        headerFilter: "tickCross",
+                        headerFilterParams: {"tristate": true},
+                        formatter: "tickCross",
+                        align: "center",
+                        width: 60,
+                        editor: "tickCross",
+                    },
+                    {
+                        field: 'allow_network',
+                        title: 'Network Imports',
+                        headerFilter: "tickCross",
+                        headerFilterParams: {"tristate": true},
+                        formatter: "tickCross",
+                        align: "center",
+                        width: 60,
+                        editor: "tickCross",
+                    },
+                    {
+                        field: 'allow_asset',
+                        title: 'Asset Imports',
+                        headerFilter: "tickCross",
+                        headerFilterParams: {"tristate": true},
+                        formatter: "tickCross",
+                        align: "center",
+                        width: 60,
+                        editor: "tickCross",
                     },
                     {
                         field: 'administrators',

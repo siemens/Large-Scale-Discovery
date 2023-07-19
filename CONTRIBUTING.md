@@ -1,5 +1,4 @@
 # Contributing to the Large-Scale Discovery
-
 Contributions to the Large-Scale Discovery are always welcome.
 
 This document explains the general requirements for contributions and the necessary preparation steps.
@@ -8,7 +7,6 @@ It also sketches the typical integration process of patches.
 All contributions are subject to verification. Complex changes or changes with opaque impact may be rejected.
 
 ## 1) Contribution Checklist
-
 - Use git to manage your changes [**recommended**]
 - Readability and code style over code efficiency [**required**]
 - Provide well-tested low maintenance code [**required**]

@@ -23,8 +23,48 @@
                 <input id="inputMaxOwners" type="text" placeholder="*" data-bind="textInput: groupMaxOwners">
             </div>
         </div>
-        <div class="ui right aligned grid">
-            <div class="column">
+
+        <div class="ui middle aligned grid">
+            <div class="four wide column">
+                <div class="field">
+                    <div class="ui toggle checkbox">
+                        <input id="inputCustom" type="checkbox" data-bind="checked: allowCustom">
+                        <label for="inputCustom">
+                            Custom Scopes
+                            <i class="question circle outline icon"
+                               data-html="Allow users to create scan scopes with custom input lists."
+                               data-position="right center" data-variation="tiny"></i>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="four wide column">
+                <div class="field">
+                    <div class="ui toggle checkbox">
+                        <input id="inputNetwork" type="checkbox" data-bind="checked: allowNetwork">
+                        <label for="inputNetwork">
+                            Network Imports
+                            <i class="question circle outline icon"
+                               data-html="Allow users to create scan scopes with inputs imported from the network inventory."
+                               data-position="right center" data-variation="tiny"></i>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="four wide column">
+                <div class="field">
+                    <div class="ui toggle checkbox">
+                        <input id="inputAsset" type="checkbox" data-bind="checked: allowAsset">
+                        <label for="inputAsset">
+                            Asset Imports
+                            <i class="question circle outline icon"
+                               data-html="Allow users to create scan scopes with inputs imported from the asset inventory."
+                               data-position="right center" data-variation="tiny"></i>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="four wide column">
                 <div class="ui right floated buttons">
                     <button class="ui button" type="button" data-bind="click: dispose">Cancel</button>
                     <div class="or"></div>
@@ -32,5 +72,6 @@
                 </div>
             </div>
         </div>
+
     </form>
 </div>

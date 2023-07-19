@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -11,7 +11,7 @@
 package database
 
 // T_ownership is a join-table to establish a many-to-many relationship between users and groups. Each expressed
-// relation ship contains additional attributes, like whether it is an administrative relationship.
+// relationship contains additional attributes, like whether it is an administrative relationship.
 type T_ownership struct {
 	// "uniqueIndex" is a workaround to introduce a "unique" mechanism across multiple columns (group id and user id)
 	Id       uint64 `gorm:"column:id;primaryKey" json:"id"`

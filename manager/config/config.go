@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -139,13 +139,15 @@ func defaultManagerConfigFactory() ManagerConfig {
 	defaultSkipDays := []time.Weekday{0, 6}
 	defaultDiscoveryTimeEarliest := "09:00"
 	defaultDiscoveryTimeLatest := "15:00"
-	defaultNmapArgs := "-PE -PP -Pn -sS -sU -O -p U:53,67,68,161,162,1900,T:0-65535 -sV -T4 --randomize-hosts --host-timeout 6h --max-retries 2 --traceroute --script=default"
+	defaultNmapArgs := "-PE -PP -Pn -sS -sU -O -p U:53,67,68,161,162,1900,T:0-65535 -sV -T4 --randomize-hosts --host-timeout 6h --max-retries 2 --traceroute --resolve-all --script=default"
+	defaultNmapArgsPrescan := "-Pn -sS -p 21,22,23,80,135,139,443,445,3389,5900,8080,8443 -T4 --randomize-hosts --host-timeout 2m --max-retries 2"
 
 	// Ease some default values in development mode
 	if _build.DevMode {
 		defaultDiscoveryTimeEarliest = "00:00"
 		defaultDiscoveryTimeLatest = "23:59"
-		defaultNmapArgs = "-PE -PP -Pn -sS -O --top-ports 10 -sV -T4 --randomize-hosts --host-timeout 6h --max-retries 2 --traceroute"
+		defaultNmapArgs = "-PE -PP -Pn -sS -O --top-ports 10 -sV -T4 --randomize-hosts --host-timeout 6h --max-retries 2 --traceroute --resolve-all"
+		defaultNmapArgsPrescan = ""
 	}
 
 	// Prepare default manager config
@@ -161,12 +163,14 @@ func defaultManagerConfigFactory() ManagerConfig {
 		SensitivePorts:               utils.JoinInt(defaultInvalidPorts, ","),
 		SensitivePortsSlice:          defaultInvalidPorts,
 		NetworkTimeoutSeconds:        8,
-		HttpUserAgent:                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:76.0) Gecko/20100101 Firefox/76.0",
+		HttpUserAgent:                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:112.0) Gecko/20100101 Firefox/112.0",
 		DiscoveryTimeEarliest:        defaultDiscoveryTimeEarliest,
 		DiscoveryTimeLatest:          defaultDiscoveryTimeLatest,
 		DiscoverySkipDays:            utils.JoinWeekdays(defaultSkipDays, ","),
 		DiscoverySkipDaysSlice:       defaultSkipDays,
 		DiscoveryNmapArgs:            defaultNmapArgs,
+		DiscoveryNmapArgsPrescan:     defaultNmapArgsPrescan,
+		DiscoveryExcludeDomains:      "cloudfront.net,wildcard.cloudfront.net,azurewebsites.net,scm.azure-mobile.net,scm.azurewebsites.net,sso.azurewebsites.net,wildcard.azure-mobile.net,wildcard.azurewebsites.net,wildcard.scm.azure-mobile.net,wildcard.scm.azurewebsites.net,wildcard.sso.azurewebsites.net",
 		NfsScanTimeoutMinutes:        60 * 24 * 4,
 		NfsDepth:                     -1,
 		NfsThreads:                   4,

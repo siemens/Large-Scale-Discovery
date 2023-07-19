@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -213,7 +213,10 @@ define(["knockout", "text!./access.html", "postbox", "jquery", "chartjs"],
                         borderColor: colors[i % colors.length],
                         backgroundColor: colors[i % colors.length],
                         borderWidth: 0,
+                        pointHoverRadius: 3,
+                        pointBorderWidth: 0,
                         fill: true,
+                        tension: 0.3
                     })
 
                     // Increment counter

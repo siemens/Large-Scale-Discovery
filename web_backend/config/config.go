@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -19,7 +19,6 @@ import (
 	"large-scale-discovery/_build"
 	"large-scale-discovery/log"
 	"large-scale-discovery/utils"
-	"path/filepath"
 	"sync"
 	"time"
 )
@@ -161,10 +160,11 @@ func defaultWebConfigFactory() WebConfig {
 			"oauth_redirect_url":       "https://application.domain.tld/api/v1/auth/oauth/callback",
 			"oauth_client_id":          "",
 			"oauth_client_secret":      "",
+			"oauth_scope":              "",
 		},
 		Loader: map[string]interface{}{ // Flexible map of arguments as needed by integrated connectors
-			"ldap_certificate_path": filepath.Join("keys", "scdasldap.siemens.net.pem"),
-			"ldap_host":             "scdasldap.siemens.net",
+			"ldap_certificate_path": "",
+			"ldap_host":             "",
 			"ldap_port":             float64(636), // will be float after loading from JSON. Must be float for unit test to succeed.
 			"ldap_user":             "",
 			"ldap_password":         "",

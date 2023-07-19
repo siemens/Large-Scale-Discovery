@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -47,7 +47,10 @@ var Scopes = func() gin.HandlerFunc {
 
 	// Define expected response structure
 	type responseBody struct {
-		Scopes []Scope `json:"scopes"`
+		Scopes       []Scope `json:"scopes"`
+		AllowCustom  bool    `json:"allow_custom"`
+		AllowNetwork bool    `json:"allow_network"`
+		AllowAsset   bool    `json:"allow_asset"`
 	}
 
 	// Return request handling function
@@ -63,11 +66,21 @@ var Scopes = func() gin.HandlerFunc {
 		var scanScopes []managerdb.T_scan_scope
 		var errScanScopes error
 
+		// Prepare memory for user rights for scope creation
+		var allowCustom bool
+		var allowNetwork bool
+		var allowAsset bool
+
 		// Query groups, depending on whether user is admin or not
 		if contextUser.Admin {
 
 			// Request all scan scopes from manager
 			scanScopes, errScanScopes = manager.RpcGetScopes(logger, core.RpcClient())
+
+			// Set user rights for scope creation
+			allowCustom = true
+			allowNetwork = true
+			allowAsset = true
 
 		} else {
 
@@ -75,6 +88,17 @@ var Scopes = func() gin.HandlerFunc {
 			groups := make([]uint64, 0, 3)
 			for _, ownership := range contextUser.Ownerships {
 				groups = append(groups, ownership.Group.Id)
+
+				// Check if user is allowed to create scan scopes of certain kinds
+				if ownership.Group.AllowCustom {
+					allowCustom = true
+				}
+				if ownership.Group.AllowNetwork {
+					allowNetwork = true
+				}
+				if ownership.Group.AllowAsset {
+					allowAsset = true
+				}
 			}
 
 			// Request owned scan scopes from manager
@@ -125,7 +149,11 @@ var Scopes = func() gin.HandlerFunc {
 			scopes = append(scopes, Scope{
 				T_scan_scope: scanScope,
 				GroupName:    group.Name,
-				// Connection: currently not required when requesting views for configuration
+				Connection: Connection{
+					Host:     scanScope.DbServer.HostPublic,
+					Port:     scanScope.DbServer.Port,
+					Database: scanScope.DbName,
+				},
 
 				ScanSettings: scanScope.ScanSettings,
 			})
@@ -133,7 +161,10 @@ var Scopes = func() gin.HandlerFunc {
 
 		// Prepare response body
 		body := responseBody{
-			Scopes: scopes,
+			Scopes:       scopes,
+			AllowCustom:  allowCustom,
+			AllowNetwork: allowNetwork,
+			AllowAsset:   allowAsset,
 		}
 
 		// Return response
@@ -523,10 +554,6 @@ var ScopeUpdateSettings = func() gin.HandlerFunc {
 			return
 		}
 
-		// Sanitize some values
-		req.ScanSettings.DiscoveryNmapArgs = strings.TrimSpace(req.ScanSettings.DiscoveryNmapArgs)              // Remove leading/trailing whitespaces
-		req.ScanSettings.DiscoveryNmapArgs = strings.Replace(req.ScanSettings.DiscoveryNmapArgs, "  ", " ", -1) // Replace redundant whitespaces, which don't have a meaning in command line arguments
-
 		// Request manager to update scan settings
 		errRpc := manager.RpcUpdateSettings(logger, core.RpcClient(), req.Id, req.ScanSettings)
 		if errors.Is(errRpc, utils.ErrRpcConnectivity) {
@@ -674,6 +701,12 @@ var ScopeCreateUpdateCustom = func() gin.HandlerFunc {
 			return
 		}
 
+		// Check if user is allowed to create scan scopes of this kind
+		if !contextUser.Admin && !scopeGroup.AllowCustom {
+			core.RespondAuthError(context)
+			return
+		}
+
 		// Request owned scan scopes from manager
 		groupScopes, errScopes := manager.RpcGetScopesOf(logger, core.RpcClient(), []uint64{scopeGroup.Id})
 		if errScopes != nil {
@@ -718,6 +751,8 @@ var ScopeCreateUpdateCustom = func() gin.HandlerFunc {
 			)
 			if errEvent != nil {
 				logger.Errorf("Could not create event log: %s", errEvent)
+				core.RespondInternalError(context) // Return generic error information
+				return
 			}
 
 			// Remember created scope ID
@@ -978,6 +1013,12 @@ var ScopeCreateUpdateNetworks = func() gin.HandlerFunc {
 			return
 		}
 
+		// Check if user is allowed to create scan scopes of this kind
+		if !contextUser.Admin && !scopeGroup.AllowNetwork {
+			core.RespondAuthError(context)
+			return
+		}
+
 		// Request owned scan scopes from manager
 		groupScopes, errScopes := manager.RpcGetScopesOf(logger, core.RpcClient(), []uint64{scopeGroup.Id})
 		if errScopes != nil {
@@ -1055,6 +1096,8 @@ var ScopeCreateUpdateNetworks = func() gin.HandlerFunc {
 			)
 			if errEvent != nil {
 				logger.Errorf("Could not create event log: %s", errEvent)
+				core.RespondInternalError(context) // Return generic error information
+				return
 			}
 
 			// Return response
@@ -1228,6 +1271,12 @@ var ScopeCreateUpdateAssets = func() gin.HandlerFunc {
 			return
 		}
 
+		// Check if user is allowed to create scan scopes of this kind
+		if !contextUser.Admin && !scopeGroup.AllowAsset {
+			core.RespondAuthError(context)
+			return
+		}
+
 		// Request owned scan scopes from manager
 		groupScopes, errScopes := manager.RpcGetScopesOf(logger, core.RpcClient(), []uint64{scopeGroup.Id})
 		if errScopes != nil {
@@ -1309,6 +1358,8 @@ var ScopeCreateUpdateAssets = func() gin.HandlerFunc {
 			)
 			if errEvent != nil {
 				logger.Errorf("Could not create event log: %s", errEvent)
+				core.RespondInternalError(context) // Return generic error information
+				return
 			}
 
 			// Return response

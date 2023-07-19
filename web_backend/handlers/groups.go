@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -92,6 +92,10 @@ var GroupCreate = func() gin.HandlerFunc {
 		MaxViews   int    `json:"max_views"`
 		MaxTargets int    `json:"max_targets"`
 		MaxUsers   int    `json:"max_owners"`
+
+		AllowCustom  bool `json:"allow_custom"`
+		AllowNetwork bool `json:"allow_network"`
+		AllowAsset   bool `json:"allow_asset"`
 	}
 
 	// Define expected response structure
@@ -125,12 +129,15 @@ var GroupCreate = func() gin.HandlerFunc {
 
 		// Prepare new group object
 		newGroup := database.T_group{
-			Name:       req.Name,
-			CreatedBy:  contextUser.Email,
-			MaxScopes:  req.MaxScopes,
-			MaxViews:   req.MaxViews,
-			MaxTargets: req.MaxTargets,
-			MaxOwners:  req.MaxUsers,
+			Name:         req.Name,
+			CreatedBy:    contextUser.Email,
+			MaxScopes:    req.MaxScopes,
+			MaxViews:     req.MaxViews,
+			MaxTargets:   req.MaxTargets,
+			MaxOwners:    req.MaxUsers,
+			AllowCustom:  req.AllowCustom,
+			AllowNetwork: req.AllowNetwork,
+			AllowAsset:   req.AllowAsset,
 		}
 
 		// Create new group object
@@ -160,6 +167,10 @@ var GroupUpdate = func() gin.HandlerFunc {
 		MaxViews   *int    `json:"max_views"`
 		MaxTargets *int    `json:"max_targets"`
 		MaxUsers   *int    `json:"max_owners"`
+
+		AllowCustom  *bool `json:"allow_custom"`
+		AllowNetwork *bool `json:"allow_network"`
+		AllowAsset   *bool `json:"allow_asset"`
 	}
 
 	// Define expected response structure
@@ -243,9 +254,18 @@ var GroupUpdate = func() gin.HandlerFunc {
 				groupEntry.MaxOwners = *req.MaxUsers
 			}
 		}
+		if req.AllowCustom != nil {
+			groupEntry.AllowCustom = *req.AllowCustom
+		}
+		if req.AllowNetwork != nil {
+			groupEntry.AllowNetwork = *req.AllowNetwork
+		}
+		if req.AllowAsset != nil {
+			groupEntry.AllowAsset = *req.AllowAsset
+		}
 
 		// Save updated attributes
-		saved, errSave := groupEntry.Save("name", "max_scopes", "max_views", "max_targets", "max_owners")
+		saved, errSave := groupEntry.Save("name", "max_scopes", "max_views", "max_targets", "max_owners", "allow_custom", "allow_network", "allow_asset")
 		if errSave != nil {
 			logger.Errorf("Could not update group entry: %s", errSave)
 			core.RespondInternalError(context) // Return generic error information
@@ -365,7 +385,7 @@ var GroupDelete = func() gin.HandlerFunc {
 	}
 }
 
-// GroupAssign sets the owners (administrators) of a given group, if the requesting user has has admin rights
+// GroupAssign sets the owners (administrators) of a given group, if the requesting user has admin rights
 var GroupAssign = func(
 	frontendUrl string,
 	smtpConnection *utils.Smtp,
@@ -468,15 +488,15 @@ var GroupAssign = func(
 
 				// Abort if there was an error and return response based on error kind
 				if len(errPublic) > 0 {
-					logger.Debugf("Could not auto-create user '%s': %s", ownerEmail, errPublic)
+					logger.Debugf("Could not auto-load user '%s' from source: %s", ownerEmail, errPublic)
 					core.Respond(context, true, errPublic, responseBody{})
 					return
 				} else if errTemporary != nil {
-					logger.Warningf("Could not auto-create user '%s' from source: %s", ownerEmail, errTemporary)
+					logger.Warningf("Could not auto-load user '%s' from source: %s", ownerEmail, errTemporary)
 					core.RespondTemporaryError(context)
 					return
 				} else if errInternal != nil {
-					logger.Errorf("Could not auto-create user '%s': %s", ownerEmail, errInternal)
+					logger.Errorf("Could not auto-load user '%s' from source: %s", ownerEmail, errInternal)
 					core.RespondInternalError(context) // Return generic error information
 					return
 				}

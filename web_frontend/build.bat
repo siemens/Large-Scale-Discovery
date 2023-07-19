@@ -1,2 +1,2 @@
-gulp
+gulp build
 set /p DONE=Hit ENTER to quit...

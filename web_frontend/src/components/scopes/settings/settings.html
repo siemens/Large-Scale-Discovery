@@ -249,17 +249,46 @@
             </span>
         </h4>
 
+        <div class="fields" data-bind="css: maxInstancesDiscovery() > 0 ? '' : 'disabled'">
+            <div class="eight wide field">
+                <label for="inputNmapArgs">
+                    Nmap Args&nbsp;
+                    <span data-html="Nmap arguments to use for the main port scan, version detection and script execution"
+                          data-position="right center" data-variation="tiny wide"><i
+                            class="question circle outline icon"></i></span>
+                </label>
+                <textarea id="inputNmapArgs"
+                          placeholder="-PE -PP -Pn -sS -sU -O -p U:53,67,68,161,162,1900,T:0-65535 -sV -T4 --randomize-hosts --host-timeout 6h --max-retries 2 --traceroute --resolve-all --script=default"
+                          rows="2"
+                          data-bind="textInput: args().scan_settings.discovery_nmap_args">
+                </textarea>
+            </div>
+            <div class="eight wide field">
+                <label for="inputNmapArgsPrescan">
+                    Nmap Args <b>Pre-Scan</b>&nbsp;
+                    <span data-html="Nmap arguments to use for a first pre-scan, intended to collect some smaller results before a potential IDS might trigger. If left empty, no pre-scan will be conducted."
+                          data-position="right center" data-variation="tiny wide"><i
+                            class="question circle outline icon"></i></span>
+                </label>
+                <textarea id="inputNmapArgsPrescan"
+                          placeholder="-Pn -sS -p 21,22,23,80,135,139,443,445,3389,5900,8080,8443 -T4 --randomize-hosts --host-timeout 2m --max-retries 2"
+                          rows="2"
+                          data-bind="textInput: args().scan_settings.discovery_nmap_args_prescan">
+                </textarea>
+            </div>
+        </div>
+
         <div class="field" data-bind="css: maxInstancesDiscovery() > 0 ? '' : 'disabled'">
-            <label for="inputNmapArgs">
-                Nmap Args&nbsp;
-                <span data-html="Nmap arguments to use for port scanning, version detection and script execution"
+            <label for="inputExcludeDomains">
+                Discovery Exclude Domains
+                <span data-html="Hostnames to be ignored when discovered. This allows to ignore common hostnames known to be unrelated to the scanned asset. These hostnames will not be stored nor used in sub modules, e.g., as vhosts."
                       data-position="right center" data-variation="tiny wide"><i
                         class="question circle outline icon"></i></span>
             </label>
-            <textarea id="inputNmapArgs"
-                      placeholder="-PE -PP -Pn -sS -sU -O -p U:53,67,68,161,162,1900,T:0-65535 -sV -T4 --randomize-hosts --host-timeout 6h --max-retries 2 --traceroute --script=default"
-                      rows="2"
-                      data-bind="textInput: args().scan_settings.discovery_nmap_args">
+            <textarea id="inputExcludeDomains"
+                      placeholder="cloudfront.net, wildcard.cloudfront.net, azurewebsites.net, scm.azure-mobile.net, scm.azurewebsites.net, sso.azurewebsites.net, wildcard.azure-mobile.net, wildcard.azurewebsites.net, wildcard.scm.azure-mobile.net, wildcard.scm.azurewebsites.net, wildcard.sso.azurewebsites.net"
+                      rows="1"
+                      data-bind="textInput: args().scan_settings.discovery_exclude_hostnames">
             </textarea>
         </div>
 
@@ -275,7 +304,7 @@
                 <div class="ui input left icon">
                     <i class="user secret icon"></i>
                     <input type="text" id="inputHttpUserAgent"
-                           placeholder="Mozilla/5.0 (Windows NT 10.0; WOW64; rv:60.0) Gecko/20100101 Firefox/60.0"
+                           placeholder="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:112.0) Gecko/20100101 Firefox/112.0"
                            data-bind="textInput: args().scan_settings.http_user_agent">
                 </div>
             </div>
@@ -355,7 +384,7 @@
                 </div>
                 <label for="inputSmbExcludeModified" style="padding-top: 13px;">
                     SMB Exclude Old Files&nbsp;
-                    <span data-html="File modification date below which files are skipped during crawling"
+                    <span data-html="File modification date below which files are skipped during crawling. Files with empty modification date will be collected, nevertheless."
                           data-position="right center" data-variation="tiny wide"><i
                             class="question circle outline icon"></i></span>
                 </label>

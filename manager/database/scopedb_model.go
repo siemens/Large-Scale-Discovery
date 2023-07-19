@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -29,8 +29,10 @@ type ColumnsHost struct {
 	Address    string `gorm:"column:address;type:text;not null;index"`
 	Ip         string `gorm:"column:ip;type:text;not null;index"`
 	DnsName    string `gorm:"column:dns_name;type:text"`
-	OtherNames string `gorm:"column:other_names;type:text"`
+	OtherNames string `gorm:"column:other_names;type:text;index"` // Standard index important for Insights queries
+	OtherIps   string `gorm:"column:other_ips;type:text"`
 	Hops       string `gorm:"column:hops;type:text"`
+	Critical   bool   `gorm:"column:critical"`
 	ScanCycle  uint   `gorm:"column:scan_cycle;index"`
 }
 
@@ -42,6 +44,14 @@ type ColumnsOs struct {
 	OsUptime     sql.NullInt64 `gorm:"column:os_uptime"`
 	OsAdminUsers string        `gorm:"column:os_admin_users;type:text"`
 	OsRdpUsers   string        `gorm:"column:os_rdp_users;type:text"`
+}
+
+// ColumnsAsset combines optional columns that can be filled by the scan agent with information from external
+// information repositories and will be appended to selected database tables
+type ColumnsAsset struct {
+	AssetCompany    string `gorm:"column:asset_company;type:text"`
+	AssetDepartment string `gorm:"column:asset_department;type:text"`
+	AssetOwner      string `gorm:"column:asset_owner;type:text"`
 }
 
 // ColumnsScan combines common scan data columns and will be appended to selected database tables
@@ -87,10 +97,8 @@ type ColumnsAd struct {
 	AdManagedByGid         string       `gorm:"column:ad_managed_by_gid;type:text"`
 	AdManagedByDepartment  string       `gorm:"column:ad_managed_by_ou;type:text"`
 	AdOs                   string       `gorm:"column:ad_os;type:text"`
-	AdOsServicePack        string       `gorm:"column:ad_os_service_pack;type:text"`
 	AdOsVersion            string       `gorm:"column:ad_os_version;type:text"`
 	AdServicePrincipalName string       `gorm:"column:ad_service_principal_name;type:text"`
-	AdCriticalObject       bool         `gorm:"column:ad_critical_object"`
 }
 
 //
@@ -117,7 +125,7 @@ func (T_discovery) TableName() string {
 
 // MaxBatchSizeDiscoveryHost defines the maximum number T_discovery_host instances that can be batched together
 // during an insert. This is calculated dividing 65535 by the number of fields (that are actually written to the db).
-const MaxBatchSizeDiscoveryHost = 1236 // 65535 / 53
+const MaxBatchSizeDiscoveryHost = 1040 // 65535 / 63
 
 type T_discovery_host struct {
 	Id                  uint64 `gorm:"column:id;type:bigserial;primaryKey;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions
@@ -125,6 +133,7 @@ type T_discovery_host struct {
 	ColumnsHost                // Insert host data columns composition
 	PortsOpen           int    `gorm:"column:ports_open"`
 	ColumnsOs                  // Insert target columns composition
+	ColumnsAsset               // Optional host information composition, that can be filled with external asset information
 	ColumnsScan                // Insert scan data columns composition
 	ColumnsInput               // Insert copy of input (original discovery)  data, because t_discovery contents may change over time
 	ColumnsInputDetails        // Insert input detail columns composition
@@ -135,7 +144,7 @@ type T_discovery_host struct {
 
 // MaxBatchSizeDiscoveryService defines the maximum number T_discovery_service instances that can be batched together
 // during an insert. This is calculated dividing 65535 by the number of fields (that are actually written to the db).
-const MaxBatchSizeDiscoveryService = 1074 // 65535 / 61
+const MaxBatchSizeDiscoveryService = 923 // 65535 / 71
 
 type T_discovery_service struct {
 	Id                  uint64 `gorm:"column:id;type:bigserial;primaryKey;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions
@@ -151,6 +160,7 @@ type T_discovery_service struct {
 	ServiceFlavor       string `gorm:"column:service_flavor;type:text"`      //
 	ServiceTtl          int    `gorm:"column:service_ttl"`                   //
 	ColumnsOs                  // Insert target columns composition
+	ColumnsAsset               // Optional host information composition, that can be filled with external asset information
 	ColumnsScan                // Insert scan data columns composition
 	ColumnsInput               // Insert copy of input (original discovery)  data, because t_discovery contents may change over time
 	ColumnsInputDetails        // Insert input detail columns composition
@@ -161,7 +171,7 @@ type T_discovery_service struct {
 
 // MaxBatchSizeDiscoveryScript defines the maximum number T_discovery_script instances that can be batched together
 // during an insert. This is calculated dividing 65535 by the number of fields (that are actually written to the db).
-const MaxBatchSizeDiscoveryScript = 1149 // 65535 / 57
+const MaxBatchSizeDiscoveryScript = 978 // 65535 / 67
 
 type T_discovery_script struct {
 	Id                  uint64 `gorm:"column:id;type:bigserial;primaryKey;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions
@@ -173,6 +183,7 @@ type T_discovery_script struct {
 	ScriptName          string `gorm:"column:script_name;type:text"`   //
 	ScriptOutput        string `gorm:"column:script_output;type:text"` //
 	ColumnsOs                  // Insert target columns composition
+	ColumnsAsset               // Optional host information composition, that can be filled with external asset information
 	ColumnsScan                // Insert scan data columns composition
 	ColumnsInput               // Insert copy of input (original discovery)  data, because t_discovery contents may change over time
 	ColumnsInputDetails        // Insert input detail columns composition
@@ -375,7 +386,7 @@ type T_ssl_certificate struct {
 
 // MaxBatchSizeSslCipher defines the maximum number T_ssl_cipher instances that can be batched together
 // during an insert. This is calculated dividing 65535 by the number of fields (that are actually written to the db).
-const MaxBatchSizeSslCipher = 1986 // 65535 / 33
+const MaxBatchSizeSslCipher = 2047 // 65535 / 32
 
 type T_ssl_cipher struct {
 	Id                      uint64 `gorm:"column:id;type:bigserial;primaryKey;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions
@@ -417,7 +428,7 @@ type T_ssl_cipher struct {
 
 // MaxBatchSizeSslIssue defines the maximum number T_ssl_issue instances that can be batched together
 // during an insert. This is calculated dividing 65535 by the number of fields (that are actually written to the db).
-const MaxBatchSizeSslIssue = 1873 // 65535 / 35
+const MaxBatchSizeSslIssue = 1985 // 65535 / 33
 
 type T_ssl_issue struct {
 	Id                           uint64 `gorm:"column:id;type:bigserial;primaryKey;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions

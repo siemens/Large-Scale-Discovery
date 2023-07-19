@@ -11,7 +11,7 @@ var reqjs = require('requirejs');
 var concat = require('gulp-concat');
 var clean = require('gulp-clean');
 var replace = require('gulp-replace');
-var uglify = require('gulp-uglify');
+var terser = require('gulp-terser'); // Minify
 var htmlreplace = require('gulp-html-replace');
 var webserver = require('gulp-webserver');
 var rename = require("gulp-rename");
@@ -107,6 +107,12 @@ gulp.task('js', function () {
     });
 });
 
+gulp.task('uglify', function () {
+    return gulp.src('./dist/scripts.js')
+        .pipe(terser())
+        .pipe(gulp.dest('./dist'));
+});
+
 // Moves the images to the dist-folder
 gulp.task('img', function () {
     return gulp.src([
@@ -132,20 +138,11 @@ gulp.task('css', function () {
         .pipe(gulp.dest('./dist/'));
 });
 
-// Moves the tabulator CSS map file to the dist-folder
-gulp.task('maps', function () {
+// Moves other necessary files 
+gulp.task('assemble', function () {
     return gulp.src([
-        './node_modules/tabulator-tables/dist/css/semantic-ui/tabulator_semantic-ui.min.css.map',
-        './node_modules/moment/min/moment.min.js.map',
         './src/favicon.ico'
     ])
-        .pipe(rename(function (path) {
-            // Fixes some bug in moments.js appearing after joining JavaScript files, where an ";" is added to
-            // the moment.min.js.map request
-            if (path.basename === "moment.min.js" && path.extname === ".map") {
-                path.extname = path.extname + ";"
-            }
-        }))
         .pipe(gulp.dest('./dist/'));
 });
 
@@ -161,11 +158,15 @@ gulp.task('html', function () {
 
 gulp.task('audit', function () {
     return new Promise(function (resolve, reject) {
-        console.log(execSync('npm audit --production').toString());
-        resolve();
+        var r = execSync('npm audit --omit=dev').toString()
+        if (r.includes("found 0 vulnerabilities")) {
+            console.log(r);
+            resolve();
+        } else {
+            reject(r);
+        }
     });
 });
-
 
 // Removes all files from ./dist/
 gulp.task('clean', function () {
@@ -174,7 +175,7 @@ gulp.task('clean', function () {
 });
 
 // Runs a default set of tasks
-gulp.task('default', gulp.series('fonts', 'js', 'img', 'css', 'maps', 'html', 'audit'));
+gulp.task('build', gulp.series('fonts', 'js', 'uglify', 'img', 'css', 'assemble', 'html', 'audit'));
 
 // Sets up a webserver with live reload for development
 gulp.task('webserver', function () {
@@ -186,4 +187,3 @@ gulp.task('webserver', function () {
             open: 'http://localhost:8050/src/index.html'
         }));
 });
-

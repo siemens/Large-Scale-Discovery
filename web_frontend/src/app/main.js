@@ -1,15 +1,15 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
 *
  */
 
-define(["knockout", "globals", './router', "postbox", "jquery", "moment", "avatars", "avatars-avataaars", "utils-app"],
-    function (ko, globals, router, postbox, $, Moment, avatar, avatarTiles) {
+define(["knockout", "globals", './router', "postbox", "jquery", "hasher", "moment", "avatars", "avatars-avataaars", "utils-app"],
+    function (ko, globals, router, postbox, $, hasher, Moment, avatar, avatarTiles) {
 
         // Bug fix because Tabulator.js is looking for moments globally
         window.moment = Moment;
@@ -115,6 +115,26 @@ define(["knockout", "globals", './router', "postbox", "jquery", "moment", "avata
                     response["body"]["access"],
                     response["body"]["created"]
                 );
+
+                // Redirect to originally called URL or to the user's home page
+                var target = sessionStorage.getItem("redirect");
+                if (target !== undefined && target !== "") {
+
+                    // Reset redirect
+                    sessionStorage.setItem("redirect", "");
+
+                    // Update redirect if it's redirecting to the user's wrong home page
+                    if (target === "home" && home() !== "home") {
+                        target = home()
+                    }
+
+                    // Redirect to intended URL
+                    postbox.publish("redirect", target);
+                } else if (hasher.getHash() !== "") {
+                    postbox.publish("redirect", hasher.getHash());  // Redirect to previous URL on page refresh
+                } else {
+                    postbox.publish("redirect", home());
+                }
             };
 
             // Update application globals with server-side values

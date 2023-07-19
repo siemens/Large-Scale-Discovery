@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -12,7 +12,7 @@ package core
 
 import (
 	"fmt"
-	"github.com/dgrijalva/jwt-go"
+	"github.com/golang-jwt/jwt/v5"
 	scanUtils "github.com/siemens/GoScans/utils"
 	manager "large-scale-discovery/manager/core"
 	"large-scale-discovery/web_backend/config"
@@ -187,6 +187,7 @@ func doLogin(logger scanUtils.Logger, user *database.T_user) (errUser, errIntern
 	errEvent := database.NewEvent(user, database.EventLogin, "")
 	if errEvent != nil {
 		logger.Errorf("Could not create event log: %s", errEvent)
+		return nil, errEvent
 	}
 
 	// Return no errors, indicating user may pass
@@ -204,10 +205,10 @@ func createJwt(userId uint64, revision uint) (string, time.Time) {
 
 	// Prepare JWT token
 	tk := &Jwt{
-		StandardClaims: jwt.StandardClaims{
-			IssuedAt:  time.Now().Unix(), // time necessary to generate varying tokens
-			NotBefore: time.Now().Unix(),
-			ExpiresAt: expires.Unix(),
+		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt:  jwt.NewNumericDate(time.Now()), // time necessary to generate varying tokens
+			NotBefore: jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(expires),
 		},
 		UserId:   userId,
 		Revision: revision, // Tag is not a secret
