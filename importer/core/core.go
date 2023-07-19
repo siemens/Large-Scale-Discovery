@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -278,6 +278,14 @@ func synchronizeScanScope(scanScope managerdb.T_scan_scope) {
 
 	// Get tagged logger
 	logger := log.GetLogger().Tagged(uuid)
+
+	// Log potential panics before letting them move on
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf(fmt.Sprintf("Panic: %s%s", r, scanUtils.StacktraceIndented("\t")))
+			panic(r)
+		}
+	}()
 
 	// Acquire lock if it is not yet taken. Allow parallel requests for different scope secrets.
 	scopeIdAsStr := strconv.FormatUint(scanScope.Id, 10)

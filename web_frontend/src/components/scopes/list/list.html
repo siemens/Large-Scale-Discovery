@@ -45,7 +45,7 @@
             <!-- ko foreach: {data: $data} -->
             <tr>
                 <td style="max-width: 0;overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                    <span data-bind="class: presentationClass(), text: name, attr: { title: name }"></span>
+                    <span data-bind="class: presentationClass(), text: name, attr: { title: connection.database }"></span>
                 </td>
                 <td style="max-width: 0;overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                     <span data-bind="class: presentationClass(), text: created_by, attr: { title: created_by }"></span>
@@ -70,8 +70,9 @@
                     </i>
                     <!-- ko if: attributes.hasOwnProperty('sync') -->
                     &nbsp;
-                    <i class="icons" data-bind="style: { color: attributes.sync ? 'teal' : '#bbbbbb' }"
-                       data-tooltip="Sync scan targets" data-position="top center" data-variation="tiny">
+                    <i class="icons"
+                       data-bind="style: { color: attributes.sync ? 'teal' : '#bbbbbb' }, attr: {'data-html': attributes.sync ? (moment(last_sync, datetimeFormatGolang).isBefore(moment('0001-01-02', 'YYYY-MM-DD')) ? '<i>Targets not synchronized</i>' : 'Last Sync: ' + moment(last_sync, datetimeFormatGolang).format(datetimeFormat)) : 'Sync scan targets'}"
+                       data-position="top center" data-variation="tiny">
                         <i class="sync icon"></i>
                     </i>
                     <!-- /ko -->
@@ -147,30 +148,39 @@
         <div class="ui hidden clearing divider"></div>
         <!-- /ko -->
 
-        <div class="ui teal right floated buttons">
+        <div class="ui teal right floated buttons"
+             data-bind="style: {display: parent.allowCustom() || parent.allowNetwork() || parent.allowAsset() ? '' : 'none'}">
+            <!-- ko if: parent.allowCustom -->
             <button class="ui button" type="button" data-bind="click: showScopeAddRecent">
                 <i class="plus icon"></i> Custom
             </button>
+            <!-- /ko -->
             <div class="ui floating dropdown icon button" type="button">
+                <!-- ko if: parent.allowCustom -->
                 <i class="dropdown icon"></i>
+                <!-- /ko -->
+                <!-- ko if: parent.allowCustom() === false -->
+                <i class="plus icon"></i>
+                <!-- /ko -->
                 <div class="menu">
+                    <!-- ko if: parent.allowCustom -->
                     <div class="item"
                          data-bind="click: function(data, event){showScopeAdd(data, event, 'custom')}">
                         <i class="plus icon"></i> Custom
                     </div>
-                    <div class="item"
-                         data-bind="click: function(data, event){showScopeAdd(data, event, 'caremore')}">
-                        <i class="plus icon"></i> Caremore
-                    </div>
-                    <!--
-                    <div class="item"
-                        data-bind="click: function(data, event){showScopeAdd(data, event, 'itam')}">
-                        <i class="plus icon"></i> Itam</div>
-                    -->
+                    <!-- /ko -->
+                    <!-- ko if: parent.allowNetwork -->
                     <div class="item"
                          data-bind="click: function(data, event){showScopeAdd(data, event, 'snic')}">
                         <i class="plus icon"></i> Snic
                     </div>
+                    <!-- /ko -->
+                    <!-- ko if: parent.allowAsset -->
+                    <div class="item"
+                         data-bind="click: function(data, event){showScopeAdd(data, event, 'caremore')}">
+                        <i class="plus icon"></i> Caremore
+                    </div>
+                    <!-- /ko -->
                 </div>
             </div>
         </div>

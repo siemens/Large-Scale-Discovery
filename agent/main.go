@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -13,6 +13,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/siemens/GoScans/discovery"
 	scanUtils "github.com/siemens/GoScans/utils"
 	"large-scale-discovery/agent/config"
 	"large-scale-discovery/agent/core"
@@ -58,6 +59,14 @@ func main() {
 		fmt.Println("could not initialize logger: ", errLog)
 		return
 	}
+
+	// Log potential panics before letting them move on
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf(fmt.Sprintf("Panic: %s%s", r, scanUtils.StacktraceIndented("\t")))
+			panic(r)
+		}
+	}()
 
 	// Make sure logger gets closed gracefully
 	gracy.Register(func() {
@@ -113,6 +122,14 @@ func main() {
 	errTest := core.CheckConfig()
 	if errTest != nil {
 		logger.Errorf("Invalid configuration for %s", errTest)
+		logger.Infof("Please check the configuration!")
+		return
+	}
+
+	// Initialize asset inventory functionality of discovery module
+	errInventory := discovery.InitInventories(conf.Authentication.Inventories)
+	if errInventory != nil {
+		logger.Errorf("Could not initialize asset inventory: %s", errInventory)
 		logger.Infof("Please check the configuration!")
 		return
 	}

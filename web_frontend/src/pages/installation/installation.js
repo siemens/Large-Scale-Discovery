@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -57,7 +57,16 @@ define(["knockout", "text!./installation.html", "postbox", "semantic-ui-accordio
                     "comment": "",
                 },
                 {
-                    "title": "Enumeration Of Admin/Rdp Users",
+                    "title": "Extraction Of Remote Interfaces",
+                    "subEntry": true,
+                    "linuxSupport": 1,
+                    "windowsSupport": 1,
+                    "domainSupport": 1,
+                    "domainSupportComment": "Via implicit authentication.",
+                    "comment": "",
+                },
+                {
+                    "title": "Extraction Of Admin/Rdp Users",
                     "subEntry": true,
                     "linuxSupport": 0,
                     "windowsSupport": 0,
@@ -66,7 +75,7 @@ define(["knockout", "text!./installation.html", "postbox", "semantic-ui-accordio
                     "comment": "",
                 },
                 {
-                    "title": "Active Directory Enrichment",
+                    "title": "Active Directory Lookup",
                     "subEntry": true,
                     "linuxSupport": 2,
                     "linuxSupportComment": "With explicit credentials a configured domain can be queried. No cross-domain authentication possible.",
@@ -74,6 +83,14 @@ define(["knockout", "text!./installation.html", "postbox", "semantic-ui-accordio
                     "windowsSupportComment": "With explicit credentials a configured domain can be queried. No cross-domain authentication possible.",
                     "domainSupport": 1,
                     "domainSupportComment": "Implicit authentication is used to query the target's domain. Cross-domain authentication is possible. You can configure explicit credentials to query a specific domain.",
+                    "comment": "",
+                },
+                {
+                    "title": "Asset Inventory Lookup",
+                    "subEntry": true,
+                    "linuxSupport": 1,
+                    "windowsSupport": 1,
+                    "domainSupport": 1,
                     "comment": "",
                 },
                 {
@@ -266,7 +283,7 @@ define(["knockout", "text!./installation.html", "postbox", "semantic-ui-accordio
         ViewModel.prototype.toClipboard = function (data, event) {
 
             // Find content and copy to clipboard
-            var $temp = $("<input>");
+            var $temp = $("<textarea>");
             $("body").append($temp);
             $temp.val(event.currentTarget.nextElementSibling.innerText).select();
             document.execCommand("copy");

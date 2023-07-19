@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -80,6 +80,7 @@ define(["knockout", "text!./custom.html", "postbox", "jquery", "tabulator-tables
             this.groupName = ko.observable("");
             this.synchronizationOngoing = ko.observable(null);
             this.edited = ko.observable(false);
+            this.editing = ko.observable(false);
 
             // Initialize create-mode observables
             this.groupsAvailable = ko.observableArray([]);
@@ -115,9 +116,13 @@ define(["knockout", "text!./custom.html", "postbox", "jquery", "tabulator-tables
             // Initialize tooltips
             this.$domComponent.find('[data-html]').popup();
 
+
             // Workaround hack to focus datatable before CTRL+V paste is triggered by 'tabulator'
             // data tables. This is for usability because users would need to know that the focus
             // needs to be on the datatable in order to receive the pasted data.
+            // ATTENTION: This keydown event has to be removed again when the view is closed, otherwise
+            //            it would be registered multiple times, when the view is opened again.
+            var ctx = this;
             var ctrlDown = false, ctrlKey = 17, cmdKey = 91, vKey = 86
             $(document).keydown(function (e) {
                 if (e.keyCode === ctrlKey || e.keyCode === cmdKey) ctrlDown = true;
@@ -126,7 +131,9 @@ define(["knockout", "text!./custom.html", "postbox", "jquery", "tabulator-tables
             });
             $(document).keydown(function (e) {
                 if (ctrlDown && (e.keyCode === vKey)) {
-                    document.getElementsByClassName('tabulator-tableHolder')[0].focus()
+                    if (!ctx.editing()) {
+                        document.getElementsByClassName('tabulator-tableHolder')[0].focus()
+                    }
                 }
             });
 
@@ -147,7 +154,7 @@ define(["knockout", "text!./custom.html", "postbox", "jquery", "tabulator-tables
                 // Initialize tabulator grid for scan targets
                 this.grid = new Tabulator(
                     "#divDataGridTargets",
-                    targetsTableConfig([{enabled: true}])
+                    targetsTableConfig([{enabled: true}],)
                 );
 
                 // Initialize form validators
@@ -198,6 +205,9 @@ define(["knockout", "text!./custom.html", "postbox", "jquery", "tabulator-tables
                         "#divDataGridTargets",
                         targetsTableConfig(
                             data,
+                            function (data) {
+                                ctx.editing(!ctx.editing())
+                            },
                             function (data) {
                                 ctx.edited(true)
                             },
@@ -360,6 +370,10 @@ define(["knockout", "text!./custom.html", "postbox", "jquery", "tabulator-tables
 
         // VIEWMODEL DECONSTRUCTION
         ViewModel.prototype.dispose = function (data, event) {
+
+            // Remove keydown listener, otherwise it would be registered multiple times
+            // next time when this view is opened
+            $(document).off("keydown");
 
             // Hide form
             this.$domComponent.transition('fade up');

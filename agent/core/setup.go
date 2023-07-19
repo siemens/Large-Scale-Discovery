@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -155,7 +155,7 @@ func CheckConfig() error {
 	dummyPort := 0
 	dummyOtherNames := []string{"a", "b"}
 	dummyNetworkTimeout := time.Second * 0
-	dummyHttpUserAgent := "Mozilla/5.0 (Windows NT 10.0; WOW64; rv:60.0) Gecko/20100101 Firefox/60.0"
+	dummyHttpUserAgent := "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:112.0) Gecko/20100101 Firefox/112.0"
 
 	// Get config
 	conf := config.GetConfig()
@@ -199,6 +199,7 @@ func CheckConfig() error {
 		conf.Authentication.Ldap.Domain,
 		conf.Authentication.Ldap.User,
 		conf.Authentication.Ldap.Password,
+		nil,
 		dummyNetworkTimeout,
 	)
 	if errNmap != nil {

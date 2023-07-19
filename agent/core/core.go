@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -146,10 +146,10 @@ func Run() {
 	chResults := make(chan broker.ArgsSaveScanResult)
 
 	// Start goroutine continuously asking the broker for new scan tasks, if necessary. This goroutine will stop
-	// requesting new tasks, once the agent termination signal is set and it will cause scanTaskLauncher to terminate
+	// requesting new tasks, once the agent termination signal is set and will cause scanTaskLauncher to terminate
 	// subsequently.
 	wg.Add(1)
-	go scanTaskRequester(&wg, chTargets)
+	go scanTaskLoader(&wg, chTargets)
 
 	// Start goroutine that starts a module job when new targets are received after asking for targets. This goroutine
 	// will run until its input channel is terminated.
@@ -273,8 +273,8 @@ func decreaseUsageModule(moduleName string) {
 	}
 }
 
-// scanTaskRequester keeps asking the broker for new scan tasks
-func scanTaskRequester(wg *sync.WaitGroup, chOut chan broker.ScanTask) {
+// scanTaskLoader keeps asking the broker for new scan tasks
+func scanTaskLoader(wg *sync.WaitGroup, chOut chan broker.ScanTask) {
 
 	// Decrement wait group on return
 	defer wg.Done()
@@ -283,7 +283,7 @@ func scanTaskRequester(wg *sync.WaitGroup, chOut chan broker.ScanTask) {
 	defer close(chOut)
 
 	// Get tagged logger
-	logger := log.GetLogger().Tagged("scanTaskRequester")
+	logger := log.GetLogger().Tagged("scanTaskLoader")
 
 	// Catch potential panics to gracefully log issue with stacktrace
 	defer func() {
@@ -352,7 +352,7 @@ func scanTaskRequester(wg *sync.WaitGroup, chOut chan broker.ScanTask) {
 	for {
 		select {
 		case <-coreCtx.Done(): // Cancellation signal
-			logger.Infof("Scan task requester terminated.")
+			logger.Infof("Scan task loader terminated.")
 			return
 		case <-ticker.C: // Wait for next attempt
 			requestFunc()

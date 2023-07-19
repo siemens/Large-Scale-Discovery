@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -135,16 +135,22 @@ func launchDiscovery(
 	}
 
 	// Prepare variables
+	var nmapArgsPreScan []string
+	var excludeDomains []string
 	networkTimeout := time.Second * time.Duration(scanTask.ScanSettings.NetworkTimeoutSeconds)
-	nmapArgs := strings.Split(scanTask.ScanSettings.DiscoveryNmapArgs, " ") // Nmap arguments for actual scan
-	nmapArgsPreScan := []string{"-Pn", "-sS", "-p", "21,22,23,80,135,139,443,445,3389,5900,8080,8443", "-T4",
-		"--randomize-hosts", "--host-timeout", "2m", "--max-retries", "2"} // Nmap arguments for pre-scan
+	nmapArgs := strings.Split(scanTask.ScanSettings.DiscoveryNmapArgs, " ") // Nmap arguments for the main port scan scan
+	if len(scanTask.ScanSettings.DiscoveryNmapArgsPrescan) > 0 {
+		nmapArgsPreScan = strings.Split(scanTask.ScanSettings.DiscoveryNmapArgsPrescan, " ") // Nmap arguments for a smaller pre-scan intended to discover some scan results before an IDS might block
+	}
+	if len(scanTask.ScanSettings.DiscoveryExcludeDomains) > 0 {
+		excludeDomains = strings.Split(strings.Replace(scanTask.ScanSettings.DiscoveryExcludeDomains, " ", "", -1), ",")
+	}
 
-	// Resolve scan input (in case of hostname) and group addresses by IPv4/v6
-	ipsV4, ipsV6 := resolveInput(scanTask.Target)
+	// Classify whether target is reachable via IPv4 and/or IPv6
+	hasV4Ips, hasV6Ips := classifyInput(scanTask.Target)
 
 	// Skip scan if to scan target could be resolved
-	if len(ipsV4) == 0 && len(ipsV6) == 0 {
+	if !hasV4Ips && !hasV6Ips {
 		logger.Debugf("Target could not be resolved.")
 		rpcArgs.Result = &discovery.Result{
 			Data:      nil,
@@ -155,23 +161,37 @@ func launchDiscovery(
 		return
 	}
 
+	// Prepare scan input classified by IPv4/v6
+	targetV4 := make([]string, 0, 1)
+	targetV6 := make([]string, 0, 1)
+	if hasV4Ips {
+		targetV4 = append(targetV4, scanTask.Target)
+	}
+	if hasV6Ips {
+		targetV6 = append(targetV6, scanTask.Target)
+	}
+
 	// Execute pre-scan with minimum settings trying to discover some likely data where bigger scans might fail (e.g.
 	// due to IPS systems going on or unexpected timeouts), in order to register some more hosts that might remain
 	// undiscovered otherwise.
-	logger.Debugf("Executing pre-scan.")
-	resultPreScan, errPreScan := executeDiscoveryScan(logger, label, ipsV4, ipsV6, conf, networkTimeout, nmapArgsPreScan)
-	if resultPreScan == nil {
-		return
-	}
-	if errPreScan != nil {
-		rpcArgs.Result = resultPreScan
-		chResults <- rpcArgs
-		return
+	var resultPreScan *discovery.Result
+	if len(nmapArgsPreScan) > 0 {
+		logger.Debugf("Executing pre-scan.")
+		var errPreScan error
+		resultPreScan, errPreScan = executeDiscoveryScan(logger, label, targetV4, targetV6, conf, networkTimeout, nmapArgsPreScan, excludeDomains)
+		if resultPreScan == nil {
+			return
+		}
+		if errPreScan != nil {
+			rpcArgs.Result = resultPreScan
+			chResults <- rpcArgs
+			return
+		}
 	}
 
 	// Execute actual scan of the target
-	logger.Debugf("Executing actual scan.")
-	result, errScan := executeDiscoveryScan(logger, label, ipsV4, ipsV6, conf, networkTimeout, nmapArgs)
+	logger.Debugf("Executing main scan.")
+	result, errScan := executeDiscoveryScan(logger, label, targetV4, targetV6, conf, networkTimeout, nmapArgs, excludeDomains)
 	if result == nil {
 		return
 	}
@@ -191,10 +211,12 @@ func launchDiscovery(
 	// the actual scan results.
 	// ATTENTION: If the actual scan ran into its deadline it didn't scan any results at all. Pre-scan results will be
 	// 			  injected as fallback.
-	for _, hostPreScan := range resultPreScan.Data {
-		if _, hostDiscovered := hostsDiscovered[hostPreScan.Ip]; !hostDiscovered {
-			logger.Infof("Injecting pre-scan result of '%s'.", hostPreScan.Ip)
-			result.Data = append(result.Data, hostPreScan)
+	if resultPreScan != nil {
+		for _, hostPreScan := range resultPreScan.Data {
+			if _, hostDiscovered := hostsDiscovered[hostPreScan.Ip]; !hostDiscovered {
+				logger.Infof("Injecting pre-scan result of '%s'.", hostPreScan.Ip)
+				result.Data = append(result.Data, hostPreScan)
+			}
 		}
 	}
 
@@ -464,7 +486,7 @@ func launchWebcrawler(
 	// Prepare variables
 	networkTimeout := time.Second * time.Duration(scanTask.ScanSettings.NetworkTimeoutSeconds)
 	scanTimeout := time.Minute * time.Duration(scanTask.ScanSettings.WebcrawlerScanTimeoutMinutes)
-	followTypes := strings.Split(scanTask.ScanSettings.WebcrawlerFollowTypes, ",")
+	followTypes := strings.Split(strings.Replace(scanTask.ScanSettings.WebcrawlerFollowTypes, " ", "", -1), ",")
 
 	// Determine whether to use http or https scheme.
 	https := false

@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -180,6 +180,8 @@ var ViewGrantToken = func(
 		)
 		if errEvent != nil {
 			logger.Errorf("Could not create event log: %s", errEvent)
+			core.RespondInternalError(context) // Return generic error information
+			return
 		}
 
 		// Return response
@@ -297,15 +299,15 @@ var ViewGrantUsers = func(
 
 				// Abort if there was an error and return response based on error kind
 				if len(errPublic) > 0 {
-					logger.Debugf("Could not auto-create user '%s': %s", userEmail, errPublic)
+					logger.Debugf("Could not auto-load user '%s' from source: %s", userEmail, errPublic)
 					core.Respond(context, true, errPublic, responseBody{})
 					return
 				} else if errTemporary != nil {
-					logger.Warningf("Could not auto-create user '%s' from source: %s", userEmail, errTemporary)
+					logger.Warningf("Could not auto-load user '%s' from source: %s", userEmail, errTemporary)
 					core.RespondTemporaryError(context)
 					return
 				} else if errInternal != nil {
-					logger.Errorf("Could not auto-create user '%s': %s", userEmail, errInternal)
+					logger.Errorf("Could not auto-load user '%s' from source: %s", userEmail, errInternal)
 					core.RespondInternalError(context) // Return generic error information
 					return
 				}
@@ -323,7 +325,7 @@ var ViewGrantUsers = func(
 				// Create new user object in DB
 				err := newUser.Create()
 				if err != nil {
-					logger.Errorf("Could not auto-create user: %s", err)
+					logger.Errorf("Could not auto-create user '%s': %s", userEmail, err)
 					core.RespondInternalError(context) // Return generic error information
 					return
 				}
@@ -442,6 +444,8 @@ var ViewGrantUsers = func(
 			)
 			if errEvent != nil {
 				logger.Errorf("Could not create event log: %s", errEvent)
+				core.RespondInternalError(context) // Return generic error information
+				return
 			}
 		}
 

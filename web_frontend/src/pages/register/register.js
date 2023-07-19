@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -16,7 +16,7 @@ define(["knockout", "text!./register.html", "postbox", "jquery", "semantic-ui-mo
 
             // Check authentication and redirect to login if necessary
             if (authenticated()) {
-                postbox.publish("redirect", "home");
+                postbox.publish("redirect", home());
                 return;
             }
 
@@ -62,9 +62,9 @@ define(["knockout", "text!./register.html", "postbox", "jquery", "semantic-ui-mo
 
             // Handle request error
             const callbackError = function (response, textStatus, jqXHR) {
-                parent.$domForm.form('add prompt', 'inputEmail');
+                parent.$domForm.form("add prompt", "inputEmail", "Invalid E-Mail");
                 if (!developmentLogin()) {
-                    parent.$domForm.form('add prompt', 'inputPassword');
+                    parent.$domForm.form("add prompt", "inputPassword", "Invalid Password");
                 }
                 parent.$domForm.each(shake);
             };

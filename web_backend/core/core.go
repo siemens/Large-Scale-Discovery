@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -13,9 +13,9 @@ package core
 import (
 	"context"
 	"fmt"
-	"github.com/dgrijalva/jwt-go"
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	scanUtils "github.com/siemens/GoScans/utils"
 	"io"
 	"large-scale-discovery/_build"
@@ -44,15 +44,12 @@ var httpServerKey string                                                  // Key
 
 // Jwt represents a JWT token and it's attributes, used for authentication
 type Jwt struct {
-	jwt.StandardClaims
+	jwt.RegisteredClaims
 	UserId   uint64 // The ID of the user this JWT token belongs to
 	Revision uint   // User's logout count to invalidate previously issued JWT tokens ahead of time (JWT tokens not stored on the server-side like sessions!)
 }
 
 func Init() error {
-
-	// Get global logger
-	logger := log.GetLogger()
 
 	// Get config
 	conf := config.GetConfig()
@@ -73,16 +70,6 @@ func Init() error {
 		return errServerKey
 	}
 
-	// Prepare RPC certificate path
-	rpcRemoteCrt := filepath.Join("keys", "manager.crt")
-	if _build.DevMode {
-		rpcRemoteCrt = filepath.Join("keys", "manager_dev.crt")
-	}
-	errRemoteCrt := scanUtils.IsValidFile(rpcRemoteCrt)
-	if errRemoteCrt != nil {
-		return errRemoteCrt
-	}
-
 	// Set GIN release mode before initializing
 	if _build.DevMode {
 	} else {
@@ -100,15 +87,6 @@ func Init() error {
 	if errMigrate != nil {
 		return fmt.Errorf("could not migrate backend db: %s", errMigrate)
 	}
-
-	// Register gob structures that will be sent via interface{}
-	manager.RegisterGobs()
-
-	// Initialize RPC client manager facing
-	rpcClient = utils.NewRpcClient(conf.ManagerAddress, rpcRemoteCrt)
-
-	// Connect to manager but don't wait to start answering client requests. Connection attempts continue in background.
-	_ = rpcClient.Connect(logger, true)
 
 	// Set config values
 	jwtSecret = conf.Jwt.Secret
@@ -171,6 +149,38 @@ func Init() error {
 
 	// Return as everything went fine
 	return nil
+}
+
+func InitManager() error {
+
+	// Get global logger
+	logger := log.GetLogger()
+
+	// Get config
+	conf := config.GetConfig()
+
+	// Prepare RPC certificate path
+	rpcRemoteCrt := filepath.Join("keys", "manager.crt")
+	if _build.DevMode {
+		rpcRemoteCrt = filepath.Join("keys", "manager_dev.crt")
+	}
+	errRemoteCrt := scanUtils.IsValidFile(rpcRemoteCrt)
+	if errRemoteCrt != nil {
+		return errRemoteCrt
+	}
+
+	// Register gob structures that will be sent via interface{}
+	manager.RegisterGobs()
+
+	// Initialize RPC client manager facing
+	rpcClient = utils.NewRpcClient(conf.ManagerAddress, rpcRemoteCrt)
+
+	// Connect to manager but don't wait to start answering client requests. Connection attempts continue in background.
+	_ = rpcClient.Connect(logger, true)
+
+	// Return as everything went fine
+	return nil
+
 }
 
 // Run starts the gin web server

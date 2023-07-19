@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -29,10 +29,9 @@ function tabulatorFilterDatetime(headerValue, rowValue, rowData, filterParams) {
 /*
  * Tabulator configuration for scan scope target editor
  */
-function targetsTableConfig(targetsJson, fnDataChanged, fnInputReset) {
+function targetsTableConfig(targetsJson, fnToggleEditState, fnDataChanged, fnInputReset) {
 
-    var fnMaintainEmptyRow = function (cell) {
-        var table = cell.getTable();
+    var fnMaintainEmptyRow = function (table) {
         var data = table.getData();
         var lastRow = 0;
         if (data.length === 0) {
@@ -61,8 +60,12 @@ function targetsTableConfig(targetsJson, fnDataChanged, fnInputReset) {
         return value === 1 || value === "1" || value === "t" || value === "true" || value === "y" || value === "yes";
     };
 
-    var fnDatetimeToString = function (cell, formatterParams, onRendered) {
-        var dtime = cell.getValue()
+    var fnDatetimeToString = function (dtime, data, type, params, component) {
+        //value - original value of the cell
+        //data - the data for the row
+        //type - the type of mutation occurring  (data|edit)
+        //params - the mutatorParams object from the column definition
+        //component - when the "type" argument is "edit", this contains the cell component for the edited cell, otherwise it is the column component for the column
         if (dtime === undefined || !dtime.Valid) {
             return "-"
         }
@@ -70,7 +73,8 @@ function targetsTableConfig(targetsJson, fnDataChanged, fnInputReset) {
     }
 
     var fnCellEdited = function (cell) {
-        fnMaintainEmptyRow(cell);
+        fnToggleEditState();
+        fnMaintainEmptyRow(cell.getTable());
     };
 
     var fnInputCheck = function (cell, formatterParams, onRendered) {
@@ -250,7 +254,7 @@ function targetsTableConfig(targetsJson, fnDataChanged, fnInputReset) {
         // Attach click event
         button.addEventListener("click", function (e) {
             row.delete();
-            fnMaintainEmptyRow(cell);
+            fnMaintainEmptyRow(cell.getTable());
         });
 
         // Set button as content
@@ -265,7 +269,7 @@ function targetsTableConfig(targetsJson, fnDataChanged, fnInputReset) {
         var data = row.getData();
 
         // Return no button if the line is new without scan timestamp, or if scan timestamp is still empty (scan hasn't started)
-        if (!("scan_started" in data) || data.scan_started === undefined || !data.scan_started.Valid) {
+        if (!("scan_started" in data) || data.scan_started === undefined || !data.scan_started || data.scan_started === "-") {
             return null
         }
 
@@ -334,6 +338,8 @@ function targetsTableConfig(targetsJson, fnDataChanged, fnInputReset) {
         maxHeight: 300,
         headerSort: false,
         data: targetsJson,
+        cellEditing: fnToggleEditState,
+        cellEditCancelled: fnToggleEditState,
         cellEdited: fnCellEdited,
         dataChanged: fnDataChanged,
         columns: [
@@ -507,7 +513,9 @@ function targetsTableConfig(targetsJson, fnDataChanged, fnInputReset) {
                 width: 160,
                 headerFilter: true, headerFilterPlaceholder: "Filter...",
                 editor: false,
-                formatter: fnDatetimeToString,
+                mutator: fnDatetimeToString, // The time value will be completely mutated into text representation,
+                                             // not just formatted on display. The column filter uses the actual
+                                             // value and not the formatted one.
                 clipboard: false,
                 cssClass: "col-border col-disabled",
             },
@@ -517,7 +525,9 @@ function targetsTableConfig(targetsJson, fnDataChanged, fnInputReset) {
                 width: 160,
                 headerFilter: true, headerFilterPlaceholder: "Filter...",
                 editor: false,
-                formatter: fnDatetimeToString,
+                mutator: fnDatetimeToString, // The time value will be completely mutated into text representation,
+                                             // not just formatted on display. The column filter uses the actual
+                                             // value and not the formatted one.
                 clipboard: false,
                 cssClass: "col-disabled",
             },

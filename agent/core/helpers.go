@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2022.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -20,17 +20,16 @@ import (
 	"time"
 )
 
-// resolveInput checks whether a scan input is an IPv4, IPv6 address/range or a hostname. Hostnames are resolved
-// into IPv4 and IPv6 addresses, since there might be multiple of each. The method does not handle errors.
-func resolveInput(target string) (ipsV4 []string, ipsV6 []string) {
+// classifyInput checks whether a scan input can be scanned via IPv4 and/or IPv6. The function does not handle errors.
+func classifyInput(target string) (hasV4Ips bool, hasV6Ips bool) {
 
 	// Check if input is an IP address and classify it as IPv4 or IPv6
 	addr := net.ParseIP(target)
 	if addr != nil {
 		if strings.Count(target, ":") >= 2 {
-			return nil, []string{target}
+			return false, true
 		} else {
-			return []string{target}, nil
+			return true, false
 		}
 	}
 
@@ -38,59 +37,62 @@ func resolveInput(target string) (ipsV4 []string, ipsV6 []string) {
 	_, _, errCIDR := net.ParseCIDR(target)
 	if errCIDR == nil {
 		if strings.Count(target, ":") >= 2 {
-			return nil, []string{target}
+			return false, true
 		} else {
-			return []string{target}, nil
+			return true, false
 		}
 	}
 
 	// Check if input is a hostname and resolve it to IPv4 or IPv6 addresses
 	ips, errHostname := net.LookupIP(target)
 	if errHostname == nil {
+
+		// Iterate resolved IPs to check whether there are IPv4 and IPv6 ones
 		for _, ip := range ips {
 			if strings.Count(ip.String(), ":") >= 2 {
-				ipsV6 = append(ipsV6, ip.String())
+				hasV6Ips = true
 			} else {
-				ipsV4 = append(ipsV4, ip.String())
+				hasV4Ips = true
 			}
 		}
+
 		// Return resolved IP addresses grouped by v4/v6
-		return ipsV4, ipsV6
+		return hasV4Ips, hasV6Ips
 	}
 
 	// Input could not be parsed to any kind of address
-	return nil, nil
+	return false, false
 }
 
 // executeDiscoveryScan starts Nmap scans based on the input target. Each family of IPs (v4 or v6) gets scanned.
 func executeDiscoveryScan(
 	logger scanUtils.Logger,
 	label string,
-	ipsV4 []string,
-	ipsV6 []string,
+	scanTargetsV4 []string,
+	scanTargetsV6 []string,
 	conf *config.AgentConfig,
 	networkTimeout time.Duration,
 	nmapArgs []string,
+	excludeDomains []string,
 ) (result *discovery.Result, errScan error) {
 
 	// Execute necessary scans, execute two scans if IPv4 and IPv6 addresses are mixed
-	if len(ipsV4) > 0 && len(ipsV6) == 0 {
-		result, errScan = executeNmapScan(logger, label, ipsV4, nmapArgs, conf, networkTimeout)
-	} else if len(ipsV6) > 0 && len(ipsV4) == 0 {
+	if len(scanTargetsV4) > 0 && len(scanTargetsV6) == 0 {
+		result, errScan = executeNmapScan(logger, label, scanTargetsV4, nmapArgs, conf, networkTimeout, excludeDomains)
+	} else if len(scanTargetsV6) > 0 && len(scanTargetsV4) == 0 {
 		nmapArgs = append(nmapArgs, "-6")
-		result, errScan = executeNmapScan(logger, label, ipsV6, nmapArgs, conf, networkTimeout)
-	} else if len(ipsV4) > 0 && len(ipsV6) > 0 { // Execute two scans if hostname has IPv4 and IPv6 IPs
+		result, errScan = executeNmapScan(logger, label, scanTargetsV6, nmapArgs, conf, networkTimeout, excludeDomains)
+	} else if len(scanTargetsV4) > 0 && len(scanTargetsV6) > 0 { // Execute two scans if hostname has IPv4 and IPv6 IPs
 
 		// Execute IPv4 scan
-		result, errScan = executeNmapScan(logger, label, ipsV4, nmapArgs, conf, networkTimeout)
+		result, errScan = executeNmapScan(logger, label, scanTargetsV4, nmapArgs, conf, networkTimeout, excludeDomains)
 
 		// Execute IPv6 scan
 		nmapArgs = append(nmapArgs, "-6")
-		resultIpV6, _ := executeNmapScan(logger, label, ipsV6, nmapArgs, conf, networkTimeout)
+		resultIpV6, _ := executeNmapScan(logger, label, scanTargetsV6, nmapArgs, conf, networkTimeout, excludeDomains)
 
 		// Save results of the two scans
 		result.Data = append(result.Data, resultIpV6.Data...)
-
 	}
 
 	// Return scan results or error
@@ -100,16 +102,17 @@ func executeDiscoveryScan(
 func executeNmapScan(
 	logger scanUtils.Logger,
 	label string,
-	scanTarget []string,
+	scanTargets []string,
 	nmapArgs []string,
 	conf *config.AgentConfig,
 	networkTimeout time.Duration,
+	excludeDomains []string,
 ) (*discovery.Result, error) {
 
 	// Initialize scanner
 	scanner, scannerErr := discovery.NewScanner(
 		logger,
-		scanTarget,
+		scanTargets,
 		conf.Paths.Nmap,
 		nmapArgs,
 		false,
@@ -120,6 +123,7 @@ func executeNmapScan(
 		conf.Authentication.Ldap.Domain,
 		conf.Authentication.Ldap.User,
 		conf.Authentication.Ldap.Password,
+		excludeDomains,
 		networkTimeout,
 	)
 	if scannerErr != nil {

@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -189,6 +189,8 @@ type T_scan_settings struct {
 	DiscoverySkipDays            string         `gorm:"column:discovery_skip_days;type:text" json:"-"`                            // Comma separated list of integers (0=Sunday,..., 6=Saturday) where no scanning should take place
 	DiscoverySkipDaysSlice       []time.Weekday `gorm:"-" json:"discovery_skip_days"`
 	DiscoveryNmapArgs            string         `gorm:"column:discovery_nmap_args;type:text" json:"discovery_nmap_args"`
+	DiscoveryNmapArgsPrescan     string         `gorm:"column:discovery_nmap_args_prescan;type:text" json:"discovery_nmap_args_prescan"` // A smaller scan executed before the main scan to at least retrieve some scan results, before a potential IDS kicks in
+	DiscoveryExcludeDomains      string         `gorm:"column:discovery_exclude_hostnames;type:text" json:"discovery_exclude_hostnames"`
 	NfsScanTimeoutMinutes        int            `gorm:"column:nfs_scan_timeout_minutes;type:int" json:"nfs_scan_timeout_minutes"`
 	NfsDepth                     int            `gorm:"column:nfs_depth;type:int" json:"nfs_depth"`
 	NfsThreads                   int            `gorm:"column:nfs_threads;type:int" json:"nfs_threads"`
@@ -249,7 +251,25 @@ func (scanSettings *T_scan_settings) BeforeSave(tx *gorm.DB) error {
 	for strings.Contains(scanSettings.DiscoveryNmapArgs, "  ") { // Duplicate spaces in Nmap args may cause scan errors
 		scanSettings.DiscoveryNmapArgs = strings.ReplaceAll(scanSettings.DiscoveryNmapArgs, "  ", " ")
 	}
+	scanSettings.DiscoveryNmapArgs = strings.TrimSpace(scanSettings.DiscoveryNmapArgs)
 	tx.Statement.SetColumn("discovery_nmap_args", scanSettings.DiscoveryNmapArgs)
+
+	scanSettings.DiscoveryNmapArgsPrescan = b.Sanitize(scanSettings.DiscoveryNmapArgsPrescan)
+	for strings.Contains(scanSettings.DiscoveryNmapArgsPrescan, "  ") { // Duplicate spaces in Nmap args may cause scan errors
+		scanSettings.DiscoveryNmapArgsPrescan = strings.ReplaceAll(scanSettings.DiscoveryNmapArgsPrescan, "  ", " ")
+	}
+	scanSettings.DiscoveryNmapArgsPrescan = strings.TrimSpace(scanSettings.DiscoveryNmapArgsPrescan)
+	tx.Statement.SetColumn("discovery_nmap_args_prescan", scanSettings.DiscoveryNmapArgsPrescan)
+
+	scanSettings.DiscoveryExcludeDomains = b.Sanitize(scanSettings.DiscoveryExcludeDomains)
+	for strings.Contains(scanSettings.DiscoveryExcludeDomains, " ") { // Remove all spaces
+		scanSettings.DiscoveryExcludeDomains = strings.ReplaceAll(scanSettings.DiscoveryExcludeDomains, " ", "")
+	}
+	for strings.Contains(scanSettings.DiscoveryExcludeDomains, ",,") { // Remove duplicate commas
+		scanSettings.DiscoveryExcludeDomains = strings.ReplaceAll(scanSettings.DiscoveryExcludeDomains, ",,", ",")
+	}
+	scanSettings.DiscoveryExcludeDomains = strings.Trim(scanSettings.DiscoveryExcludeDomains, " ,")
+	tx.Statement.SetColumn("discovery_exclude_hostnames", scanSettings.DiscoveryExcludeDomains)
 
 	scanSettings.SmbExcludeShares = b.Sanitize(scanSettings.SmbExcludeShares)
 	tx.Statement.SetColumn("smb_exclude_shares", scanSettings.SmbExcludeShares)
@@ -270,14 +290,21 @@ func (scanSettings *T_scan_settings) BeforeSave(tx *gorm.DB) error {
 	tx.Statement.SetColumn("nfs_exclude_extensions", scanSettings.NfsExcludeExtensions)
 
 	scanSettings.WebcrawlerFollowTypes = b.Sanitize(scanSettings.WebcrawlerFollowTypes)
+	for strings.Contains(scanSettings.WebcrawlerFollowTypes, " ") { // Remove all spaces
+		scanSettings.WebcrawlerFollowTypes = strings.ReplaceAll(scanSettings.WebcrawlerFollowTypes, " ", "")
+	}
+	for strings.Contains(scanSettings.WebcrawlerFollowTypes, ",,") { // Remove duplicate commas
+		scanSettings.WebcrawlerFollowTypes = strings.ReplaceAll(scanSettings.WebcrawlerFollowTypes, ",,", ",")
+	}
+	scanSettings.WebcrawlerFollowTypes = strings.Trim(scanSettings.WebcrawlerFollowTypes, " ,")
 	tx.Statement.SetColumn("webcrawler_follow_types", scanSettings.WebcrawlerFollowTypes)
 
 	// Return nil as everything went fine
 	return nil
 }
 
-// Some setting values are not stored in the database but derived from other fields in the database. Update the yet
-// empty struct fields with the derived values
+// AfterFind updates yet empty struct fields with the derived values. Some setting values are not stored in
+// the database but derived from other fields in the database.
 func (scanSettings *T_scan_settings) AfterFind(tx *gorm.DB) (err error) {
 
 	// Check if clock values can be parsed

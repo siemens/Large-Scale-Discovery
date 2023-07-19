@@ -63,7 +63,7 @@ in parallel to scale:
   not necessary for _custom_ scan scopes, which are directly populated from the user input via the web interface. The
   importer can be deployed to import scan inputs from external sources, e.g. a network or asset repository.
 
-  <img src="Readme.png" alt="Components and Interfaces" />
+  <img src="Readme_components.png" alt="Components and Interfaces" />
 
 # Code Philosophy
 
@@ -98,7 +98,6 @@ git config --global user.email "...@domain.tld"
 
 * Install GCC and make sure it is in your environment variable (https://sourceforge.net/projects/mingw-w64/files).
   Select `x64` in the installation wizard!
-* Checkout source code directly into `[...]/go/src/`.
 * Edit `./_test/settings.go`and replace the dummy e-mail address.
 * Put the following file on your commit ignore list to avoid accidental commits: `./_test/settings.go`.
 * Download and install Nmap (https://nmap.org/) and SSLyze (https://github.com/nabla-c0d3/sslyze) to `./_bin/tools`. You
@@ -198,6 +197,8 @@ gulp
 
 # Production
 
+## Compile
+
 #### Building on Windows for Windows
 
 Go to `./_bin` and execute `build_prod_win.bat` to create production builds. Production builds will:
@@ -216,29 +217,49 @@ Go to `./_bin` and execute `build_prod_lin.sh` to create production builds. Prod
 
 It's easiest to not bother cross-compiling and just use a Linux machine (e.g. VM) to build for Linux.
 
-## Screenshots
+## Deployment
+
+You can deploy the single components on a single machine or install them on dedicated machines.
+It is strongly recommended to deploy the `manager` component on a dedicated isolated machine as it holds some sensitive
+access credentials.
+
+Before the system is ready to run, you'll also need to:
+
+- Generate production keys / certificates and put them into the respective component's `keys/` folder.
+    - *manager.key* -> manager **ONLY!**
+    - *manager.crt* -> manager + broker
+    - *broker.key*  -> broker **ONLY!**
+    - *broker.crt*  -> broker + agent
+    - *backend.key* -> backend **ONLY!**
+    - *backend.crt* -> backend **ONLY!**
+
+
+- Configure the storage database. Open `manager.sqlite` and create an entry in the `db_servers` table.
+  <img src="Readme_configuration_databases.png" alt="Database Configuration" />
+
+# Screenshots
 
 <kbd>
-<img src="Readme3.png" alt="Dashboard" />
+<img src="Readme_dashboard.png" alt="Dashboard" />
 </kbd>
 Dashboard
 <br/><br/>
 <kbd>
-<img src="Readme4.png" alt="Scopes Configuration" />
+<img src="Readme_configuration_scopes.png" alt="Scopes Configuration" />
 </kbd>
 Scope configuration
 <br/><br/>
 <kbd>
-<img src="Readme5.png" alt="Views Configuration" />
+<img src="Readme_configuration_views.png" alt="Views Configuration" />
 </kbd>
 Views configuration and access rights
 <br/><br/>
 <kbd>
-<img src="Readme6.png" alt="Scan Settings" />
+<img src="Readme_configuration_scope.png" alt="Scan Settings" />
 </kbd>
 Scan settings
 
 # Some entertainment
 
-[![Development History](Readme2.gif)](https://www.youtube.com/watch?v=)
+[![Development History](Readme_visualization_code.gif)](https://www.youtube.com/watch?v=)
 <br />[[Full Video](https://youtu.be/I6YeXmt6cGY)]

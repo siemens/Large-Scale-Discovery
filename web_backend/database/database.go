@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -79,6 +79,10 @@ func AutoMigrate() error {
 		&T_user{},
 		&T_ownership{},
 	)
+}
+
+func Create(value interface{}) (tx *gorm.DB) {
+	return backendDb.Create(value)
 }
 
 // DeploySampleData applies a default configuration for development purposes and some sample data to the db
@@ -179,13 +183,16 @@ func DeploySampleData() error {
 
 		// Prepare dev sample group
 		sampleGroup := T_group{
-			Name:       "Dev Group",
-			Created:    time.Now(),
-			CreatedBy:  sampleUser1.Email,
-			MaxScopes:  10,
-			MaxViews:   10,
-			MaxTargets: 20000000,
-			MaxOwners:  100,
+			Name:         "Dev Group",
+			Created:      time.Now(),
+			CreatedBy:    sampleUser1.Email,
+			MaxScopes:    10,
+			MaxViews:     10,
+			MaxTargets:   20000000,
+			MaxOwners:    100,
+			AllowCustom:  true,
+			AllowNetwork: true,
+			AllowAsset:   true,
 		}
 		errCreate := sampleGroup.Create()
 		if errCreate != nil {
@@ -202,13 +209,16 @@ func DeploySampleData() error {
 
 		// Create some more sample groups
 		sampleGroup = T_group{
-			Name:       "Dummy Group 2",
-			Created:    time.Now(),
-			CreatedBy:  sampleUser1.Email,
-			MaxScopes:  11,
-			MaxViews:   10,
-			MaxTargets: 22,
-			MaxOwners:  33,
+			Name:         "Dummy Group 2",
+			Created:      time.Now(),
+			CreatedBy:    sampleUser1.Email,
+			MaxScopes:    11,
+			MaxViews:     10,
+			MaxTargets:   22,
+			MaxOwners:    33,
+			AllowCustom:  false,
+			AllowNetwork: true,
+			AllowAsset:   true,
 		}
 		_ = sampleGroup.Create()
 		_ = sampleGroup.AddOwner(sampleUser2)
@@ -220,6 +230,10 @@ func DeploySampleData() error {
 			MaxViews:   10,
 			MaxTargets: 22,
 			MaxOwners:  33,
+
+			AllowCustom:  true,
+			AllowNetwork: false,
+			AllowAsset:   false,
 		}
 		_ = sampleGroup.Create()
 	}

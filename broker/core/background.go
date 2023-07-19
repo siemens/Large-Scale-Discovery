@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -51,6 +51,14 @@ func backgroundTasks() {
 	logger := log.GetLogger().Tagged(fmt.Sprintf("backgroundTasks"))
 	logger.Infof("Starting background tasks.")
 
+	// Log potential panics before letting them move on
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf(fmt.Sprintf("Panic: %s%s", r, scanUtils.StacktraceIndented("\t")))
+			panic(r)
+		}
+	}()
+
 	// Initialize scan scope notifications
 	chNotification, chNotificationReconnect := manager.RpcSubscribeNotification(logger, rpcClient, coreCtx)
 
@@ -88,7 +96,7 @@ func backgroundTasks() {
 				logger.Debugf("Skipping cleanup of exceeded scan tasks due to grace period.")
 			} else {
 				logger.Debugf("Cleaning exceeded scan tasks.")
-				go cleanExceeded(logger)
+				cleanExceeded(logger)
 			}
 
 		// Clear notified scan scope from memory
@@ -109,6 +117,14 @@ func backgroundTasks() {
 
 // cleanMemory cleans scan stats and scope data of outdated/removed scan scopes from memory
 func cleanMemory(logger scanUtils.Logger, notification manager.ReplyNotification) {
+
+	// Log potential panics before letting them move on
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf(fmt.Sprintf("Panic: %s%s", r, scanUtils.StacktraceIndented("\t")))
+			panic(r)
+		}
+	}()
 
 	// Clean remaining scan targets of faded scan scopes form brokerdb
 	errDel := brokerdb.CleanScopeTargets(notification.RemainingScopeIds)
@@ -157,6 +173,14 @@ func cleanExceeded(logger scanUtils.Logger) {
 
 	// Define cleanup procedure
 	fnCleanup := func(scanScope *managerdb.T_scan_scope) {
+
+		// Log potential panics before letting them move on
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Errorf(fmt.Sprintf("Panic: %s%s", r, scanUtils.StacktraceIndented("\t")))
+				panic(r)
+			}
+		}()
 
 		// Open scope's database
 		scopeDb, errHandle := managerdb.GetScopeDbHandle(logger, scanScope)
@@ -298,6 +322,14 @@ func cleanExceeded(logger scanUtils.Logger) {
 // submitStats queries current scan scope progress and submits it together with other scan scope sats to the manager.
 // There it will be persisted and made available for other components, e.g. the web backend for display.
 func submitStats(logger scanUtils.Logger) {
+
+	// Log potential panics before letting them move on
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf(fmt.Sprintf("Panic: %s%s", r, scanUtils.StacktraceIndented("\t")))
+			panic(r)
+		}
+	}()
 
 	// Acquire lock if it is not yet taken
 	acquired := rpcStatsLock.TryLockTimeout(submitInterval) // Let second run wait but don't pile up multiples

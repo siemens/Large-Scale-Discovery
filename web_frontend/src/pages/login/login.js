@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -16,7 +16,7 @@ define(["knockout", "text!./login.html", "postbox", 'globals', "jquery", "semant
 
             // Check authentication and redirect to login if necessary
             if (authenticated()) {
-                postbox.publish("redirect", "home");
+                postbox.publish("redirect", home());
                 return;
             }
 
@@ -76,14 +76,29 @@ define(["knockout", "text!./login.html", "postbox", 'globals', "jquery", "semant
                     response["body"]["created"]
                 );
 
-                // Redirect to home
-                postbox.publish("redirect", "home");
-
                 // Reset form
                 parent.$domForm.form("reset");
 
                 // Hide modal
                 parent.$domModal.modal('hide');
+
+                // Redirect to originally called URL or to the user's home page
+                var target = sessionStorage.getItem("redirect");
+                if (target !== "" && target !== null) {
+
+                    // Reset redirect
+                    sessionStorage.setItem("redirect", "");
+
+                    // Update redirect if it's redirecting to the user's wrong home page
+                    if (target === "home" && home() !== "home") {
+                        target = home()
+                    }
+
+                    // Redirect to intended URL
+                    postbox.publish("redirect", target);
+                } else {
+                    postbox.publish("redirect", home());
+                }
             };
 
             // Send request
@@ -178,7 +193,7 @@ define(["knockout", "text!./login.html", "postbox", 'globals', "jquery", "semant
 
             // Handle request error
             const callbackError = function (response, textStatus, jqXHR) {
-                parent.$domForm.form('add prompt', 'inputPassword');
+                parent.$domForm.form("add prompt", "inputPassword", "Invalid Password");
                 parent.$domForm.each(shake);
             };
 

@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -318,24 +318,31 @@ func InstallTrigramIndices(scopeDb *gorm.DB) error {
 		// via Gorm struct tags.
 		// ATTENTION: These indices tend to get huge in storage terms and need to be maintained on every update
 		indices := []string{
-			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_hosts_os_admin_users 		ON t_discovery_hosts 	USING GIN (os_admin_users 		gin_trgm_ops)`,
-			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_hosts_input_manager 		ON t_discovery_hosts 	USING GIN (input_manager 		gin_trgm_ops)`,
-			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_hosts_input_contact 		ON t_discovery_hosts 	USING GIN (input_contact 		gin_trgm_ops)`,
-			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_hosts_ad_managed_by 		ON t_discovery_hosts 	USING GIN (ad_managed_by 		gin_trgm_ops)`,
 			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_hosts_other_names 			ON t_discovery_hosts 	USING GIN (other_names 			gin_trgm_ops)`,
 
-			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_services_other_names 		ON t_discovery_services USING GIN (other_names 			gin_trgm_ops)`,
+			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_services_other_names 		ON t_discovery_services USING GIN (other_names 			gin_trgm_ops)`, // Views are joining t_discovery_services data a lot
+			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_services_os_admin_users 	ON t_discovery_services USING GIN (os_admin_users 		gin_trgm_ops)`, // Views are joining t_discovery_services data a lot
+			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_services_os_rdp_users 		ON t_discovery_services USING GIN (os_rdp_users 		gin_trgm_ops)`, // Views are joining t_discovery_services data a lot
+			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_services_asset_company 	ON t_discovery_services USING GIN (asset_company 		gin_trgm_ops)`, // Views are joining t_discovery_services data a lot
+			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_services_asset_department 	ON t_discovery_services USING GIN (asset_department 	gin_trgm_ops)`, // Views are joining t_discovery_services data a lot
+			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_services_asset_owner 		ON t_discovery_services USING GIN (asset_owner 			gin_trgm_ops)`, // Views are joining t_discovery_services data a lot
+			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_services_input_manager 	ON t_discovery_services USING GIN (input_manager 		gin_trgm_ops)`, // Views are joining t_discovery_services data a lot
+			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_services_input_contact 	ON t_discovery_services USING GIN (input_contact 		gin_trgm_ops)`, // Views are joining t_discovery_services data a lot
+			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_services_ad_managed_by 	ON t_discovery_services USING GIN (ad_managed_by 		gin_trgm_ops)`, // Views are joining t_discovery_services data a lot
 
 			`CREATE INDEX IF NOT EXISTS trgm_t_smb_files_share 						ON t_smb_files 			USING GIN (share 				gin_trgm_ops)`,
 			`CREATE INDEX IF NOT EXISTS trgm_t_smb_files_path 						ON t_smb_files 			USING GIN (path 				gin_trgm_ops)`,
 			`CREATE INDEX IF NOT EXISTS trgm_t_smb_files_name 						ON t_smb_files 			USING GIN (name 				gin_trgm_ops)`,
+			`CREATE INDEX IF NOT EXISTS trgm_t_smb_files_properties					ON t_smb_files 			USING GIN (properties			gin_trgm_ops)`,
+			`CREATE INDEX IF NOT EXISTS trgm_t_smb_files_extension					ON t_smb_files 			USING GIN (extension			gin_trgm_ops)`,
+			`CREATE INDEX IF NOT EXISTS trgm_t_smb_files_mime						ON t_smb_files 			USING GIN (mime					gin_trgm_ops)`,
 
 			`CREATE INDEX IF NOT EXISTS trgm_t_webcrawler_pages_html_content 		ON t_webcrawler_pages 	USING GIN (html_content 		gin_trgm_ops)`,
 			`CREATE INDEX IF NOT EXISTS trgm_t_webcrawler_pages_response_headers 	ON t_webcrawler_pages 	USING GIN (response_headers 	gin_trgm_ops)`,
 			`CREATE INDEX IF NOT EXISTS trgm_t_webcrawler_pages_raw_links 			ON t_webcrawler_pages 	USING GIN (raw_links 			gin_trgm_ops)`,
 
-			`CREATE INDEX IF NOT EXISTS trgm_t_webenum_results_response_headers 	ON t_webenum_results 	USING GIN (response_headers 	gin_trgm_ops)`,
 			`CREATE INDEX IF NOT EXISTS trgm_t_webenum_results_html_content 		ON t_webenum_results 	USING GIN (html_content 		gin_trgm_ops)`,
+			`CREATE INDEX IF NOT EXISTS trgm_t_webenum_results_response_headers 	ON t_webenum_results 	USING GIN (response_headers 	gin_trgm_ops)`,
 		}
 
 		// Apply trigram defined indices
@@ -351,14 +358,14 @@ func InstallTrigramIndices(scopeDb *gorm.DB) error {
 	})
 }
 
-// AutomigrateScopeDbs initializes the scope databases
-func AutomigrateScopeDbs(logger scanUtils.Logger) error {
+// AutomigrateScanScopes initializes the scope databases
+func AutomigrateScanScopes(logger scanUtils.Logger) error {
 
 	// Find all scan scopes
-	scopeEntries, errEntries := GetScopeEntries()
-	if errEntries != nil {
-		logger.Warningf("Could not query scan scopes: %s", errEntries)
-		return errEntries
+	scopeEntries, errScopeEntries := GetScopeEntries()
+	if errScopeEntries != nil {
+		logger.Warningf("Could not query scan scopes: %s", errScopeEntries)
+		return errScopeEntries
 	}
 
 	// Iterate over all scan scopes to auto-migrate databases
@@ -378,6 +385,38 @@ func AutomigrateScopeDbs(logger scanUtils.Logger) error {
 		errMigrate := AutoMigrateScopeDb(scopeDb)
 		if errMigrate != nil {
 			return errMigrate
+		}
+	}
+
+	// Get scope views
+	viewEntries, errViewEntries := GetViewEntries()
+	if errViewEntries != nil {
+		logger.Warningf("Could not query scan scope views: %s", errViewEntries)
+		return errViewEntries
+	}
+
+	// Iterate over all scan scope views and migrate them
+	for _, viewEntry := range viewEntries {
+
+		// Open scan scope database
+		scopeDb, errHandle := GetScopeDbHandle(logger, &viewEntry.ScanScope)
+		if errHandle != nil {
+			return fmt.Errorf(
+				"could not migrate scope views of scan scope DB '%s' ('%s'): %s",
+				viewEntry.ScanScope.Name,
+				viewEntry.ScanScope.DbName,
+				errHandle,
+			)
+		}
+
+		// Execute rebuild of view as transaction
+		errTxScopeDb := scopeDb.Transaction(func(txScopeDb *gorm.DB) error {
+			return rebuildScopeView(txScopeDb, &viewEntry)
+		})
+
+		// Abort process if inner transaction failed already
+		if errTxScopeDb != nil {
+			return errTxScopeDb
 		}
 	}
 
@@ -790,7 +829,7 @@ func createScopeDb(serverDb *gorm.DB, name string, comment string) error {
 
 	// Build escaped query manually, as it can't be executed as a prepared statement
 	// ATTENTION: This is tailored for Postgres databases and might not be safe with others!
-	sqlCreate, errSqlCreate := escape.Escape(`CREATE DATABASE %I;`, name)
+	sqlCreate, errSqlCreate := escape.Escape(`CREATE DATABASE %I WITH ENCODING='UTF8';`, name)
 	if errSqlCreate != nil {
 		return errSqlCreate
 	}
@@ -923,7 +962,7 @@ func deleteScopeView(txScopeDb *gorm.DB, viewTableNames []string) error {
 
 		// Build escaped query manually, as it can't be executed as a prepared statement
 		// ATTENTION: This is tailored for Postgres databases and might not be safe with others!
-		sql, errSql := escape.Escape(`DROP VIEW %I;`, viewName)
+		sql, errSql := escape.Escape(`DROP VIEW IF EXISTS %I;`, viewName)
 		if errSql != nil {
 			return errSql
 		}
@@ -932,6 +971,61 @@ func deleteScopeView(txScopeDb *gorm.DB, viewTableNames []string) error {
 		errDb := txScopeDb.Exec(sql).Error
 		if errDb != nil {
 			return errDb
+		}
+	}
+
+	// Return nil as everything went fine
+	return nil
+}
+
+// rebuildScopeView rebuilds a scan scope views in the scope db based on the last definition and re-grants
+// authorized users. This might be necessary, if the view definition has changed, e.g. if columns were
+// introduced, removed or changed in their order. It can also be used to pull access rights straight to match
+// the actual configuration.
+func rebuildScopeView(txScopeDb *gorm.DB, viewEntry *T_scope_view) error {
+
+	// Return if there are no views tables to be updated
+	if viewEntry.ViewNames == "" {
+		return nil
+	}
+
+	// Generate list of view table names from manager db
+	viewTableNames := strings.Split(viewEntry.ViewNames, ",")
+
+	// Drop view
+	errDelete := deleteScopeView(txScopeDb, viewTableNames)
+	if errDelete != nil {
+		return fmt.Errorf("could not rebuild view: %s", errDelete)
+	}
+
+	// Cast filters types
+	filters := make(map[string][]string)
+	for key, val := range viewEntry.Filters {
+		interfaceValues := val.([]interface{})
+		stringValues := make([]string, 0, len(interfaceValues))
+		for _, interfaceValue := range interfaceValues {
+			stringValues = append(stringValues, interfaceValue.(string))
+		}
+		filters[key] = stringValues
+	}
+
+	// Create view
+	_, errCreate := createScopeView(txScopeDb, viewEntry.Name, filters)
+	if errCreate != nil {
+		return fmt.Errorf("could not rebuild view: %s", errCreate)
+	}
+
+	// Iterate granted users
+	for _, grant := range viewEntry.Grants {
+		errGrant := grantScopeView(
+			txScopeDb,
+			viewEntry,
+			DbCredentials{Username: grant.Username},
+			time.Now(),
+			0, // User should already exist and doesn't need to be created/configured
+		)
+		if errGrant != nil {
+			return fmt.Errorf("could not rebuild view: %s", errGrant)
 		}
 	}
 

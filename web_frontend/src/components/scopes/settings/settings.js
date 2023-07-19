@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -219,6 +219,8 @@ define(["knockout", "text!./settings.html", "postbox", "jquery", "tabulator-tabl
                 "discovery_time_earliest": moment(this.startInput.calendar("get date"), datetimeFormat).format("HH:mm"),
                 "discovery_time_latest": moment(this.endInput.calendar("get date"), datetimeFormat).format("HH:mm"),
                 "discovery_nmap_args": this.args()["scan_settings"]["discovery_nmap_args"],
+                "discovery_nmap_args_prescan": this.args()["scan_settings"]["discovery_nmap_args_prescan"],
+                "discovery_exclude_hostnames": this.args()["scan_settings"]["discovery_exclude_hostnames"],
 
                 "nfs_scan_timeout_minutes": parseInt(this.args()["scan_settings"]["nfs_scan_timeout_minutes"], 10),
                 "nfs_depth": parseInt(this.args()["scan_settings"]["nfs_depth"], 10),

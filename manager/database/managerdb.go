@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -297,6 +297,7 @@ func UpdateScanAgents(scopeId uint64, scanAgents []T_scan_agent) error {
 
 // GetViewEntries queries the manager db for all view entries. It returns an empty slice and NO error if no view
 // entry is found at all.
+// ATTENTION: Contains sensitive information (e.g. DbServer details) which may not be yielded to clients!
 func GetViewEntries() ([]T_scope_view, error) {
 
 	// Prepare query result
@@ -305,6 +306,7 @@ func GetViewEntries() ([]T_scope_view, error) {
 	// Find all scope views
 	errDb := managerDb.
 		Preload("ScanScope").
+		Preload("ScanScope.DbServer").
 		Preload("Grants").
 		Find(&scopeViews).Error
 	if errDb != nil {
@@ -346,6 +348,7 @@ func GetViewEntriesOf(groupIds []uint64) ([]T_scope_view, error) {
 
 // GetViewsGranted queries the manager db for all view entries a user has granted access. It returns an empty slice and
 // NO error if no view entry is found.
+// ATTENTION: Contains sensitive information (e.g. DbServer details) which may not be yielded to clients!
 func GetViewsGranted(username string) ([]T_scope_view, error) {
 
 	// Prepare query result
@@ -369,8 +372,9 @@ func GetViewsGranted(username string) ([]T_scope_view, error) {
 	return scopeViews, nil
 }
 
-// GetView queries the manager db for the view entry by ID. It returns nil and a gorm.ErrRecordNotFound if no
+// GetViewEntry queries the manager db for the view entry by ID. It returns nil and a gorm.ErrRecordNotFound if no
 // entry is found (check with errors.Is(...)).
+// ATTENTION: Contains sensitive information (e.g. DbServer details) which may not be yielded to clients!
 func GetViewEntry(viewId uint64) (*T_scope_view, error) {
 
 	// Prepare query result

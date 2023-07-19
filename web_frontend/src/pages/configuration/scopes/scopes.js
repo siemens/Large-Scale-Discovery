@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -20,6 +20,11 @@ define(["knockout", "text!./scopes.html", "postbox", "jquery", "semantic-ui-popu
                 new NavItem("Views", "#configuration/views", ""),
             ]);
             this.scopes = ko.observable(null);
+
+            this.allowCustom = ko.observable(false);
+            this.allowAsset = ko.observable(false);
+            this.allowNetwork = ko.observable(false);
+
             this.actionArgs = ko.observable(null); // action element row to work on
             this.actionName = ko.observable("")
             this.actionComponent = ko.observable(null); // action form that should be shown
@@ -55,6 +60,9 @@ define(["knockout", "text!./scopes.html", "postbox", "jquery", "semantic-ui-popu
 
                 // Set table data
                 ctx.scopes(response.body["scopes"]);
+                ctx.allowCustom(response.body["allow_custom"]);
+                ctx.allowNetwork(response.body["allow_network"]);
+                ctx.allowAsset(response.body["allow_asset"]);
 
                 // Execute completion callback if set
                 if (callbackCompletion !== undefined) {

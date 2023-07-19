@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -31,6 +31,10 @@ type T_group struct {
 	MaxViews   int       `gorm:"column:max_views;not null" json:"max_views"`
 	MaxTargets int       `gorm:"column:max_targets;not null" json:"max_targets"`
 	MaxOwners  int       `gorm:"column:max_owners;not null" json:"max_owners"`
+
+	AllowCustom  bool `gorm:"column:allow_custom;not null;default:true" json:"allow_custom"`
+	AllowNetwork bool `gorm:"column:allow_network;not null;default:false" json:"allow_network"`
+	AllowAsset   bool `gorm:"column:allow_asset;not null;default:false" json:"allow_asset"`
 
 	Ownerships []T_ownership `gorm:"foreignKey:IdTGroup" json:"ownerships"`
 }
@@ -164,8 +168,8 @@ func (group *T_group) Delete() error {
 	return nil
 }
 
-// AddOwner creates a ownership by adding a user to a group. The ownerships set in the group will be updated by this
-// function. However the existing owner ships must not have the User.Ownerships or Group values set, as this will result
+// AddOwner creates an ownership by adding a user to a group. The ownerships set in the group will be updated by this
+// function. However, the existing ownerships must not have the User.Ownerships or Group values set, as this will result
 // in an endless SQL query. (The group returned by GetGroup is valid)
 func (group *T_group) AddOwner(user *T_user) error {
 
