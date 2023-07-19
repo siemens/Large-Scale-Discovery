@@ -37,9 +37,9 @@ _bin/keys/backend.crt
 _bin/keys/scdasldap.siemens.net.pem
 
 # Add-ons not part of this release
-web_backend/core/authenticator_oauth.go
-web_backend/core/loader_ldap.go
-importer/core/importer_caremore.go
-importer/core/importer_snic.go
-importer/core/query_caremore.go
-importer/core/query_snic.go
+/web_backend/core/authenticator_oauth.go
+/web_backend/core/loader_ldap.go
+/importer/core/importer_caremore.go
+/importer/core/importer_snic.go
+/importer/core/query_caremore.go
+/importer/core/query_snic.go
