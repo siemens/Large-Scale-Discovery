@@ -220,7 +220,7 @@ define(["knockout", "text!./settings.html", "postbox", "jquery", "tabulator-tabl
                 "discovery_time_latest": moment(this.endInput.calendar("get date"), datetimeFormat).format("HH:mm"),
                 "discovery_nmap_args": this.args()["scan_settings"]["discovery_nmap_args"],
                 "discovery_nmap_args_prescan": this.args()["scan_settings"]["discovery_nmap_args_prescan"],
-                "discovery_exclude_hostnames": this.args()["scan_settings"]["discovery_exclude_hostnames"],
+                "discovery_exclude_domains": this.args()["scan_settings"]["discovery_exclude_domains"],
 
                 "nfs_scan_timeout_minutes": parseInt(this.args()["scan_settings"]["nfs_scan_timeout_minutes"], 10),
                 "nfs_depth": parseInt(this.args()["scan_settings"]["nfs_depth"], 10),

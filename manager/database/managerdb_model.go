@@ -190,7 +190,7 @@ type T_scan_settings struct {
 	DiscoverySkipDaysSlice       []time.Weekday `gorm:"-" json:"discovery_skip_days"`
 	DiscoveryNmapArgs            string         `gorm:"column:discovery_nmap_args;type:text" json:"discovery_nmap_args"`
 	DiscoveryNmapArgsPrescan     string         `gorm:"column:discovery_nmap_args_prescan;type:text" json:"discovery_nmap_args_prescan"` // A smaller scan executed before the main scan to at least retrieve some scan results, before a potential IDS kicks in
-	DiscoveryExcludeDomains      string         `gorm:"column:discovery_exclude_hostnames;type:text" json:"discovery_exclude_hostnames"`
+	DiscoveryExcludeDomains      string         `gorm:"column:discovery_exclude_domains;type:text" json:"discovery_exclude_domains"`
 	NfsScanTimeoutMinutes        int            `gorm:"column:nfs_scan_timeout_minutes;type:int" json:"nfs_scan_timeout_minutes"`
 	NfsDepth                     int            `gorm:"column:nfs_depth;type:int" json:"nfs_depth"`
 	NfsThreads                   int            `gorm:"column:nfs_threads;type:int" json:"nfs_threads"`
@@ -269,7 +269,7 @@ func (scanSettings *T_scan_settings) BeforeSave(tx *gorm.DB) error {
 		scanSettings.DiscoveryExcludeDomains = strings.ReplaceAll(scanSettings.DiscoveryExcludeDomains, ",,", ",")
 	}
 	scanSettings.DiscoveryExcludeDomains = strings.Trim(scanSettings.DiscoveryExcludeDomains, " ,")
-	tx.Statement.SetColumn("discovery_exclude_hostnames", scanSettings.DiscoveryExcludeDomains)
+	tx.Statement.SetColumn("discovery_exclude_domains", scanSettings.DiscoveryExcludeDomains)
 
 	scanSettings.SmbExcludeShares = b.Sanitize(scanSettings.SmbExcludeShares)
 	tx.Statement.SetColumn("smb_exclude_shares", scanSettings.SmbExcludeShares)

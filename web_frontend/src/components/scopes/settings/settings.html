@@ -281,14 +281,14 @@
         <div class="field" data-bind="css: maxInstancesDiscovery() > 0 ? '' : 'disabled'">
             <label for="inputExcludeDomains">
                 Discovery Exclude Domains
-                <span data-html="Hostnames to be ignored when discovered. This allows to ignore common hostnames known to be unrelated to the scanned asset. These hostnames will not be stored nor used in sub modules, e.g., as vhosts."
+                <span data-html="Domains to be ignored when discovered. This allows to ignore common hostnames known to be unrelated to the scanned asset. Hostnames with these domains will not be stored nor used in sub modules, e.g., as vhosts."
                       data-position="right center" data-variation="tiny wide"><i
                         class="question circle outline icon"></i></span>
             </label>
             <textarea id="inputExcludeDomains"
                       placeholder="cloudfront.net, wildcard.cloudfront.net, azurewebsites.net, scm.azure-mobile.net, scm.azurewebsites.net, sso.azurewebsites.net, wildcard.azure-mobile.net, wildcard.azurewebsites.net, wildcard.scm.azure-mobile.net, wildcard.scm.azurewebsites.net, wildcard.sso.azurewebsites.net"
                       rows="1"
-                      data-bind="textInput: args().scan_settings.discovery_exclude_hostnames">
+                      data-bind="textInput: args().scan_settings.discovery_exclude_domains">
             </textarea>
         </div>
 
