@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -22,8 +22,8 @@ import (
 	"github.com/siemens/GoScans/ssl"
 	"github.com/siemens/GoScans/webcrawler"
 	"github.com/siemens/GoScans/webenum"
+	"github.com/siemens/Large-Scale-Discovery/utils"
 	"gorm.io/gorm"
-	"large-scale-discovery/utils"
 	"sort"
 	"strconv"
 	"strings"
@@ -91,7 +91,7 @@ type T_scan_scope struct {
 	CreatedBy       string        `gorm:"column:created_by;type:text;not null" json:"created_by"`              // User who created this scope
 	Secret          string        `gorm:"column:secret;type:text;unique" json:"-"`                             // Random none-guessable scope secret used by agents to authenticate/associate. Value may change.
 	Enabled         bool          `gorm:"column:enabled;default:true" json:"enabled"`                          // Whether new target should be fed to scan agents for this scan scope
-	Type            string        `gorm:"column:type;type:string" json:"type"`                                 // The kind of scope, there might be different ones initialized via different mechanisms. E.g. custom, remote repository,...
+	Type            string        `gorm:"column:type;type:text" json:"type"`                                   // The kind of scope, there might be different ones initialized via different mechanisms. E.g. custom, remote repository,...
 	LastSync        time.Time     `gorm:"column:last_sync" json:"last_sync"`                                   // Timestamp when the scan scope targets were set/updated/synchronized the last time
 	Size            uint          `gorm:"column:size;type:int;default:0" json:"size"`                          // Amount of IPs currently within this scan scope. Needs to be calculated/updated during population of the actual scan scope's t_discovery table.
 	Cycles          bool          `gorm:"column:cycles" json:"cycles"`                                         // Scan in cycles
@@ -321,7 +321,7 @@ func (scanSettings *T_scan_settings) AfterFind(tx *gorm.DB) (err error) {
 
 	// Parse list of sensitive ports
 	if len(scanSettings.SensitivePorts) > 0 {
-		for _, port := range strings.Split(scanSettings.SensitivePorts, ",") {
+		for _, port := range utils.ToSlice(scanSettings.SensitivePorts, ",") {
 			portInt, errPort := strconv.ParseInt(port, 10, 64)
 			if errPort != nil {
 				return fmt.Errorf("invalid port '%s'", port)
@@ -335,7 +335,7 @@ func (scanSettings *T_scan_settings) AfterFind(tx *gorm.DB) (err error) {
 
 	// Parse list of days
 	if len(scanSettings.DiscoverySkipDays) > 0 {
-		for _, day := range strings.Split(scanSettings.DiscoverySkipDays, ",") {
+		for _, day := range utils.ToSlice(scanSettings.DiscoverySkipDays, ",") {
 			dayInt, errDay := strconv.ParseInt(day, 10, 64)
 			if errDay != nil {
 				return fmt.Errorf("invalid day '%s' (0=Sunday,...,6=Saturday)", day)

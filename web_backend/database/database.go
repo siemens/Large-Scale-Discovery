@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -12,10 +12,10 @@ package database
 
 import (
 	"fmt"
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
+	"github.com/siemens/Large-Scale-Discovery/_build"
 	"gorm.io/gorm"
 	gormlog "gorm.io/gorm/logger"
-	"large-scale-discovery/_build"
 	"time"
 )
 
@@ -115,7 +115,7 @@ func DeploySampleData() error {
 
 		// Create second sample user
 		sampleUser2 = NewUser("user2@domain.tld", "domain.tld", "Dep 1", "User", "2")
-		sampleUser2.LastLogin = time.Now().Add(-time.Duration(time.Hour * 6))
+		sampleUser2.LastLogin = time.Now().Add(-(time.Hour * 6))
 		errCreate = sampleUser2.Create()
 		if errCreate != nil {
 			return errCreate
@@ -123,12 +123,12 @@ func DeploySampleData() error {
 
 		// Crate third sample users
 		sampleUser3 := NewUser("user3@domain.tld", "domain.tld", "Dep 2", "User", "3")
-		sampleUser3.LastLogin = time.Now().Add(-time.Duration(time.Hour * 12))
+		sampleUser3.LastLogin = time.Now().Add(-(time.Hour * 12))
 		_ = sampleUser3.Create()
 
 		// Crate fourth sample users
 		sampleUser4 := NewUser("name1@own.tld", "own.tld", "Dep A", "Name1", "Own")
-		sampleUser4.LastLogin = time.Now().Add(-time.Duration(time.Hour * 16))
+		sampleUser4.LastLogin = time.Now().Add(-(time.Hour * 16))
 		errCreate = sampleUser4.Create()
 		if errCreate != nil {
 			return errCreate
@@ -136,12 +136,12 @@ func DeploySampleData() error {
 
 		// Crate fifth sample users
 		sampleUser5 := NewUser("name2@own.tld", "own.tld", "Dep B", "Name2", "Own")
-		sampleUser5.LastLogin = time.Now().Add(-time.Duration(time.Hour * 60))
+		sampleUser5.LastLogin = time.Now().Add(-(time.Hour * 60))
 		_ = sampleUser5.Create()
 
 		// Crate sixth sample users
 		sampleUser6 := NewUser("name1@new.tld", "new.tld", "", "Customer", "New")
-		sampleUser6.LastLogin = time.Now().Add(-time.Duration(time.Hour * 80))
+		sampleUser6.LastLogin = time.Now().Add(-(time.Hour * 80))
 		errCreate = sampleUser6.Create()
 		if errCreate != nil {
 			return errCreate

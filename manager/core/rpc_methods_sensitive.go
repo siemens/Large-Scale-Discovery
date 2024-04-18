@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -13,12 +13,12 @@ package core
 import (
 	"errors"
 	"fmt"
-	"github.com/lithammer/shortuuid"
+	"github.com/lithammer/shortuuid/v4"
 	scanUtils "github.com/siemens/GoScans/utils"
+	"github.com/siemens/Large-Scale-Discovery/log"
+	"github.com/siemens/Large-Scale-Discovery/manager/config"
+	"github.com/siemens/Large-Scale-Discovery/manager/database"
 	"gorm.io/gorm"
-	"large-scale-discovery/log"
-	"large-scale-discovery/manager/config"
-	"large-scale-discovery/manager/database"
 	"time"
 )
 
@@ -32,9 +32,10 @@ var ErrInvalidPrivilege = fmt.Errorf("invalid privilege secret")
 // GetScopeFull returns a scan scope, identified by its scope secret, with FULL details (secrets, credentials,...)
 // to an RPC client. The RPC client has to provide a valid privilege secret, shared between the client and the manager.
 // ATTENTION: If the supplied scope secret is invalid (unknown), an empty scan scope is returned. The client has to
-//			  check whether the returned scan scope's ID is != 0. No error is returned, because it would trigger a
-//			  critical log. End user configuration errors or scan agents left behind, should not flood with critical
-//			  log messages.
+//
+//	check whether the returned scan scope's ID is != 0. No error is returned, because it would trigger a
+//	critical log. End user configuration errors or scan agents left behind, should not flood with critical
+//	log messages.
 func (s *Manager) GetScopeFull(rpcArgs *ArgsScopeFull, rpcReply *ReplyScanScope) error {
 
 	// Generate UUID for context

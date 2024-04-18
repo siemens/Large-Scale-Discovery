@@ -19,6 +19,12 @@ define(["knockout", "text!./home.html", "postbox", "semantic-ui-popup", "semanti
                 postbox.publish("redirect", "login");
                 return;
             }
+
+            // Get reference to the view model's actual HTML within the DOM
+            this.$domComponent = $('#divHome');
+
+            // Initialize tooltips
+            this.$domComponent.find('[data-html]').popup();
         }
 
         // VIEWMODEL DECONSTRUCTION

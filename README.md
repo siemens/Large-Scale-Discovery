@@ -87,7 +87,7 @@ git config --global user.email "...@domain.tld"
 
 #### Preparation
 
-* Install a local **development** PostgreSQL with the following configuration:
+* Install a local PostgreSQL with the following configuration for **development**:
 
 ```
         Host: localhost     (do NOT enable listening on the external interface!)
@@ -96,10 +96,9 @@ git config --global user.email "...@domain.tld"
         Pass: test123!$LSD  (do NOT use in production!)
 ```
 
-* Install GCC and make sure it is in your environment variable (https://sourceforge.net/projects/mingw-w64/files).
-  Select `x64` in the installation wizard!
 * Edit `./_test/settings.go`and replace the dummy e-mail address.
-* Put the following file on your commit ignore list to avoid accidental commits: `./_test/settings.go`.
+* To avoid accidental commits, move `./_test/settings.go` to a custom/new Changelist (in GoLand, otherwise use a similar
+  technique) as GIT is not designed to ignore tracked files.
 * Download and install Nmap (https://nmap.org/) and SSLyze (https://github.com/nabla-c0d3/sslyze) to `./_bin/tools`. You
   can install them anywhere, but then you'll need to update the paths in `agent.conf` later on.
 * **Configure the working directory** in your build configurations to `./_bin/` (we've prepared some necessary files
@@ -171,11 +170,13 @@ npm install
 * You do **not** need to "build" the web application during development. Building is just an optimization step before
   deployment. It generates an optimized production-ready version of the web application. E.g., it combines all JS and
   CSS files into one, minifies them, moves necessary files into a common structure, updates paths, etc... (according to
-  the rules described in `gulpfile.js`). The output is put into the `./dist` sub folder, where it is taken from by the _
-  web backend_ in production mode.
+  the rules described in `gulpfile.js`). The output is put into the `./dist` sub folder, where it is taken from by the
+  _web backend_ in production mode.
+* Make sure that `gulp` (`gulp.cmd` on Windows) is accessible via your PATH environment variable(s). Then open command
+  line in `./web_frontend` and run:
 
 ```
-gulp
+gulp build
 ```
 
 #### Folder description
@@ -190,8 +191,8 @@ gulp
           needs to be initially registered in `./app/main.js`, assigned to a route in `./app/router.js` and added in
           the `gulpfile.js` file for building.**
     * `./dist` - Release folder, where "gulp" is putting the optimized production ready web application.
-    * `./node_modules` - Packages and their dependencies maintained by npm. Note most packages are used only for the "
-      gulp" build process.
+  * `./node_modules` - Packages and their dependencies maintained by npm. Note that most packages are used only for
+    the "gulp" build process.
     * `./gulpfile.js` - Gulp build script for building a production-ready version of the web application.
     * `./package.json` - Npm list of packages required for the web application or throughout the development process.
 

@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -25,9 +25,9 @@ import (
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/GoScans/webcrawler"
 	"github.com/siemens/GoScans/webenum"
+	"github.com/siemens/Large-Scale-Discovery/_build"
+	"github.com/siemens/Large-Scale-Discovery/utils"
 	"gorm.io/gorm"
-	"large-scale-discovery/_build"
-	"large-scale-discovery/utils"
 	"math/rand"
 	"strings"
 	"time"
@@ -812,7 +812,7 @@ func XUpdateView(scopeDb *gorm.DB, viewEntry *T_scope_view) error {
 		return scopeDb.Transaction(func(txScopeDb *gorm.DB) error {
 
 			// Generate list of view table names from manager db
-			viewTableNames := strings.Split(viewEntry.ViewNames, ",")
+			viewTableNames := utils.ToSlice(viewEntry.ViewNames, ",")
 			newViewTableNames := make([]string, 0, len(viewTableNames))
 
 			// Iterate existing view tables in scope db to update their name
@@ -951,8 +951,8 @@ func XGrantToken(
 }
 
 // XGrantUsers grants view access rights for the given list of users by adding the rights to the scopeDb and adding the
-// a grant entry to manager db in a transactional manner. List of users must be a DbCredentials struct, because the user
-//  might need to be created on the database server if not existing yet.
+// grant entry to manager db in a transactional manner. List of users must be a DbCredentials struct, because the user
+// might need to be created on the database server if not existing yet.
 func XGrantUsers(
 	scopeDb *gorm.DB,
 	viewEntry *T_scope_view,
@@ -1021,7 +1021,7 @@ func XRevokeGrants(scopeDb *gorm.DB, scopeView *T_scope_view, usernames []string
 		return scopeDb.Transaction(func(txScopeDb *gorm.DB) error {
 
 			// Generate list of view table names from manager db
-			viewTableNames := strings.Split(scopeView.ViewNames, ",")
+			viewTableNames := utils.ToSlice(scopeView.ViewNames, ",")
 
 			// Iterate view grants to identify removable ones
 			for _, viewGrant := range scopeView.Grants {
@@ -1048,9 +1048,10 @@ func XRevokeGrants(scopeDb *gorm.DB, scopeView *T_scope_view, usernames []string
 }
 
 // xDeleteView takes care of
-// 		- removing associated access rights
-//		- removing view entry from the manager db
-//		- removing view tables from the scope db
+//   - removing associated access rights
+//   - removing view entry from the manager db
+//   - removing view tables from the scope db
+//
 // ATTENTION: The changes must be committed/rolled back by the calling function!
 func xDeleteView(
 	txScopeDb *gorm.DB,
@@ -1060,7 +1061,7 @@ func xDeleteView(
 ) error {
 
 	// Generate list of view table names from manager db
-	viewTableNames := strings.Split(scopeView.ViewNames, ",")
+	viewTableNames := utils.ToSlice(scopeView.ViewNames, ",")
 
 	// Cleanup grants
 	for _, viewGrant := range scopeView.Grants {
@@ -1099,9 +1100,10 @@ func xDeleteView(
 }
 
 // xRevokeGrant takes care of
-// 		- removing grant entry from the manager db
-//		- removing associated access rights from the scope db
-//		- cleaning obsolete credentials from associated database server
+//   - removing grant entry from the manager db
+//   - removing associated access rights from the scope db
+//   - cleaning obsolete credentials from associated database server
+//
 // ATTENTION: The changes must be committed/rolled back by the calling function!
 func xRevokeGrant(
 	txScopeDb *gorm.DB,

@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -39,6 +39,15 @@ func RemoveFromSlice(list []string, s string) []string {
 
 	// Return new filtered slice
 	return retList
+}
+
+// ToSlice splits a string by separator. In contrast to Golang's own split function, this one returns an empty slice
+// if the input string was empty. Golang's original function would return a slice with one entry being an empty string.
+func ToSlice(s, sep string) []string {
+	if len(s) == 0 {
+		return []string{}
+	}
+	return strings.Split(s, sep)
 }
 
 // ValidUtf8String returns a valid utf-8 string by replacing all invalid byte sequences with a hardcoded replacement

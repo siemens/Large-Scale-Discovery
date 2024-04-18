@@ -1,19 +1,32 @@
-<div class="sixteen wide column">
+<div id="divHome" class="sixteen wide column">
 
     <!-- ko if: userAdmin() -->
+    <h2 class="ui dividing header">
+        User Activity
+    </h2>
     <!-- ko component: { name: 'activity' } --><!-- /ko -->
-    <div class="ui hidden clearing  divider"></div>
     <!-- /ko -->
 
     <!-- ko if: userAdmin() || userOwner() -->
+    <h2 class="ui dividing header">
+        Scan Agents
+    </h2>
     <!-- ko component: { name: 'agents' } --><!-- /ko -->
-    <div class="ui hidden clearing  divider"></div>
     <!-- /ko -->
 
+    <h2 class="ui dividing header">
+        Accessible Views
+        <span data-html="This section lists all accessible database views. A view is a (possibly limited) representation of a scan."
+              data-position="right center" data-variation="tiny wide">
+                <i class="small question circle outline icon" style="margin-right: 0;"></i>
+            </span>
+    </h2>
     <!-- ko component: { name: 'views-granted' } --><!-- /ko -->
 
     <!-- ko if: userAdmin() -->
-    <div class="ui hidden clearing  divider"></div>
+    <h2 class="ui dividing header">
+        Access Requests
+    </h2>
     <!-- ko component: { name: 'charts-access' } --><!-- /ko -->
     <!-- /ko -->
 

@@ -90,13 +90,16 @@ define(["knockout", "text!./list.html", "postbox", "jquery", "jquery-tablesort",
             // Keep reference THIS view model context
             var ctx = this;
 
+            // Prepare array of references to subscriptions in order to dispose them later
+            this.subscriptions = []
+
             // Subscribe to changes of parent view data to update component accordingly
-            this.parent.views.subscribe(function (views) {
+            this.subscriptions.push(this.parent.views.subscribe(function (views) {
                 ctx.viewsGrouped(itemsByKey(viewsSanitize(views), ["scan_scope", "group_name"]));
-            });
-            this.parent.inactiveUsers.subscribe(function (inactiveUsers) {
+            }));
+            this.subscriptions.push(this.parent.inactiveUsers.subscribe(function (inactiveUsers) {
                 ctx.inactiveUsers();
-            });
+            }));
 
             // Get reference to the view model's actual HTML within the DOM
             this.$domComponent = $('#divViews');
@@ -271,6 +274,11 @@ define(["knockout", "text!./list.html", "postbox", "jquery", "jquery-tablesort",
             // Dispose open form
             this.parent.actionArgs(null);
             this.parent.actionComponent(null);
+
+            // Dispose subscriptions
+            for (var k in this.subscriptions) {
+                this.subscriptions[k].dispose();
+            }
         };
 
         // Initialize page with view model and according template

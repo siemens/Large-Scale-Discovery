@@ -40,6 +40,9 @@ define(["knockout", "text!./add.html", "postbox", "jquery", 'semantic-ui-dropdow
             this.scopesDict = {};
             this.scopeSelectedSubscription = null;
 
+            // Prepare array of references to subscriptions in order to dispose them later
+            this.subscriptions = []
+
             // Get reference to the view model's actual HTML within the DOM
             this.$domComponent = $('#divViewsAdd');
             this.$domForm = this.$domComponent.find("form");
@@ -106,7 +109,7 @@ define(["knockout", "text!./add.html", "postbox", "jquery", 'semantic-ui-dropdow
                 }
 
                 // Observe scope select box to update scan targets on changes
-                ctx.scopeSelectedSubscription = ctx.scopeSelected.subscribe(function (newValue) {
+                ctx.subscriptions.push(ctx.scopeSelectedSubscription = ctx.scopeSelected.subscribe(function (newValue) {
                     if (ctx.scopeSelected() !== -1) {
 
                         // Clear selection
@@ -123,7 +126,7 @@ define(["knockout", "text!./add.html", "postbox", "jquery", 'semantic-ui-dropdow
                         }
                     }
                     ctx.scopeSelected(newValue);
-                });
+                }));
             };
 
             // Send request to get scopes
@@ -217,6 +220,11 @@ define(["knockout", "text!./add.html", "postbox", "jquery", 'semantic-ui-dropdow
             if (this.parent.actionComponent() === "views-add") {
                 this.parent.actionArgs(null);
                 this.parent.actionComponent(null);
+            }
+
+            // Dispose subscriptions
+            for (var k in this.subscriptions) {
+                this.subscriptions[k].dispose();
             }
         };
 

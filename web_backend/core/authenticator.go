@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -14,9 +14,9 @@ import (
 	"fmt"
 	"github.com/golang-jwt/jwt/v5"
 	scanUtils "github.com/siemens/GoScans/utils"
-	manager "large-scale-discovery/manager/core"
-	"large-scale-discovery/web_backend/config"
-	"large-scale-discovery/web_backend/database"
+	manager "github.com/siemens/Large-Scale-Discovery/manager/core"
+	"github.com/siemens/Large-Scale-Discovery/web_backend/config"
+	"github.com/siemens/Large-Scale-Discovery/web_backend/database"
 	"strings"
 	"time"
 )
@@ -124,8 +124,8 @@ func initAuthenticators(confAuth map[string]interface{}) error {
 
 // authenticatorAllowed checks whether given user (e-mail address) is allowed to use a certain authenticator.
 // Checks whether:
-//	  - user is allowed to use this authenticator
-//	  - user has a better suitable authenticator
+//   - user is allowed to use this authenticator
+//   - user has a better suitable authenticator
 func authenticatorAllowed(userEmail string, authenticator Authenticator) error {
 
 	// Extract user domain from e-mail address

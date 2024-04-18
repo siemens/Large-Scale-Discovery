@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -20,7 +20,7 @@ import (
 	"github.com/siemens/GoScans/ssl"
 	"github.com/siemens/GoScans/webcrawler"
 	"github.com/siemens/GoScans/webenum"
-	managerdb "large-scale-discovery/manager/database"
+	managerdb "github.com/siemens/Large-Scale-Discovery/manager/database"
 )
 
 // RegisterGobs registers data structs for RPC to make them transferable as interface variables

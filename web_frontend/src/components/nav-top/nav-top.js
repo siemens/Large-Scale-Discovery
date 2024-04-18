@@ -26,6 +26,9 @@ define(["knockout", "../../globals", "text!./nav-top.html", "postbox", "jquery",
             // Keep reference THIS view model context
             var ctx = this;
 
+            // Prepare array of references to subscriptions in order to dispose them later
+            this.subscriptions = []
+
             // Initialize top menu and make it fixed to top on scroll
             this.$domComponent.visibility({
                 type: 'fixed',
@@ -42,9 +45,9 @@ define(["knockout", "../../globals", "text!./nav-top.html", "postbox", "jquery",
             // Nav-top is already shown in the background with cached data. It needs to be updated if new data
             // arrived after user login (if there was no active session).
             initAvatar(this.$domComponent.find(".image")[0], userEmail(), userGender(), false);
-            this.avatarInput.subscribe(function (avatarInput) {
+            this.subscriptions.push(this.avatarInput.subscribe(function (avatarInput) {
                 initAvatar(ctx.$domComponent.find(".image")[0], avatarInput[0], avatarInput[1], false);
-            });
+            }));
         }
 
         // VIEWMODEL ACTION
@@ -124,6 +127,11 @@ define(["knockout", "../../globals", "text!./nav-top.html", "postbox", "jquery",
 
         // VIEWMODEL DECONSTRUCTION
         ViewModel.prototype.dispose = function (data, event) {
+
+            // Dispose subscriptions
+            for (var k in this.subscriptions) {
+                this.subscriptions[k].dispose();
+            }
         };
 
         return {viewModel: ViewModel, template: template};

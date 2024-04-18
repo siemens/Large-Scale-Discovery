@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -14,8 +14,8 @@ import (
 	"encoding/json"
 	"fmt"
 	scanUtils "github.com/siemens/GoScans/utils"
-	"io/ioutil"
 	"net/mail"
+	"os"
 	"regexp"
 )
 
@@ -96,7 +96,7 @@ func (s *Smtp) UnmarshalJSON(b []byte) error {
 	// Load signature certificate from file
 	if s.SignatureCertPath != "" {
 		var errCert error
-		s.SignatureCert, errCert = ioutil.ReadFile(s.SignatureCertPath)
+		s.SignatureCert, errCert = os.ReadFile(s.SignatureCertPath)
 		if errCert != nil {
 			return fmt.Errorf("unable to load sender certificate: %s", errCert)
 		}
@@ -105,7 +105,7 @@ func (s *Smtp) UnmarshalJSON(b []byte) error {
 	// Load signature key from file
 	if s.SignatureKeyPath != "" {
 		var errKey error
-		s.SignatureKey, errKey = ioutil.ReadFile(s.SignatureKeyPath)
+		s.SignatureKey, errKey = os.ReadFile(s.SignatureKeyPath)
 		if errKey != nil {
 			return fmt.Errorf("unable to load sender key: %s", errKey)
 		}
@@ -114,7 +114,7 @@ func (s *Smtp) UnmarshalJSON(b []byte) error {
 	// Load administrators encryption certificates from file
 	s.EncryptionCerts = make([][]byte, 0, len(s.EncryptionCertPaths))
 	for _, p := range s.EncryptionCertPaths {
-		cert, errEncCert := ioutil.ReadFile(p)
+		cert, errEncCert := os.ReadFile(p)
 		if errEncCert != nil {
 			return fmt.Errorf("unable to load recipient certificate: %s", errEncCert)
 		}

@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -14,7 +14,7 @@ import (
 	"fmt"
 	"github.com/siemens/GoScans/discovery"
 	scanUtils "github.com/siemens/GoScans/utils"
-	"large-scale-discovery/agent/config"
+	"github.com/siemens/Large-Scale-Discovery/agent/config"
 	"net"
 	"strings"
 	"time"

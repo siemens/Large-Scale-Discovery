@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -14,11 +14,11 @@ import (
 	"encoding/json"
 	"fmt"
 	scanUtils "github.com/siemens/GoScans/utils"
+	"github.com/siemens/Large-Scale-Discovery/_build"
+	"github.com/siemens/Large-Scale-Discovery/log"
+	"github.com/siemens/Large-Scale-Discovery/utils"
 	"go.uber.org/zap/zapcore"
-	"io/ioutil"
-	"large-scale-discovery/_build"
-	"large-scale-discovery/log"
-	"large-scale-discovery/utils"
+	"os"
 	"sync"
 	"time"
 )
@@ -58,7 +58,7 @@ func Load(path string) error {
 	newConfig := &WebConfig{}
 
 	// Read file content
-	rawJson, errLoad := ioutil.ReadFile(path)
+	rawJson, errLoad := os.ReadFile(path)
 	if errLoad != nil {
 		return errLoad
 	}
@@ -101,7 +101,7 @@ func Save(conf *WebConfig, path string) error {
 	}
 
 	// Write Json to file
-	errWrite := ioutil.WriteFile(path, file, 0644)
+	errWrite := os.WriteFile(path, file, 0644)
 	if errWrite != nil {
 		return errWrite
 	}
@@ -155,12 +155,21 @@ func defaultWebConfigFactory() WebConfig {
 		},
 		Authenticator: map[string]interface{}{ // Flexible map of arguments as needed by integrated authenticators
 			"credentials_registration": false,
-			"oauth_public_key_url":     "https://sso.domain.tld/ext/oauth/jwks",
-			"oauth_config_url":         "https://sso.domain.tld/.well-known/openid-configuration",
-			"oauth_redirect_url":       "https://application.domain.tld/api/v1/auth/oauth/callback",
-			"oauth_client_id":          "",
-			"oauth_client_secret":      "",
-			"oauth_scope":              "",
+			"oauth": map[string]interface{}{ // A name for the oauth authenticator so that there can be multiple ones initialized for different customers
+				"oauth_public_key_url": "https://sso.domain.tld/ext/oauth/jwks",
+				"oauth_config_url":     "https://sso.domain.tld/.well-known/openid-configuration",
+				"oauth_redirect_url":   "https://application.domain.tld/api/v1/auth/oauth/callback",
+				"oauth_client_id":      "",
+				"oauth_client_secret":  "",
+				"oauth_scope":          "",
+				"oauth_claims_mapping": map[string]string{
+					"user_mail":       "mail",
+					"user_name":       "given_name",
+					"user_surname":    "family_name",
+					"user_company":    "employee_id",
+					"user_department": "org_code",
+				},
+			},
 		},
 		Loader: map[string]interface{}{ // Flexible map of arguments as needed by integrated connectors
 			"ldap_certificate_path": "",

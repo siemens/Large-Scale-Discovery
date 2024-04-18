@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -15,13 +15,13 @@ import (
 	"fmt"
 	"github.com/gin-gonic/gin"
 	scanUtils "github.com/siemens/GoScans/utils"
+	"github.com/siemens/Large-Scale-Discovery/_build"
+	manager "github.com/siemens/Large-Scale-Discovery/manager/core"
+	managerdb "github.com/siemens/Large-Scale-Discovery/manager/database"
+	"github.com/siemens/Large-Scale-Discovery/utils"
+	"github.com/siemens/Large-Scale-Discovery/web_backend/core"
+	"github.com/siemens/Large-Scale-Discovery/web_backend/database"
 	"github.com/siemens/ZapSmtp/smtp"
-	"large-scale-discovery/_build"
-	manager "large-scale-discovery/manager/core"
-	managerdb "large-scale-discovery/manager/database"
-	"large-scale-discovery/utils"
-	"large-scale-discovery/web_backend/core"
-	"large-scale-discovery/web_backend/database"
 	"net/mail"
 	"strings"
 )
@@ -874,8 +874,9 @@ var ScopeCreateUpdateCustom = func() gin.HandlerFunc {
 // inventory. If a group ID is supplied, a new scan scope will be created. If a scope ID is provided, an update will
 // be performed. Only executes, if the user has ownership rights (or is admin).
 // ATTENTION: This only creates a scan scope with an import definition. Scan input targets are not inserted into the
-// 			  scan scope database. The importer component takes care of maintaining scan input targets according to
-//			  this scan scope import definition.
+//
+//	scan scope database. The importer component takes care of maintaining scan input targets according to
+//	this scan scope import definition.
 var ScopeCreateUpdateNetworks = func() gin.HandlerFunc {
 
 	// Define expected request structure
@@ -1135,8 +1136,9 @@ var ScopeCreateUpdateNetworks = func() gin.HandlerFunc {
 // inventory. If a group ID is supplied, a new scan scope will be created. If a scope ID is provided, an update will
 // be performed. Only executes, if the user has ownership rights (or is admin).
 // ATTENTION: This only creates a scan scope with an import definition. Scan input targets are not inserted into the
-// 			  scan scope database. The importer component takes care of maintaining scan input targets according to
-//			  this scan scope import definition.
+//
+//	scan scope database. The importer component takes care of maintaining scan input targets according to
+//	this scan scope import definition.
 var ScopeCreateUpdateAssets = func() gin.HandlerFunc {
 
 	// Define expected request structure

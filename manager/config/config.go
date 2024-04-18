@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -14,12 +14,12 @@ import (
 	"encoding/json"
 	"fmt"
 	scanUtils "github.com/siemens/GoScans/utils"
+	"github.com/siemens/Large-Scale-Discovery/_build"
+	"github.com/siemens/Large-Scale-Discovery/log"
+	"github.com/siemens/Large-Scale-Discovery/manager/database"
+	"github.com/siemens/Large-Scale-Discovery/utils"
 	"go.uber.org/zap/zapcore"
-	"io/ioutil"
-	"large-scale-discovery/_build"
-	"large-scale-discovery/log"
-	"large-scale-discovery/manager/database"
-	"large-scale-discovery/utils"
+	"os"
 	"sync"
 	"time"
 )
@@ -59,7 +59,7 @@ func Load(path string) error {
 	newConfig := &ManagerConfig{}
 
 	// Read file content
-	rawJson, errLoad := ioutil.ReadFile(path)
+	rawJson, errLoad := os.ReadFile(path)
 	if errLoad != nil {
 		return errLoad
 	}
@@ -102,7 +102,7 @@ func Save(conf *ManagerConfig, path string) error {
 	}
 
 	// Write Json to file
-	errWrite := ioutil.WriteFile(path, file, 0644)
+	errWrite := os.WriteFile(path, file, 0644)
 	if errWrite != nil {
 		return errWrite
 	}
@@ -139,7 +139,7 @@ func defaultManagerConfigFactory() ManagerConfig {
 	defaultSkipDays := []time.Weekday{0, 6}
 	defaultDiscoveryTimeEarliest := "09:00"
 	defaultDiscoveryTimeLatest := "15:00"
-	defaultNmapArgs := "-PE -PP -Pn -sS -sU -O -p U:53,67,68,161,162,1900,T:0-65535 -sV -T4 --randomize-hosts --host-timeout 6h --max-retries 2 --traceroute --resolve-all --script=default"
+	defaultNmapArgs := "-PE -PP -Pn -sS -sU -O -p U:53,67,68,111,161,162,1900,2049,T:0-65535 -sV -T4 --randomize-hosts --host-timeout 6h --max-retries 2 --traceroute --resolve-all --script=default"
 	defaultNmapArgsPrescan := "-Pn -sS -p 21,22,23,80,135,139,443,445,3389,5900,8080,8443 -T4 --randomize-hosts --host-timeout 2m --max-retries 2"
 
 	// Ease some default values in development mode
@@ -223,7 +223,7 @@ func defaultManagerConfigFactory() ManagerConfig {
 		PrivilegeSecrets: privilegeSecrets,
 		Database: Database{
 			Connections:         30,
-			ConnectionsClient:   5,
+			ConnectionsClient:   10,
 			PasswordExpiryHours: passwordExpiry.Hours(),
 			PasswordExpiry:      passwordExpiry,
 			TokenExpiryDays:     tokenExpiry.Hours() / 24,

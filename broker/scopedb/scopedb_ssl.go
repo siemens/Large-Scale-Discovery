@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -12,13 +12,14 @@ package scopedb
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"github.com/jackc/pgconn"
 	"github.com/siemens/GoScans/ssl"
 	scanUtils "github.com/siemens/GoScans/utils"
+	managerdb "github.com/siemens/Large-Scale-Discovery/manager/database"
+	"github.com/siemens/Large-Scale-Discovery/utils"
 	"gorm.io/gorm"
-	managerdb "large-scale-discovery/manager/database"
-	"large-scale-discovery/utils"
 	"strings"
 	"sync"
 	"time"
@@ -85,12 +86,14 @@ func PrepareSslResult(
 	errDb := scopeDb.
 		Session(&gorm.Session{CreateBatchSize: managerdb.MaxBatchSizeSsl}).
 		Create(&infoEntries).Error
-	if errCreate, ok := errDb.(*pgconn.PgError); ok && errCreate.Code == "23505" { // Code for unique constraint violation
+	var errCreate *pgconn.PgError
+	if errors.As(errDb, &errCreate) && errCreate.Code == "23505" { // Code for unique constraint violation
 
 		// Fall back to inserting the entries one by one to ensure as many entries as possible being added to the db
 		for _, entry := range infoEntries {
 			errDb2 := scopeDb.Create(&entry).Error
-			if errCreate2, ok2 := errDb2.(*pgconn.PgError); ok2 && errCreate2.Code == "23505" { // Code for unique constraint violation
+			var errCreate2 *pgconn.PgError
+			if errors.As(errDb2, &errCreate2) && errCreate2.Code == "23505" { // Code for unique constraint violation
 				logger.Debugf("SSL info entry '%d' already existing.", entry.IdTDiscoveryService)
 			} else if errDb2 != nil {
 				logger.Errorf("SSL info entry '%d' could not be created: %s", entry.IdTDiscoveryService, errDb2)

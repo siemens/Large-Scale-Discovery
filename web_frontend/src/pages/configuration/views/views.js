@@ -30,6 +30,12 @@ define(["knockout", "text!./views.html", "postbox", "jquery", "semantic-ui-popup
                 return;
             }
 
+            // Get reference to the view model's actual HTML within the DOM
+            this.$domComponent = $('#divConfigurationViews');
+
+            // Initialize tooltips
+            this.$domComponent.find('[data-html]').popup();
+
             // Load views data
             this.loadData()
         }
@@ -72,6 +78,9 @@ define(["knockout", "text!./views.html", "postbox", "jquery", "semantic-ui-popup
 
                 // Set table data
                 ctx.views(response.body["views"]);
+
+                // Initialize tooltips
+                ctx.$domComponent.find('[data-html]').popup();
 
                 // Execute completion callback if set
                 if (callbackCompletion !== undefined) {

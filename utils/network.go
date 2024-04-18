@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -13,6 +13,7 @@ package utils
 import (
 	"crypto/tls"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"golang.org/x/net/nettest"
 	"log"
@@ -38,7 +39,7 @@ func IsConnectionError(err error) bool {
 			return true
 		}
 	case syscall.Errno:
-		if t == syscall.ECONNREFUSED {
+		if errors.Is(t, syscall.ECONNREFUSED) {
 			return true
 		}
 	}
@@ -79,6 +80,8 @@ func CountIpsInInput(subnet string) (uint, error) {
 func GetOutboundIP() string {
 
 	// Establish logical connection, target does not actually need to be real.
+	// However, this fails if the specified network is unreachable, which can
+	// be the case if no default route is set (e.g., isolated systems)
 	conn, err := net.Dial("udp", "8.8.8.8:80")
 	if err != nil {
 		log.Fatal(err)

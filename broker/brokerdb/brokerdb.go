@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -13,6 +13,7 @@ package brokerdb
 import (
 	"database/sql"
 	"fmt"
+	"github.com/glebarez/sqlite"
 	"github.com/siemens/GoScans/banner"
 	"github.com/siemens/GoScans/nfs"
 	"github.com/siemens/GoScans/smb"
@@ -21,12 +22,11 @@ import (
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/GoScans/webcrawler"
 	"github.com/siemens/GoScans/webenum"
-	"gorm.io/driver/sqlite"
+	"github.com/siemens/Large-Scale-Discovery/_build"
+	managerdb "github.com/siemens/Large-Scale-Discovery/manager/database"
+	"github.com/siemens/Large-Scale-Discovery/utils"
 	"gorm.io/gorm"
 	gormlog "gorm.io/gorm/logger"
-	"large-scale-discovery/_build"
-	managerdb "large-scale-discovery/manager/database"
-	"large-scale-discovery/utils"
 	"strings"
 	"time"
 )

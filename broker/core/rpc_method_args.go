@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -10,7 +10,7 @@
 
 package core
 
-import "large-scale-discovery/utils"
+import "github.com/siemens/Large-Scale-Discovery/utils"
 
 // AgentInfo contains agent identifying meta data to describe the origin of the request
 // ATTENTION: Do not use this data for security checks, it can be crafted!

@@ -1,9 +1,19 @@
+/*
+* Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
+*
+* Copyright (c) Siemens AG, 2016-2024.
+*
+* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+* directory or visit <https://opensource.org/licenses/MIT>.
+*
+ */
+
 package log
 
 import (
+	"github.com/siemens/Large-Scale-Discovery/_test"
+	"github.com/siemens/Large-Scale-Discovery/utils"
 	"go.uber.org/zap/zapcore"
-	"large-scale-discovery/_test"
-	"large-scale-discovery/utils"
 	"net/mail"
 	"os"
 	"testing"

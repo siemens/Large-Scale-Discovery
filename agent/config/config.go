@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -14,10 +14,10 @@ import (
 	"encoding/json"
 	"fmt"
 	scanUtils "github.com/siemens/GoScans/utils"
+	"github.com/siemens/Large-Scale-Discovery/_build"
+	"github.com/siemens/Large-Scale-Discovery/log"
 	"go.uber.org/zap/zapcore"
-	"io/ioutil"
-	"large-scale-discovery/_build"
-	"large-scale-discovery/log"
+	"os"
 	"sync"
 )
 
@@ -66,7 +66,7 @@ func Load(path string) error {
 	newConfig := &AgentConfig{}
 
 	// Read file content
-	rawJson, errLoad := ioutil.ReadFile(path)
+	rawJson, errLoad := os.ReadFile(path)
 	if errLoad != nil {
 		return errLoad
 	}
@@ -109,7 +109,7 @@ func Save(conf *AgentConfig, path string) error {
 	}
 
 	// Write Json to file
-	errWrite := ioutil.WriteFile(path, file, 0644)
+	errWrite := os.WriteFile(path, file, 0644)
 	if errWrite != nil {
 		return errWrite
 	}

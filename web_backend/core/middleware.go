@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -11,14 +11,15 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/lithammer/shortuuid"
+	"github.com/lithammer/shortuuid/v4"
 	scanUtils "github.com/siemens/GoScans/utils"
-	"large-scale-discovery/_build"
-	"large-scale-discovery/log"
-	"large-scale-discovery/web_backend/database"
+	"github.com/siemens/Large-Scale-Discovery/_build"
+	"github.com/siemens/Large-Scale-Discovery/log"
+	"github.com/siemens/Large-Scale-Discovery/web_backend/database"
 	"net"
 	"net/http/httputil"
 	"os"
@@ -72,13 +73,17 @@ func MwPanicHandler() gin.HandlerFunc {
 		// Get logger for current request context
 		logger := GetContextLogger(context)
 
+		// Log middleware execution
+		logger.Debugf("Checking for request panics.")
+
 		// Recover from panics
 		defer func() {
 			if err := recover(); err != nil {
 
 				// Check for a broken connection, as it is not really a condition that warrants a panic stack trace.
 				if ne, ok := err.(*net.OpError); ok {
-					if se, ok := ne.Err.(*os.SyscallError); ok {
+					var se *os.SyscallError
+					if errors.As(ne.Err, &se) {
 						if strings.Contains(strings.ToLower(se.Error()), "broken pipe") ||
 							strings.Contains(strings.ToLower(se.Error()), "connection reset by peer") {
 							logger.Debugf("Connection closed unexpectedly.")
@@ -215,6 +220,9 @@ func MwAbortOptionsRequest() gin.HandlerFunc {
 		// Get logger for current request context
 		logger := GetContextLogger(context)
 
+		// Log middleware execution
+		logger.Debugf("Checking for OPTIONS request.")
+
 		// Tell clients that there is no OPTIONS request available
 		context.Writer.Header().Set("access-control-allow-methods", "POST, GET")
 
@@ -236,6 +244,9 @@ func MwJwtAuthentication() gin.HandlerFunc {
 
 		// Get logger for current request context
 		logger := GetContextLogger(context)
+
+		// Log middleware execution
+		logger.Debugf("Executing authentication middleware.")
 
 		// Stop validation if route does not require authentication
 		if !strings.HasPrefix(context.Request.URL.Path, "/api/") {

@@ -130,10 +130,22 @@ define(["knockout", "text!./custom.html", "postbox", "jquery", "tabulator-tables
                 if (e.keyCode === ctrlKey || e.keyCode === cmdKey) ctrlDown = false;
             });
             $(document).keydown(function (e) {
+
+                // Set paste focus if
                 if (ctrlDown && (e.keyCode === vKey)) {
-                    if (!ctx.editing()) {
-                        document.getElementsByClassName('tabulator-tableHolder')[0].focus()
+
+                    // Don't set paste focus if user is editing filter field, user might try to paste a string
+                    if (document.activeElement.tagName === "INPUT" && document.activeElement.type === "search") {
+                        return
                     }
+
+                    // Don't set paste focus if user is editing cell data, user might try to paste a string
+                    if (ctx.editing()) {
+                        return
+                    }
+
+                    // Set paste focus in order to allow insert from clipboard
+                    document.getElementsByClassName('tabulator-tableHolder')[0].focus()
                 }
             });
 

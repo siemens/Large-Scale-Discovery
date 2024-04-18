@@ -346,7 +346,7 @@ function targetsTableConfig(targetsJson, fnToggleEditState, fnDataChanged, fnInp
             {
                 field: 'delete',
                 title: '',
-                width: 10,
+                minWidth: 42,
                 titleFormatter: fnCopyButton,
                 formatter: fnDeleteButton,
                 clipboard: false,
@@ -354,7 +354,7 @@ function targetsTableConfig(targetsJson, fnToggleEditState, fnDataChanged, fnInp
             {
                 field: 'reset',
                 title: '',
-                width: 10,
+                minWidth: 42,
                 formatter: fnResetButton,
                 clipboard: false,
             },

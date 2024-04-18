@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -14,7 +14,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/lithammer/shortuuid"
+	"github.com/lithammer/shortuuid/v4"
 	"github.com/siemens/GoScans/banner"
 	"github.com/siemens/GoScans/discovery"
 	"github.com/siemens/GoScans/nfs"
@@ -24,14 +24,14 @@ import (
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/GoScans/webcrawler"
 	"github.com/siemens/GoScans/webenum"
+	"github.com/siemens/Large-Scale-Discovery/broker/brokerdb"
+	"github.com/siemens/Large-Scale-Discovery/broker/memory"
+	"github.com/siemens/Large-Scale-Discovery/broker/scopedb"
+	"github.com/siemens/Large-Scale-Discovery/log"
+	managerdb "github.com/siemens/Large-Scale-Discovery/manager/database"
+	"github.com/siemens/Large-Scale-Discovery/utils"
 	"github.com/vburenin/nsync"
 	"gorm.io/gorm"
-	"large-scale-discovery/broker/brokerdb"
-	"large-scale-discovery/broker/memory"
-	"large-scale-discovery/broker/scopedb"
-	"large-scale-discovery/log"
-	managerdb "large-scale-discovery/manager/database"
-	"large-scale-discovery/utils"
 	"strconv"
 	"strings"
 	"sync"
@@ -425,7 +425,7 @@ func feedSubmodule(
 			Target:         target.Address,
 			Protocol:       target.Protocol,
 			Port:           target.Port,
-			OtherNames:     strings.Split(target.OtherNames, scopedb.DbValueSeparator),
+			OtherNames:     utils.ToSlice(target.OtherNames, scopedb.DbValueSeparator),
 			Service:        target.Service,
 			ServiceProduct: target.ServiceProduct,
 			ScanSettings:   scanScope.ScanSettings,

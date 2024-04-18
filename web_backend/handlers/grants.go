@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -16,13 +16,13 @@ import (
 	"fmt"
 	"github.com/gin-gonic/gin"
 	scanUtils "github.com/siemens/GoScans/utils"
+	"github.com/siemens/Large-Scale-Discovery/_build"
+	manager "github.com/siemens/Large-Scale-Discovery/manager/core"
+	managerdb "github.com/siemens/Large-Scale-Discovery/manager/database"
+	"github.com/siemens/Large-Scale-Discovery/utils"
+	"github.com/siemens/Large-Scale-Discovery/web_backend/core"
+	"github.com/siemens/Large-Scale-Discovery/web_backend/database"
 	"github.com/siemens/ZapSmtp/smtp"
-	"large-scale-discovery/_build"
-	manager "large-scale-discovery/manager/core"
-	managerdb "large-scale-discovery/manager/database"
-	"large-scale-discovery/utils"
-	"large-scale-discovery/web_backend/core"
-	"large-scale-discovery/web_backend/database"
 	"net/mail"
 	"time"
 )

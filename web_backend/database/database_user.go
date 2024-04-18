@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -110,6 +110,16 @@ func (user *T_user) BeforeSave(tx *gorm.DB) error {
 
 	// Return nil as everything went fine
 	return nil
+}
+
+func (user *T_user) AfterFind(tx *gorm.DB) (err error) {
+
+	// Alter nil certificate values to empty slices. They should never be nil, as the database column
+	// is defined as "not null". Unfortunately, GORM returns them as nil values.
+	if user.Certificate == nil {
+		user.Certificate = []byte{}
+	}
+	return
 }
 
 // Create crates a user in the database

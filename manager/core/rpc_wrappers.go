@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -15,8 +15,8 @@ import (
 	"errors"
 	"fmt"
 	scanUtils "github.com/siemens/GoScans/utils"
-	"large-scale-discovery/manager/database"
-	"large-scale-discovery/utils"
+	"github.com/siemens/Large-Scale-Discovery/manager/database"
+	"github.com/siemens/Large-Scale-Discovery/utils"
 	"time"
 )
 
@@ -32,9 +32,9 @@ import (
 // RpcSubscribeNotification initializes a goroutine continuously listening for scope changes on the manager via RPC.
 // This function can be used by other components to subscribe to notifications about scan scope changes. It returns
 // two channels:
-//		- A channel for notifications about specific scan scopes that changed
-//		- A channel for re-connect notifications. In this case scan scope changes might have gone unobserved and a
-//		  complete integrity check is necessary!
+//   - A channel for notifications about specific scan scopes that changed
+//   - A channel for re-connect notifications. In this case scan scope changes might have gone unobserved and a
+//     complete integrity check is necessary!
 func RpcSubscribeNotification(
 	logger scanUtils.Logger,
 	rpc *utils.Client,

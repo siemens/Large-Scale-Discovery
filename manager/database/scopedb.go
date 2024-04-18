@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -15,11 +15,11 @@ import (
 	"fmt"
 	escape "github.com/segmentio/go-pg-escape"
 	scanUtils "github.com/siemens/GoScans/utils"
+	"github.com/siemens/Large-Scale-Discovery/_build"
+	"github.com/siemens/Large-Scale-Discovery/utils"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	gormlog "gorm.io/gorm/logger"
-	"large-scale-discovery/_build"
-	"large-scale-discovery/utils"
 	"regexp"
 	"strconv"
 	"strings"
@@ -203,7 +203,7 @@ func GetScopeDbHandle(logger scanUtils.Logger, scanScope *T_scan_scope) (*gorm.D
 	defer scopeDbsLock.Unlock()
 
 	// Establish a new connection
-	logger.Debugf("Establishing connection to scan scope DB '%s' ('%s').", scanScope.Name, scanScope.DbName)
+	logger.Debugf("Establishing connection to scan scope '%s' ('%s').", scanScope.Name, scanScope.DbName)
 
 	// Prepare args variable
 	var dsn string
@@ -226,7 +226,7 @@ func GetScopeDbHandle(logger scanUtils.Logger, scanScope *T_scan_scope) (*gorm.D
 
 	// Open scope database. The database driver for postgres (pgx) uses prepared statements by default. We therefore do
 	// not need to enable prepared statements in gorm.
-	scopeDbHandle, errDB := gorm.Open(postgres.Open(dsn+" statement_cache_capacity=0 statement_cache_mode=describe"), &gorm.Config{
+	scopeDbHandle, errDB := gorm.Open(postgres.Open(dsn), &gorm.Config{
 		Logger: gormlog.Default.LogMode(gormlog.Warn),
 	})
 	if errDB != nil {
@@ -320,15 +320,15 @@ func InstallTrigramIndices(scopeDb *gorm.DB) error {
 		indices := []string{
 			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_hosts_other_names 			ON t_discovery_hosts 	USING GIN (other_names 			gin_trgm_ops)`,
 
-			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_services_other_names 		ON t_discovery_services USING GIN (other_names 			gin_trgm_ops)`, // Views are joining t_discovery_services data a lot
-			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_services_os_admin_users 	ON t_discovery_services USING GIN (os_admin_users 		gin_trgm_ops)`, // Views are joining t_discovery_services data a lot
-			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_services_os_rdp_users 		ON t_discovery_services USING GIN (os_rdp_users 		gin_trgm_ops)`, // Views are joining t_discovery_services data a lot
-			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_services_asset_company 	ON t_discovery_services USING GIN (asset_company 		gin_trgm_ops)`, // Views are joining t_discovery_services data a lot
+			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_services_other_names 		ON t_discovery_services USING GIN (other_names 			gin_trgm_ops)`,        // Views are joining t_discovery_services data a lot
+			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_services_os_admin_users 	ON t_discovery_services USING GIN (os_admin_users 		gin_trgm_ops)`,    // Views are joining t_discovery_services data a lot
+			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_services_os_rdp_users 		ON t_discovery_services USING GIN (os_rdp_users 		gin_trgm_ops)`,       // Views are joining t_discovery_services data a lot
+			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_services_asset_company 	ON t_discovery_services USING GIN (asset_company 		gin_trgm_ops)`,      // Views are joining t_discovery_services data a lot
 			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_services_asset_department 	ON t_discovery_services USING GIN (asset_department 	gin_trgm_ops)`, // Views are joining t_discovery_services data a lot
-			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_services_asset_owner 		ON t_discovery_services USING GIN (asset_owner 			gin_trgm_ops)`, // Views are joining t_discovery_services data a lot
-			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_services_input_manager 	ON t_discovery_services USING GIN (input_manager 		gin_trgm_ops)`, // Views are joining t_discovery_services data a lot
-			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_services_input_contact 	ON t_discovery_services USING GIN (input_contact 		gin_trgm_ops)`, // Views are joining t_discovery_services data a lot
-			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_services_ad_managed_by 	ON t_discovery_services USING GIN (ad_managed_by 		gin_trgm_ops)`, // Views are joining t_discovery_services data a lot
+			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_services_asset_owner 		ON t_discovery_services USING GIN (asset_owner 			gin_trgm_ops)`,        // Views are joining t_discovery_services data a lot
+			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_services_input_manager 	ON t_discovery_services USING GIN (input_manager 		gin_trgm_ops)`,      // Views are joining t_discovery_services data a lot
+			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_services_input_contact 	ON t_discovery_services USING GIN (input_contact 		gin_trgm_ops)`,      // Views are joining t_discovery_services data a lot
+			`CREATE INDEX IF NOT EXISTS trgm_t_discovery_services_ad_managed_by 	ON t_discovery_services USING GIN (ad_managed_by 		gin_trgm_ops)`,      // Views are joining t_discovery_services data a lot
 
 			`CREATE INDEX IF NOT EXISTS trgm_t_smb_files_share 						ON t_smb_files 			USING GIN (share 				gin_trgm_ops)`,
 			`CREATE INDEX IF NOT EXISTS trgm_t_smb_files_path 						ON t_smb_files 			USING GIN (path 				gin_trgm_ops)`,
@@ -375,11 +375,11 @@ func AutomigrateScanScopes(logger scanUtils.Logger) error {
 		scopeDb, errHandle := GetScopeDbHandle(logger, &scanScope)
 		if errHandle != nil {
 			return fmt.Errorf(
-				"could not migrate scan scope DB '%s' ('%s'): %s", scanScope.Name, scanScope.DbName, errHandle)
+				"could not migrate scan scope '%s' ('%s'): %s", scanScope.Name, scanScope.DbName, errHandle)
 		}
 
 		// Log action
-		logger.Infof("Migrating scan scope DB '%s' ('%s').", scanScope.Name, scanScope.DbName)
+		logger.Infof("Migrating scan scope '%s' ('%s').", scanScope.Name, scanScope.DbName)
 
 		// Auto-migrate scan scope database
 		errMigrate := AutoMigrateScopeDb(scopeDb)
@@ -398,11 +398,19 @@ func AutomigrateScanScopes(logger scanUtils.Logger) error {
 	// Iterate over all scan scope views and migrate them
 	for _, viewEntry := range viewEntries {
 
+		// Log action
+		logger.Infof(
+			"Migrating scan scope view '%s' of scan scope '%s' ('%s').",
+			viewEntry.Name,
+			viewEntry.ScanScope.Name,
+			viewEntry.ScanScope.DbName,
+		)
+
 		// Open scan scope database
 		scopeDb, errHandle := GetScopeDbHandle(logger, &viewEntry.ScanScope)
 		if errHandle != nil {
 			return fmt.Errorf(
-				"could not migrate scope views of scan scope DB '%s' ('%s'): %s",
+				"could not migrate scope views of scan scope '%s' ('%s'): %s",
 				viewEntry.ScanScope.Name,
 				viewEntry.ScanScope.DbName,
 				errHandle,
@@ -514,16 +522,16 @@ func SetTargets(scopeDb *gorm.DB, targets []T_discovery) (created uint64, remove
 
 		// Insert missing targets
 		missingTargets := make([]T_discovery, 0, len(createEntries))
-		for _, missingTarget := range createEntries {
+		for _, createEntry := range createEntries {
 
 			// Calculate and set input size
-			count, errCount := utils.CountIpsInInput(missingTarget.Input)
+			count, errCount := utils.CountIpsInInput(createEntry.Input)
 			if errCount != nil {
 				// Rollback everything if we can't insert something
 				return fmt.Errorf("could not count input size: %s", errCount)
 			}
-			missingTarget.InputSize = count
-			missingTargets = append(missingTargets, missingTarget)
+			createEntry.InputSize = count
+			missingTargets = append(missingTargets, createEntry)
 		}
 
 		// Execute the actual insert. Use a new gorm session and force a limit on how many Entries can be batched,
@@ -538,8 +546,8 @@ func SetTargets(scopeDb *gorm.DB, targets []T_discovery) (created uint64, remove
 
 		// Delete removed targets
 		var deleteIds []uint64
-		for _, removedTarget := range removeEntries {
-			deleteIds = append(deleteIds, removedTarget.Id)
+		for _, removeEntry := range removeEntries {
+			deleteIds = append(deleteIds, removeEntry.Id)
 		}
 		if len(deleteIds) > 0 {
 			errDb3 := txScopeDb.Delete(&T_discovery{}, deleteIds).Error
@@ -550,12 +558,14 @@ func SetTargets(scopeDb *gorm.DB, targets []T_discovery) (created uint64, remove
 		}
 
 		// Update meta data of remaining targets
-		for _, remainingTarget := range updateEntries {
+		for _, updateEntry := range updateEntries {
 
 			// Execute update
 			txScopeDb.
-				Model(&remainingTarget).
+				Model(&updateEntry).
 				Select(
+					"enabled",
+					"priority",
 					"timezone",
 					"lat",
 					"lng",
@@ -576,8 +586,6 @@ func SetTargets(scopeDb *gorm.DB, targets []T_discovery) (created uint64, remove
 					"id",
 					"input",
 					"input_size",
-					"enabled",
-					"priority",
 					"scan_count",
 					"scan_started",
 					"scan_finished",
@@ -585,7 +593,7 @@ func SetTargets(scopeDb *gorm.DB, targets []T_discovery) (created uint64, remove
 					"scan_ip",
 					"scan_hostname",
 				).
-				Updates(&remainingTarget)
+				Updates(&updateEntry)
 		}
 
 		// Return nil as everything went fine
@@ -990,7 +998,7 @@ func rebuildScopeView(txScopeDb *gorm.DB, viewEntry *T_scope_view) error {
 	}
 
 	// Generate list of view table names from manager db
-	viewTableNames := strings.Split(viewEntry.ViewNames, ",")
+	viewTableNames := utils.ToSlice(viewEntry.ViewNames, ",")
 
 	// Drop view
 	errDelete := deleteScopeView(txScopeDb, viewTableNames)
@@ -1037,7 +1045,8 @@ func rebuildScopeView(txScopeDb *gorm.DB, viewEntry *T_scope_view) error {
 // are multiple view tables per view: hosts, services, smb, nfs,...).
 // ATTENTION: A credentials set may either be user specific or a random access token
 // ATTENTION: If the credentials set is not existing on the given database server, it will be created. That's why
-// 			  the hashed user's password needs to be passed in too.
+//
+//	the hashed user's password needs to be passed in too.
 func grantScopeView(
 	txScopeDb *gorm.DB,
 	viewEntry *T_scope_view,
@@ -1106,28 +1115,24 @@ func grantScopeView(
 	if errDb4 != nil {
 		return errDb4
 	}
-	// Make sure the ViewNames is not an empty string, this would lead to 'Split' to return a slice with an empty string
-	// as entry and therefore in an error in the query.
-	if viewEntry.ViewNames != "" {
 
-		// Generate list of view table names from manager db
-		viewTableNames := strings.Split(viewEntry.ViewNames, ",")
+	// Get list of view table names from manager db
+	viewTableNames := utils.ToSlice(viewEntry.ViewNames, ",")
 
-		// Grant rights to all views
-		for _, viewName := range viewTableNames {
+	// Grant rights to all views
+	for _, viewName := range viewTableNames {
 
-			// Build escaped query manually, as it can't be executed as a prepared statement
-			// ATTENTION: This is tailored for Postgres databases and might not be safe with others!
-			sqlGrant5, errSqlGrant5 := escape.Escape(`GRANT SELECT ON %I TO %I`, viewName, credentials.Username)
-			if errSqlGrant5 != nil {
-				return errSqlGrant5
-			}
+		// Build escaped query manually, as it can't be executed as a prepared statement
+		// ATTENTION: This is tailored for Postgres databases and might not be safe with others!
+		sqlGrant5, errSqlGrant5 := escape.Escape(`GRANT SELECT ON %I TO %I`, viewName, credentials.Username)
+		if errSqlGrant5 != nil {
+			return errSqlGrant5
+		}
 
-			// Create right on view
-			errDb5 := txScopeDb.Exec(sqlGrant5).Error
-			if errDb5 != nil {
-				return errDb5
-			}
+		// Create right on view
+		errDb5 := txScopeDb.Exec(sqlGrant5).Error
+		if errDb5 != nil {
+			return errDb5
 		}
 	}
 
@@ -1238,13 +1243,13 @@ func sanitizeViewName(name string) (string, error) {
 
 // mergeInputs determines which entries shall be created/removed/updated comparing a new list with an old one
 func mergeInputs(existingInputs map[string]T_discovery, newInputs map[string]T_discovery) (
-	created []T_discovery, removed []T_discovery, updated []T_discovery) {
+	create []T_discovery, remove []T_discovery, update []T_discovery) {
 
 	// Find added values that need to be inserted
 	for k, v := range newInputs {
 		_, exists := existingInputs[k]
 		if !exists {
-			created = append(created, v)
+			create = append(create, v)
 		}
 	}
 
@@ -1252,7 +1257,7 @@ func mergeInputs(existingInputs map[string]T_discovery, newInputs map[string]T_d
 	for k, v := range existingInputs {
 		_, exists := newInputs[k]
 		if !exists {
-			removed = append(removed, v)
+			remove = append(remove, v)
 		}
 	}
 
@@ -1265,10 +1270,10 @@ func mergeInputs(existingInputs map[string]T_discovery, newInputs map[string]T_d
 			v.Id = existing.Id
 
 			// Add entry to list of update entries
-			updated = append(updated, v)
+			update = append(update, v)
 		}
 	}
 
 	// Return sorted lists
-	return created, removed, updated
+	return create, remove, update
 }

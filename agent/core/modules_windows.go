@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -16,10 +16,10 @@ import (
 	"github.com/siemens/GoScans/smb"
 	"github.com/siemens/GoScans/ssl"
 	scanUtils "github.com/siemens/GoScans/utils"
-	"large-scale-discovery/agent/config"
-	broker "large-scale-discovery/broker/core"
-	"large-scale-discovery/log"
-	"strings"
+	"github.com/siemens/Large-Scale-Discovery/agent/config"
+	broker "github.com/siemens/Large-Scale-Discovery/broker/core"
+	"github.com/siemens/Large-Scale-Discovery/log"
+	"github.com/siemens/Large-Scale-Discovery/utils"
 	"time"
 )
 
@@ -62,9 +62,9 @@ func launchSmb(
 
 	// Prepare variables
 	scanTimeout := time.Minute * time.Duration(scanTask.ScanSettings.SmbScanTimeoutMinutes)
-	excludedShares := strings.Split(scanTask.ScanSettings.SmbExcludeShares, ",")
-	excludedFolders := strings.Split(scanTask.ScanSettings.SmbExcludeFolders, ",")
-	excludedExtensions := strings.Split(scanTask.ScanSettings.SmbExcludeExtensions, ",")
+	excludedShares := utils.ToSlice(scanTask.ScanSettings.SmbExcludeShares, ",")
+	excludedFolders := utils.ToSlice(scanTask.ScanSettings.SmbExcludeFolders, ",")
+	excludedExtensions := utils.ToSlice(scanTask.ScanSettings.SmbExcludeExtensions, ",")
 
 	// Initiate scanner
 	scan, errScan := smb.NewScanner(

@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -11,11 +11,11 @@
 package memory
 
 import (
-	cmap "github.com/orcaman/concurrent-map"
-	managerdb "large-scale-discovery/manager/database"
+	cmap "github.com/orcaman/concurrent-map/v2"
+	managerdb "github.com/siemens/Large-Scale-Discovery/manager/database"
 )
 
-var scanScopes = cmap.New() // Mapping of scan scope IDs (as string) with scan scope structs (containing database details, scan settings, ...). The map key must be something never-changing to avoid race conditions on change.
+var scanScopes = cmap.New[*managerdb.T_scan_scope]() // Mapping of scan scope IDs (as string) with scan scope structs (containing database details, scan settings, ...). The map key must be something never-changing to avoid race conditions on change.
 
 // AddScope adds a scan scope to memory, using its secret as an identifier. Scan scope is overwritten, if same
 // secret was already used as a key. Usually the T_scan_scope struct returned by the manager should not contain the
@@ -34,7 +34,7 @@ func RemoveScope(scopeSecret string) {
 func GetScope(scopeSecret string) (managerdb.T_scan_scope, bool) {
 	scanScope, exists := scanScopes.Get(scopeSecret)
 	if exists {
-		return *scanScope.(*managerdb.T_scan_scope), exists
+		return *scanScope, exists
 	} else {
 		return managerdb.T_scan_scope{}, exists
 	}
@@ -54,7 +54,7 @@ func GetScopes() map[uint64]managerdb.T_scan_scope {
 
 	// Iterate cached scope items and copy data over
 	for _, item := range cachedScopeItems {
-		scanScope := *item.(*managerdb.T_scan_scope)
+		scanScope := *item
 		cachedScopes[scanScope.Id] = scanScope
 	}
 

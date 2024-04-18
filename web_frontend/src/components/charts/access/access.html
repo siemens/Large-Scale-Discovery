@@ -1,7 +1,4 @@
 <div id="divAccess">
-    <h2 class="ui dividing header">
-        Access Requests
-    </h2>
 
     <!-- ko if: dataset() === null -->
     <div class="ui center aligned basic segment">
@@ -19,7 +16,7 @@
 
     <!-- ko if: dataset() !== null && dataset().length > 0 -->
     <div style="display: none" class="ui container">
-        <canvas id="canvasAccess" data-bind="class: presentationClass()"></canvas>
+        <canvas id="canvasAccess"></canvas>
         <div class="ui aligned grid">
             <div class="right aligned column" style="padding-top: 0; padding-right: 29px">
                 <span data-bind="attr: {'data-tooltip': datasetOrder() === 'count' ? 'Order by company' : 'Order by amount'}"

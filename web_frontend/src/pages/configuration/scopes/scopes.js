@@ -36,6 +36,12 @@ define(["knockout", "text!./scopes.html", "postbox", "jquery", "semantic-ui-popu
                 return;
             }
 
+            // Get reference to the view model's actual HTML within the DOM
+            this.$domComponent = $('#divConfigurationScopes');
+
+            // Initialize tooltips
+            this.$domComponent.find('[data-html]').popup();
+
             // Load and set initial data
             this.loadData();
         }

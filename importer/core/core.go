@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -15,15 +15,15 @@ import (
 	"errors"
 	"fmt"
 	"github.com/go-co-op/gocron"
-	"github.com/lithammer/shortuuid"
+	"github.com/lithammer/shortuuid/v4"
 	scanUtils "github.com/siemens/GoScans/utils"
+	"github.com/siemens/Large-Scale-Discovery/_build"
+	"github.com/siemens/Large-Scale-Discovery/importer/config"
+	"github.com/siemens/Large-Scale-Discovery/log"
+	manager "github.com/siemens/Large-Scale-Discovery/manager/core"
+	managerdb "github.com/siemens/Large-Scale-Discovery/manager/database"
+	"github.com/siemens/Large-Scale-Discovery/utils"
 	"github.com/vburenin/nsync"
-	"large-scale-discovery/_build"
-	"large-scale-discovery/importer/config"
-	"large-scale-discovery/log"
-	manager "large-scale-discovery/manager/core"
-	managerdb "large-scale-discovery/manager/database"
-	"large-scale-discovery/utils"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -125,7 +125,7 @@ func Run() error {
 					}
 					if !utils.Uint64Contained(id, notificationReply.RemainingScopeIds) {
 						logger.Infof("Un-scheduling deleted scan scope '%d'.", id)
-						_ = scheduler.RemoveJobByTag(tag)
+						_ = scheduler.RemoveByTag(tag)
 					}
 				}
 			}
@@ -243,7 +243,7 @@ func scheduleSynchronizeScanScope(scanScope managerdb.T_scan_scope) {
 	tag := strconv.FormatUint(scanScope.Id, 10)
 
 	// Remove potentially existing task
-	_ = scheduler.RemoveJobByTag(tag)
+	_ = scheduler.RemoveByTag(tag)
 
 	// Check if scan scope has sync flag
 	val, okVal := scanScope.Attributes["sync"]
@@ -262,7 +262,7 @@ func scheduleSynchronizeScanScope(scanScope managerdb.T_scan_scope) {
 	}
 
 	// Schedule synchronization interval and task
-	_, errSchedule := scheduler.Every(1).Saturday().At("18:00").SetTag([]string{tag}).Do(task)
+	_, errSchedule := scheduler.Every(1).Saturday().At("18:00").Tag(tag).Do(task)
 	if errSchedule != nil {
 		logger.Errorf(
 			"Could not schedule scan task '%s' (ID %d) for synchronization.", scanScope.Name, scanScope.Id)

@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -22,14 +22,14 @@ import (
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/GoScans/webcrawler"
 	"github.com/siemens/GoScans/webenum"
+	"github.com/siemens/Large-Scale-Discovery/broker/brokerdb"
+	"github.com/siemens/Large-Scale-Discovery/broker/memory"
+	"github.com/siemens/Large-Scale-Discovery/broker/scopedb"
+	"github.com/siemens/Large-Scale-Discovery/log"
+	manager "github.com/siemens/Large-Scale-Discovery/manager/core"
+	managerdb "github.com/siemens/Large-Scale-Discovery/manager/database"
+	"github.com/siemens/Large-Scale-Discovery/utils"
 	"github.com/vburenin/nsync"
-	"large-scale-discovery/broker/brokerdb"
-	"large-scale-discovery/broker/memory"
-	"large-scale-discovery/broker/scopedb"
-	"large-scale-discovery/log"
-	manager "large-scale-discovery/manager/core"
-	managerdb "large-scale-discovery/manager/database"
-	"large-scale-discovery/utils"
 	"math"
 	"time"
 )
@@ -40,11 +40,11 @@ var submitInterval = time.Minute          // Interval in which scan agent stats 
 var rpcStatsLock = nsync.NewTryMutex()    // Named mutex to prevent parallel manager submits of scope stats
 
 // backgroundTasks initializes and handles background tasks to be executed on a regular basis.
-// 		- scan scope changes: 	Respective scan scopes must be removed from the local memory. They will be re-loaded
-//							  	from the manager the next time they are needed. In case of connectivity issues *all*
-//							  	scan scopes should be wiped, because there might have been unobserved changes.
-//		- sending scope stats: 	The broker is collecting stats about scan scopes and scan agents and storing
-//								them in memory. This data needs to be written to the manager regularly
+//   - scan scope changes: 	Respective scan scopes must be removed from the local memory. They will be re-loaded
+//     from the manager the next time they are needed. In case of connectivity issues *all*
+//     scan scopes should be wiped, because there might have been unobserved changes.
+//   - sending scope stats: 	The broker is collecting stats about scan scopes and scan agents and storing
+//     them in memory. This data needs to be written to the manager regularly
 func backgroundTasks() {
 
 	// Get tagged logger

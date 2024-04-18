@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -16,15 +16,15 @@ import (
 	"fmt"
 	"github.com/siemens/GoScans/discovery"
 	scanUtils "github.com/siemens/GoScans/utils"
+	"github.com/siemens/Large-Scale-Discovery/_build"
+	"github.com/siemens/Large-Scale-Discovery/broker/brokerdb"
+	"github.com/siemens/Large-Scale-Discovery/broker/config"
+	"github.com/siemens/Large-Scale-Discovery/broker/memory"
+	"github.com/siemens/Large-Scale-Discovery/log"
+	manager "github.com/siemens/Large-Scale-Discovery/manager/core"
+	managerdb "github.com/siemens/Large-Scale-Discovery/manager/database"
+	"github.com/siemens/Large-Scale-Discovery/utils"
 	"github.com/vburenin/nsync"
-	"large-scale-discovery/_build"
-	"large-scale-discovery/broker/brokerdb"
-	"large-scale-discovery/broker/config"
-	"large-scale-discovery/broker/memory"
-	"large-scale-discovery/log"
-	manager "large-scale-discovery/manager/core"
-	managerdb "large-scale-discovery/manager/database"
-	"large-scale-discovery/utils"
 	"net/rpc"
 	"os"
 	"path/filepath"

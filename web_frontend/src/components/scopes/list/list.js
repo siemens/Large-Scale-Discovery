@@ -37,10 +37,13 @@ define(["knockout", "text!./list.html", "postbox", "jquery", "jquery-tablesort",
             // Keep reference THIS view model context
             var ctx = this;
 
+            // Prepare array of references to subscriptions in order to dispose them later
+            this.subscriptions = []
+
             // Subscribe to changes of parent scope data to update component accordingly
-            this.parent.scopes.subscribe(function (scopes) {
+            this.subscriptions.push(this.parent.scopes.subscribe(function (scopes) {
                 ctx.scopesGrouped(itemsByKey(scopes, "group_name"))
-            });
+            }));
 
             // Get reference to the view model's actual HTML within the DOM
             this.$domComponent = $('#divScopes');
@@ -287,6 +290,11 @@ define(["knockout", "text!./list.html", "postbox", "jquery", "jquery-tablesort",
             this.parent.actionName(null);
             this.parent.actionArgs(null);
             this.parent.actionComponent(null);
+
+            // Dispose subscriptions
+            for (var k in this.subscriptions) {
+                this.subscriptions[k].dispose();
+            }
         };
 
         // Initialize page with view model and according template

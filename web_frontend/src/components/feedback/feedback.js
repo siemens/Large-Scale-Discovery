@@ -33,13 +33,16 @@ define(["knockout", "text!./feedback.html", "postbox", "jquery", "semantic-ui-mo
             // Keep reference THIS view model context
             var ctx = this;
 
+            // Prepare array of references to subscriptions in order to dispose them later
+            this.subscriptions = []
+
             // Close feedback modal when user gets logged out, otherwise it might feel weird
             // when a user logs back in.
-            authenticated.subscribe(function (newValue) {
+            this.subscriptions.push(authenticated.subscribe(function (newValue) {
                 if (newValue === false) {
                     ctx.closeFeedback()
                 }
-            });
+            }));
         }
 
         // VIEWMODEL ACTION
@@ -103,6 +106,11 @@ define(["knockout", "text!./feedback.html", "postbox", "jquery", "semantic-ui-mo
 
             // Hide modal that might be open
             $('#modalFeedback').modal('hide');
+
+            // Dispose subscriptions
+            for (var k in this.subscriptions) {
+                this.subscriptions[k].dispose();
+            }
         };
 
         // Initialize page with view model and according template

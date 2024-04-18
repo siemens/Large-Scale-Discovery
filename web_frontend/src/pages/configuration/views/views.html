@@ -1,14 +1,26 @@
-<div class="fourteen wide column">
+<div id="divConfigurationViews" class="fourteen wide column">
 
     <!-- ko if: actionComponent -->
     <!-- ko component: { name: actionComponent, params: { parent: $data, args: actionArgs() } } --><!-- /ko -->
     <!-- /ko -->
 
+    <h2 class="ui dividing header">
+        Views
+        <span data-html="This section lists views you are allowed to administrate. A view is an accessible data set of a specific scan scope, respectively, its scan results. It can be filtered and you can chose who may access it."
+              data-position="right center" data-variation="tiny wide">
+                <i class="small question circle outline icon" style="margin-right: 0;"></i>
+            </span>
+    </h2>
     <!-- ko component: { name: 'views-list', params: { parent: $data } } --><!-- /ko -->
 
-    <div class="ui hidden clearing divider"></div>
-
     <!-- ko if: views() !== null && views().length !== 0 -->
+    <h2 class="ui dividing header">
+        Access Tokens
+        <span data-html="This section lists access tokens that are not bound to a user and valid for a prolonged time. You should *not* use such frivolously!"
+              data-position="right center" data-variation="tiny wide">
+                <i class="small question circle outline icon" style="margin-right: 0;"></i>
+            </span>
+    </h2>
     <!-- ko component: { name: 'views-token-list', params: { parent: $data } } --><!-- /ko -->
     <!-- /ko -->
 

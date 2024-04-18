@@ -1,5 +1,6 @@
 # Goland (developer-specific stuff)
 .idea/workspace.xml
+.idea/dataSources.xml
 
 # CI/CD scripts
 .gitlab-ci.yml

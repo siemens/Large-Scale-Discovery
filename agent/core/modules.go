@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -18,12 +18,13 @@ import (
 	"github.com/siemens/GoScans/nfs"
 	"github.com/siemens/GoScans/ssh"
 	"github.com/siemens/GoScans/ssl"
-	"github.com/siemens/GoScans/utils"
+	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/GoScans/webcrawler"
 	"github.com/siemens/GoScans/webenum"
-	"large-scale-discovery/agent/config"
-	broker "large-scale-discovery/broker/core"
-	"large-scale-discovery/log"
+	"github.com/siemens/Large-Scale-Discovery/agent/config"
+	broker "github.com/siemens/Large-Scale-Discovery/broker/core"
+	"github.com/siemens/Large-Scale-Discovery/log"
+	"github.com/siemens/Large-Scale-Discovery/utils"
 	"strings"
 	"time"
 )
@@ -154,7 +155,7 @@ func launchDiscovery(
 		logger.Debugf("Target could not be resolved.")
 		rpcArgs.Result = &discovery.Result{
 			Data:      nil,
-			Status:    utils.StatusNotReachable,
+			Status:    scanUtils.StatusNotReachable,
 			Exception: false,
 		}
 		chResults <- rpcArgs
@@ -264,9 +265,9 @@ func launchNfs(
 	// Prepare variables
 	scanTimeout := time.Minute * time.Duration(scanTask.ScanSettings.NfsScanTimeoutMinutes)
 	networkTimeout := time.Second * time.Duration(scanTask.ScanSettings.NetworkTimeoutSeconds)
-	excludedShares := strings.Split(scanTask.ScanSettings.NfsExcludeShares, ",")
-	excludedFolders := strings.Split(scanTask.ScanSettings.NfsExcludeFolders, ",")
-	excludedExtensions := strings.Split(scanTask.ScanSettings.NfsExcludeExtensions, ",")
+	excludedShares := utils.ToSlice(scanTask.ScanSettings.NfsExcludeShares, ",")
+	excludedFolders := utils.ToSlice(scanTask.ScanSettings.NfsExcludeFolders, ",")
+	excludedExtensions := utils.ToSlice(scanTask.ScanSettings.NfsExcludeExtensions, ",")
 
 	// Initiate scanner
 	scan, errScan := nfs.NewScanner(

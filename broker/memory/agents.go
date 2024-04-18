@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -12,13 +12,13 @@ package memory
 
 import (
 	"fmt"
-	cmap "github.com/orcaman/concurrent-map"
-	managerdb "large-scale-discovery/manager/database"
-	"large-scale-discovery/utils"
+	cmap "github.com/orcaman/concurrent-map/v2"
+	managerdb "github.com/siemens/Large-Scale-Discovery/manager/database"
+	"github.com/siemens/Large-Scale-Discovery/utils"
 	"time"
 )
 
-var agents = cmap.New() // Map of recently seen scan agents and associated metadata and stats
+var agents = cmap.New[managerdb.T_scan_agent]() // Map of recently seen scan agents and associated metadata and stats
 
 // UpdateAgent updates cached agent statistics with latest values. Host, IP and instance are used to build a
 // unique agent identifier (A machine can run multiple scan agents for different scopes).
@@ -87,7 +87,7 @@ func GetAgents() map[string]managerdb.T_scan_agent {
 
 	// Iterate cached scope items and copy data over
 	for identifier, item := range cachedAgentItems {
-		statItem := item.(managerdb.T_scan_agent)
+		statItem := item
 		cachedAgents[identifier] = statItem
 	}
 

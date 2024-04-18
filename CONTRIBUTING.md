@@ -1,4 +1,5 @@
 # Contributing to the Large-Scale Discovery
+
 Contributions to the Large-Scale Discovery are always welcome.
 
 This document explains the general requirements for contributions and the necessary preparation steps.

@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -15,15 +15,14 @@ import (
 	"crypto/rand"
 	"fmt"
 	"github.com/Pallinder/go-randomdata"
-	"github.com/orcaman/concurrent-map"
+	"github.com/orcaman/concurrent-map/v2"
 	"github.com/siemens/GoScans/ssl"
 	scanUtils "github.com/siemens/GoScans/utils"
-	"io/ioutil"
-	"large-scale-discovery/_build"
-	"large-scale-discovery/agent/config"
-	broker "large-scale-discovery/broker/core"
-	"large-scale-discovery/log"
-	"large-scale-discovery/utils"
+	"github.com/siemens/Large-Scale-Discovery/_build"
+	"github.com/siemens/Large-Scale-Discovery/agent/config"
+	broker "github.com/siemens/Large-Scale-Discovery/broker/core"
+	"github.com/siemens/Large-Scale-Discovery/log"
+	"github.com/siemens/Large-Scale-Discovery/utils"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -41,7 +40,7 @@ var instanceName string                                                   // Age
 var instanceIp string                                                     // Agent IP at the default gateway used for scanning
 var instanceHostname string                                               // Agent hostname used for scanning
 var scopeSecret string                                                    // Scope secret to authenticate/associate the agent with a certain scan scope during RPC requests
-var moduleInstances = cmap.New()                                          // Concurrent map holding the total number of running scans for each module
+var moduleInstances = cmap.New[int]()                                     // Concurrent map holding the total number of running scans for each module
 var rpcClient *utils.Client                                               // RPC client struct handling RPC connections and requests
 var sysMon *utils.SystemMonitor                                           // Monitoring service collecting information about system utilization, e.g. CPU, memory,...)
 
@@ -200,7 +199,7 @@ func loadInstanceName() error {
 	if _, err := os.Stat(instanceFile); err == nil {
 
 		// Load agent instance name
-		name, errRead := ioutil.ReadFile(instanceFile)
+		name, errRead := os.ReadFile(instanceFile)
 		if errRead != nil {
 			return fmt.Errorf("could not load agent idientifier: %s", errRead)
 		}
@@ -249,7 +248,7 @@ func increaseUsageModule(moduleName string) error {
 	}
 
 	// Cast and increase the counter
-	moduleInstances.Set(moduleName, count.(int)+1)
+	moduleInstances.Set(moduleName, count+1)
 
 	// Return nil as everything went fine
 	return nil
@@ -267,9 +266,8 @@ func decreaseUsageModule(moduleName string) {
 	}
 
 	// Cast and decrease the counter
-	cnt := count.(int)
-	if cnt > 0 {
-		moduleInstances.Set(moduleName, cnt-1)
+	if count > 0 {
+		moduleInstances.Set(moduleName, count-1)
 	}
 }
 
@@ -337,7 +335,7 @@ func scanTaskLoader(wg *sync.WaitGroup, chOut chan broker.ScanTask) {
 		for module := range moduleInstances.IterBuffered() {
 			moduleData = append(moduleData, broker.ModuleData{
 				Label:       module.Key,
-				ActiveTasks: module.Val.(int),
+				ActiveTasks: module.Val,
 			})
 		}
 	}

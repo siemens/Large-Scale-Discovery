@@ -43,13 +43,16 @@ define(["knockout", "text!./access.html", "postbox", "jquery", "chartjs"],
             // Keep reference THIS view model context
             var ctx = this;
 
+            // Prepare array of references to subscriptions in order to dispose them later
+            this.subscriptions = []
+
             // Subscribe to data or configuration changes to build updated chart
-            this.datasetAggregate.subscribe(function (data) {
+            this.subscriptions.push(this.datasetAggregate.subscribe(function (data) {
                 ctx.buildChart();
-            });
-            this.datasetOrder.subscribe(function (data) {
+            }));
+            this.subscriptions.push(this.datasetOrder.subscribe(function (data) {
                 ctx.buildChart();
-            });
+            }));
 
             // Get reference to the view model's actual HTML within the DOM
             this.$domComponent = $('#divAccess');
@@ -206,9 +209,15 @@ define(["knockout", "text!./access.html", "postbox", "jquery", "chartjs"],
                         }
                     }
 
+                    // Anonymize key if presentation mode is enabled
+                    var c = company
+                    if (presentationMode() === true) {
+                        c = String.fromCharCode(97 + i).toUpperCase();
+                    }
+
                     // Add ChartJs dataset
                     dataset.push({
-                        label: company,
+                        label: c,
                         data: d,
                         borderColor: colors[i % colors.length],
                         backgroundColor: colors[i % colors.length],
@@ -333,6 +342,11 @@ define(["knockout", "text!./access.html", "postbox", "jquery", "chartjs"],
 
         // VIEWMODEL DECONSTRUCTION
         ViewModel.prototype.dispose = function (data, event) {
+
+            // Dispose subscriptions
+            for (var k in this.subscriptions) {
+                this.subscriptions[k].dispose();
+            }
         };
 
         // Initialize page with view model and according template

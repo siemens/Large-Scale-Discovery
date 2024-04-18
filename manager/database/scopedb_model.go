@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -110,7 +110,7 @@ type ColumnsAd struct {
 const MaxBatchSizeDiscovery = 2520 // 65535 / 26
 
 type T_discovery struct {
-	Id uint64 `gorm:"column:id;type:bigserial;primaryKey;uniqueIndex" json:"-"` // Index recommended on foreign keys for efficient update/delete cascaded actions
+	Id uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex" json:"-"` // Index recommended on foreign keys for efficient update/delete cascaded actions
 	ColumnsInput
 	Enabled             bool `gorm:"column:enabled;index" json:"enabled"`
 	Priority            bool `gorm:"column:priority;default:false;index" json:"priority"`
@@ -128,8 +128,8 @@ func (T_discovery) TableName() string {
 const MaxBatchSizeDiscoveryHost = 1040 // 65535 / 63
 
 type T_discovery_host struct {
-	Id                  uint64 `gorm:"column:id;type:bigserial;primaryKey;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions
-	IdTDiscovery        uint64 `gorm:"column:id_t_discovery;type:bigint;index"`         // Index recommended on foreign keys for efficient update/delete cascaded actions
+	Id                  uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions
+	IdTDiscovery        uint64 `gorm:"column:id_t_discovery;type:bigint;index"`      // Index recommended on foreign keys for efficient update/delete cascaded actions
 	ColumnsHost                // Insert host data columns composition
 	PortsOpen           int    `gorm:"column:ports_open"`
 	ColumnsOs                  // Insert target columns composition
@@ -147,8 +147,8 @@ type T_discovery_host struct {
 const MaxBatchSizeDiscoveryService = 923 // 65535 / 71
 
 type T_discovery_service struct {
-	Id                  uint64 `gorm:"column:id;type:bigserial;primaryKey;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions
-	IdTDiscoveryHost    uint64 `gorm:"column:id_t_discovery_host;type:bigint;index"`    // Index recommended on foreign keys for efficient update/delete cascaded actions
+	Id                  uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions
+	IdTDiscoveryHost    uint64 `gorm:"column:id_t_discovery_host;type:bigint;index"` // Index recommended on foreign keys for efficient update/delete cascaded actions
 	ColumnsHost                // Insert host data columns composition
 	Port                int    `gorm:"column:port"`                          //
 	Protocol            string `gorm:"column:protocol;type:text"`            //
@@ -174,8 +174,8 @@ type T_discovery_service struct {
 const MaxBatchSizeDiscoveryScript = 978 // 65535 / 67
 
 type T_discovery_script struct {
-	Id                  uint64 `gorm:"column:id;type:bigserial;primaryKey;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions
-	IdTDiscoveryHost    uint64 `gorm:"column:id_t_discovery_host;type:bigint;index"`    // Index recommended on foreign keys for efficient update/delete cascaded actions
+	Id                  uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions
+	IdTDiscoveryHost    uint64 `gorm:"column:id_t_discovery_host;type:bigint;index"` // Index recommended on foreign keys for efficient update/delete cascaded actions
 	ColumnsHost                // Insert host data columns composition
 	Port                int    `gorm:"column:port"`                    //
 	Protocol            string `gorm:"column:protocol;type:text"`      //
@@ -198,7 +198,7 @@ const MaxBatchSizeBanner = 5461 // 65535 / 12
 
 type T_banner struct {
 	// data table not necessary for banner module, due to simple result structure
-	Id                  uint64 `gorm:"column:id;type:bigserial;primaryKey;uniqueIndex"`       // Index recommended on foreign keys for efficient update/delete cascaded actions
+	Id                  uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`          // Index recommended on foreign keys for efficient update/delete cascaded actions
 	IdTDiscoveryService uint64 `gorm:"column:id_t_discovery_service;type:bigint;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions
 	ColumnsScan                // Insert scan data columns composition
 	TriggerPlain        string `gorm:"column:trigger_plain;type:text"`
@@ -215,7 +215,7 @@ type T_banner struct {
 const MaxBatchSizeNfs = 6553 // 65535 / 10
 
 type T_nfs struct {
-	Id                  uint64 `gorm:"column:id;type:bigserial;primaryKey;uniqueIndex"`       // Index recommended on foreign keys for efficient update/delete cascaded actions
+	Id                  uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`          // Index recommended on foreign keys for efficient update/delete cascaded actions
 	IdTDiscoveryService uint64 `gorm:"column:id_t_discovery_service;type:bigint;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions
 	ColumnsScan                // Insert scan data columns composition
 	FoldersReadable     int    `gorm:"column:folders_readable"`
@@ -234,7 +234,7 @@ func (T_nfs) TableName() string {
 const MaxBatchSizeNfsFile = 3855 // 65535 / 17
 
 type T_nfs_file struct {
-	Id                  uint64       `gorm:"column:id;type:bigserial;primaryKey;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions
+	Id                  uint64       `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`    // Index recommended on foreign keys for efficient update/delete cascaded actions
 	IdTDiscoveryService uint64       `gorm:"column:id_t_discovery_service;type:bigint;index"` // Index recommended on foreign keys for efficient update/delete cascaded actions
 	IdTNfs              uint64       `gorm:"column:id_t_nfs;type:bigint;index"`               // Index recommended on foreign keys for efficient update/delete cascaded actions
 	Share               string       `gorm:"column:share;type:text"`
@@ -261,7 +261,7 @@ type T_nfs_file struct {
 const MaxBatchSizeSmb = 6553 // 65535 / 10
 
 type T_smb struct {
-	Id                  uint64 `gorm:"column:id;type:bigserial;primaryKey;uniqueIndex"`       // Index recommended on foreign keys for efficient update/delete cascaded actions
+	Id                  uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`          // Index recommended on foreign keys for efficient update/delete cascaded actions
 	IdTDiscoveryService uint64 `gorm:"column:id_t_discovery_service;type:bigint;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions
 	ColumnsScan                // Insert scan data columns composition
 	FoldersReadable     int    `gorm:"column:folders_readable"`
@@ -280,7 +280,7 @@ func (T_smb) TableName() string {
 const MaxBatchSizeSmbFile = 4095 // 65535 / 16
 
 type T_smb_file struct {
-	Id                  uint64       `gorm:"column:id;type:bigserial;primaryKey;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions
+	Id                  uint64       `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`    // Index recommended on foreign keys for efficient update/delete cascaded actions
 	IdTDiscoveryService uint64       `gorm:"column:id_t_discovery_service;type:bigint;index"` // Index recommended on foreign keys for efficient update/delete cascaded actions
 	IdTSmb              uint64       `gorm:"column:id_t_smb;type:bigint;index"`               // Index recommended on foreign keys for efficient update/delete cascaded actions
 	Share               string       `gorm:"column:share;type:text"`
@@ -307,7 +307,7 @@ const MaxBatchSizeSsh = 4369 // 65535 / 15
 
 type T_ssh struct {
 	// data table not necessary for banner module, due to simple result structure
-	Id                         uint64 `gorm:"column:id;type:bigserial;primaryKey;uniqueIndex"`       // Index recommended on foreign keys for efficient update/delete cascaded actions
+	Id                         uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`          // Index recommended on foreign keys for efficient update/delete cascaded actions
 	IdTDiscoveryService        uint64 `gorm:"column:id_t_discovery_service;type:bigint;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions
 	ColumnsScan                       // Insert scan data columns composition
 	AuthenticationMechanisms   string `gorm:"column:authentication_mechanisms;type:text"`
@@ -331,7 +331,7 @@ func (T_ssh) TableName() string {
 const MaxBatchSizeSsl = 9362 // 65535 / 7
 
 type T_ssl struct {
-	Id                  uint64 `gorm:"column:id;type:bigserial;primaryKey;uniqueIndex"`       // Index recommended on foreign keys for efficient update/delete cascaded actions
+	Id                  uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`          // Index recommended on foreign keys for efficient update/delete cascaded actions
 	IdTDiscoveryService uint64 `gorm:"column:id_t_discovery_service;type:bigint;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions
 	ColumnsScan                // Insert scan data columns composition
 
@@ -347,7 +347,7 @@ func (T_ssl) TableName() string {
 const MaxBatchSizeSslCertificate = 2047 // 65535 / 32
 
 type T_ssl_certificate struct {
-	Id                     uint64       `gorm:"column:id;type:bigserial;primaryKey;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions
+	Id                     uint64       `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`    // Index recommended on foreign keys for efficient update/delete cascaded actions
 	IdTDiscoveryService    uint64       `gorm:"column:id_t_discovery_service;type:bigint;index"` // Index recommended on foreign keys for efficient update/delete cascaded actions
 	IdTSsl                 uint64       `gorm:"column:id_t_ssl;type:bigint;index"`               // Index recommended on foreign keys for efficient update/delete cascaded actions
 	Vhost                  string       `gorm:"column:vhost;type:text"`
@@ -389,7 +389,7 @@ type T_ssl_certificate struct {
 const MaxBatchSizeSslCipher = 2047 // 65535 / 32
 
 type T_ssl_cipher struct {
-	Id                      uint64 `gorm:"column:id;type:bigserial;primaryKey;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions
+	Id                      uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`    // Index recommended on foreign keys for efficient update/delete cascaded actions
 	IdTDiscoveryService     uint64 `gorm:"column:id_t_discovery_service;type:bigint;index"` // Index recommended on foreign keys for efficient update/delete cascaded actions
 	IdTSsl                  uint64 `gorm:"column:id_t_ssl;type:bigint;index"`               // Index recommended on foreign keys for efficient update/delete cascaded actions
 	Vhost                   string `gorm:"column:vhost;type:text"`
@@ -431,7 +431,7 @@ type T_ssl_cipher struct {
 const MaxBatchSizeSslIssue = 1985 // 65535 / 33
 
 type T_ssl_issue struct {
-	Id                           uint64 `gorm:"column:id;type:bigserial;primaryKey;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions
+	Id                           uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`    // Index recommended on foreign keys for efficient update/delete cascaded actions
 	IdTDiscoveryService          uint64 `gorm:"column:id_t_discovery_service;type:bigint;index"` // Index recommended on foreign keys for efficient update/delete cascaded actions
 	IdTSsl                       uint64 `gorm:"column:id_t_ssl;type:bigint;index"`               // Index recommended on foreign keys for efficient update/delete cascaded actions
 	Vhost                        string `gorm:"column:vhost;type:text"`
@@ -475,7 +475,7 @@ type T_ssl_issue struct {
 const MaxBatchSizeWebcrawler = 9362 // 65535 / 7
 
 type T_webcrawler struct {
-	Id                  uint64 `gorm:"column:id;type:bigserial;primaryKey;uniqueIndex"`       // Index recommended on foreign keys for efficient update/delete cascaded actions
+	Id                  uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`          // Index recommended on foreign keys for efficient update/delete cascaded actions
 	IdTDiscoveryService uint64 `gorm:"column:id_t_discovery_service;type:bigint;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions
 	ColumnsScan                // Insert scan data columns composition
 
@@ -491,7 +491,7 @@ func (T_webcrawler) TableName() string {
 const MaxBatchSizeWebcrawlerVhost = 4681 // 65535 / 14
 
 type T_webcrawler_vhost struct {
-	Id                  uint64 `gorm:"column:id;type:bigserial;primaryKey;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions
+	Id                  uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`    // Index recommended on foreign keys for efficient update/delete cascaded actions
 	IdTDiscoveryService uint64 `gorm:"column:id_t_discovery_service;type:bigint;index"` // Index recommended on foreign keys for efficient update/delete cascaded actions
 	IdTWebcrawler       uint64 `gorm:"column:id_t_webcrawler;type:bigint;index"`        // Index recommended on foreign keys for efficient update/delete cascaded actions
 	Status              string `gorm:"column:status;type:text"`
@@ -515,7 +515,7 @@ type T_webcrawler_vhost struct {
 const MaxBatchSizeWebcrawlerPage = 3449 // 65535 / 19
 
 type T_webcrawler_page struct {
-	Id                  uint64 `gorm:"column:id;type:bigserial;primaryKey;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions
+	Id                  uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`    // Index recommended on foreign keys for efficient update/delete cascaded actions
 	IdTDiscoveryService uint64 `gorm:"column:id_t_discovery_service;type:bigint;index"` // Index recommended on foreign keys for efficient update/delete cascaded actions
 	IdTWebcrawler       uint64 `gorm:"column:id_t_webcrawler;type:bigint;index"`        // Index recommended on foreign keys for efficient update/delete cascaded actions
 	IdTWebcrawlerVhost  uint64 `gorm:"column:id_t_webcrawler_vhost;type:bigint;index"`  // Index recommended on foreign keys for efficient update/delete cascaded actions
@@ -545,7 +545,7 @@ type T_webcrawler_page struct {
 const MaxBatchSizeWebenum = 9362 // 65535 / 7
 
 type T_webenum struct {
-	Id                  uint64 `gorm:"column:id;type:bigserial;primaryKey;uniqueIndex"`       // Index recommended on foreign keys for efficient update/delete cascaded actions
+	Id                  uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`          // Index recommended on foreign keys for efficient update/delete cascaded actions
 	IdTDiscoveryService uint64 `gorm:"column:id_t_discovery_service;type:bigint;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions
 	ColumnsScan                // Insert scan data columns composition
 
@@ -561,7 +561,7 @@ func (T_webenum) TableName() string {
 const MaxBatchSizeWebenumResult = 3640 // 3449 / 19
 
 type T_webenum_results struct {
-	Id                  uint64 `gorm:"column:id;type:bigserial;primaryKey;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions
+	Id                  uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`    // Index recommended on foreign keys for efficient update/delete cascaded actions
 	IdTDiscoveryService uint64 `gorm:"column:id_t_discovery_service;type:bigint;index"` // Index recommended on foreign keys for efficient update/delete cascaded actions
 	IdTWebenum          uint64 `gorm:"column:id_t_webenum;type:bigint;index"`           // Index recommended on foreign keys for efficient update/delete cascaded actions
 	Name                string `gorm:"column:name;type:text"`

@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -12,9 +12,9 @@ package core
 
 import (
 	"github.com/gin-gonic/gin"
-	"large-scale-discovery/_build"
-	"large-scale-discovery/utils"
-	"large-scale-discovery/web_backend/database"
+	"github.com/siemens/Large-Scale-Discovery/_build"
+	"github.com/siemens/Large-Scale-Discovery/utils"
+	"github.com/siemens/Large-Scale-Discovery/web_backend/database"
 	"strings"
 )
 
@@ -48,12 +48,12 @@ func (a *AuthenticatorDevelopment) Domains() []string {
 
 // Init initializes necessary routes and handlers to authenticate users. The argument "domain" restricts the authority
 // of this authenticator to a specific user domain (if set), in order to:
-//     - prevent impersonation of users by a rogue authentication provider.
-//     - prevent authentication downgrades (e.g., OAUTH users using weaker authenticator).
+//   - prevent impersonation of users by a rogue authentication provider.
+//   - prevent authentication downgrades (e.g., OAUTH users using weaker authenticator).
 //
 // The following routes are deployed:
-//    - /v1/auth/register
-//    - /v1/auth/login
+//   - /v1/auth/register
+//   - /v1/auth/login
 func (a *AuthenticatorDevelopment) Init(conf map[string]interface{}) error {
 
 	// Register the necessary authenticator endpoints (routes) to handle credentials authentication attempts.

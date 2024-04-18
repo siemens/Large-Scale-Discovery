@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -12,10 +12,10 @@ package handlers
 
 import (
 	"github.com/gin-gonic/gin"
-	"large-scale-discovery/_build"
-	"large-scale-discovery/utils"
-	"large-scale-discovery/web_backend/config"
-	"large-scale-discovery/web_backend/core"
+	"github.com/siemens/Large-Scale-Discovery/_build"
+	"github.com/siemens/Large-Scale-Discovery/utils"
+	"github.com/siemens/Large-Scale-Discovery/web_backend/config"
+	"github.com/siemens/Large-Scale-Discovery/web_backend/core"
 )
 
 // BackendSettings returns some application settings that might be relevant for the frontend. E.g. whether the registration
