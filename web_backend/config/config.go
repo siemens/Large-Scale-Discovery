@@ -19,6 +19,7 @@ import (
 	"github.com/siemens/Large-Scale-Discovery/utils"
 	"go.uber.org/zap/zapcore"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -125,40 +126,76 @@ func defaultWebConfigFactory() WebConfig {
 
 	// Prepare default logging settings and adapt web
 	logging := log.DefaultLogSettingsFactory()
-	logging.File.Path = "./logs/backend.log"
+	logging.File.Path = filepath.Join("logs", "backend.log")
 	logging.Smtp.Connector.Subject = "Backend Error Log"
 
 	// Define default values
-	frontendUrl := "https://domain.tld"
+	frontendLinks := map[string][]Link{
+		"menu": {},
+		"repositories": {
+			Link{
+				Icon:   "",
+				Text:   "Active Directory",
+				Href:   "#",
+				Target: "",
+			},
+			Link{
+				Icon:   "",
+				Text:   "Asset Inventory",
+				Href:   "#",
+				Target: "",
+			},
+			Link{
+				Icon:   "",
+				Text:   "Network Inventory",
+				Href:   "#",
+				Target: "",
+			},
+		},
+		"tooling": {
+			Link{
+				Icon:   "",
+				Text:   "Nmap Port Scanner",
+				Href:   "https://nmap.org/",
+				Target: "_blank",
+			},
+			Link{
+				Icon:   "",
+				Text:   "SSLyze SSL Scanner",
+				Href:   "https://github.com/nabla-c0d3/sslyze",
+				Target: "_blank",
+			},
+		},
+	}
 	jwtLifetime := time.Minute * 20  // 20 minutes
-	jwtJifetimeMax := time.Hour * 12 // 12 hours until fresh authentication is required
+	jwtLifetimeMax := time.Hour * 12 // 12 hours until fresh authentication is required
 	jwtSecret, _ := utils.GenerateToken(utils.AlphaNumCaseSymbol, 64)
 
 	// Prepare default settings for development
 	if _build.DevMode {
-		frontendUrl = "https://localhost"
 		logging.Console.Level = zapcore.DebugLevel
 	}
 
 	// Prepare default web config
 	conf := WebConfig{
-		ManagerAddress: "localhost:2222",
-		ListenAddress:  "localhost:443",
-		FrontendUrl:    frontendUrl,
+		ManagerAddress:     "localhost:2222",
+		ManagerAddressSsl:  true, // Encrypted endpoint be used, unless within a secure network or with a TLS load balancer is in front.
+		ListenAddressHttps: "localhost:443",
+		ListenAddressHttp:  "", // Leave empty to disable HTTP endpoint
+		FrontendLinks:      frontendLinks,
 		Jwt: Jwt{
 			Secret:         jwtSecret,
 			Algorithm:      "HS256",
 			ExpiryMinutes:  int(jwtLifetime.Minutes()),
 			Expiry:         jwtLifetime,
-			RefreshMinutes: int(jwtJifetimeMax.Minutes()),
-			Refresh:        jwtJifetimeMax,
+			RefreshMinutes: int(jwtLifetimeMax.Minutes()),
+			Refresh:        jwtLifetimeMax,
 		},
 		Authenticator: map[string]interface{}{ // Flexible map of arguments as needed by integrated authenticators
 			"credentials_registration": false,
 			"oauth": map[string]interface{}{ // A name for the oauth authenticator so that there can be multiple ones initialized for different customers
 				"oauth_public_key_url": "https://sso.domain.tld/ext/oauth/jwks",
 				"oauth_config_url":     "https://sso.domain.tld/.well-known/openid-configuration",
-				"oauth_redirect_url":   "https://application.domain.tld/api/v1/auth/oauth/callback",
 				"oauth_client_id":      "",
 				"oauth_client_secret":  "",
 				"oauth_scope":          "",
@@ -166,7 +203,7 @@ func defaultWebConfigFactory() WebConfig {
 					"user_mail":       "mail",
 					"user_name":       "given_name",
 					"user_surname":    "family_name",
-					"user_company":    "employee_id",
+					"user_company":    "company",
 					"user_department": "org_code",
 				},
 			},
@@ -192,13 +229,15 @@ func defaultWebConfigFactory() WebConfig {
 
 type WebConfig struct {
 	// The root configuration object tying all configuration segments together.
-	ManagerAddress string                 `json:"manager_address"`
-	ListenAddress  string                 `json:"listen_address"`
-	FrontendUrl    string                 `json:"frontend_url"` // Valid URL that can be used by users to access the web interface. Will also be included e.g. in e-mails sent by the backend.
-	Jwt            Jwt                    `json:"jwt"`
-	Logging        log.Settings           `json:"logging"`
-	Authenticator  map[string]interface{} `json:"authenticator"` // Arbitrary arguments passed to authenticators. Flexible for own authenticator integrations.
-	Loader         map[string]interface{} `json:"loader"`        // Arbitrary arguments passed to connectors. Flexible for own connector integrations.
+	ManagerAddress     string                 `json:"manager_address"`
+	ManagerAddressSsl  bool                   `json:"manager_address_ssl"`  // Encrypted endpoint be used, unless within a secure network or with a TLS load balancer is in front.
+	ListenAddressHttps string                 `json:"listen_address_https"` // Leave empty to disable TLS endpoint
+	ListenAddressHttp  string                 `json:"listen_address_http"`  // Leave empty to disable unencrypted endpoint. Encrypted endpoint be used, unless a TLS load balancer is in front.
+	FrontendLinks      map[string][]Link      `json:"frontend_links"`
+	Jwt                Jwt                    `json:"jwt"`
+	Logging            log.Settings           `json:"logging"`
+	Authenticator      map[string]interface{} `json:"authenticator"` // Arbitrary arguments passed to authenticators. Flexible for own authenticator integrations.
+	Loader             map[string]interface{} `json:"loader"`        // Arbitrary arguments passed to connectors. Flexible for own connector integrations.
 }
 
 func (c *WebConfig) UnmarshalJSON(b []byte) error {
@@ -218,6 +257,13 @@ func (c *WebConfig) UnmarshalJSON(b []byte) error {
 
 	// Return nil as everything is valid
 	return nil
+}
+
+type Link struct {
+	Icon   string `json:"icon"`
+	Text   string `json:"text"`
+	Href   string `json:"href"`
+	Target string `json:"target"`
 }
 
 type Jwt struct {

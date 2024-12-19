@@ -22,6 +22,7 @@ import (
 type ScopeAgents struct {
 	ScopeId   uint64                   `json:"scope_id"`
 	ScopeName string                   `json:"scope_name"`
+	ScopeDb   string                   `json:"scope_db"`
 	Agents    []managerdb.T_scan_agent `json:"agents"`
 }
 
@@ -34,13 +35,13 @@ var Agents = func() gin.HandlerFunc {
 	}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Prepare memory for list of scopes
 		var scanAgents []managerdb.T_scan_agent
@@ -77,16 +78,16 @@ var Agents = func() gin.HandlerFunc {
 			}
 
 		} else {
-			core.RespondAuthError(context)
+			core.RespondAuthError(ctx)
 			return
 		}
 
 		// Check for errors occurred while querying groups
 		if errors.Is(errScanAgents, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
 		} else if errScanAgents != nil {
-			core.RespondInternalError(context) // Return generic error information. Situation already logged!
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
@@ -110,6 +111,7 @@ var Agents = func() gin.HandlerFunc {
 				agentStats = append(agentStats, ScopeAgents{
 					ScopeId:   scanAgent.ScanScope.Id,
 					ScopeName: scanAgent.ScanScope.Name,
+					ScopeDb:   scanAgent.ScanScope.DbName,
 					Agents:    []managerdb.T_scan_agent{scanAgent},
 				})
 			}
@@ -121,7 +123,7 @@ var Agents = func() gin.HandlerFunc {
 		}
 
 		// Return response
-		core.Respond(context, false, "Agents retrieved.", body)
+		core.Respond(ctx, false, "Agents retrieved.", body)
 	}
 }
 
@@ -141,28 +143,28 @@ var AgentDelete = func() gin.HandlerFunc {
 	type responseBody struct{}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Declare expected request struct
 		var req requestBody
 
 		// Decode JSON request into struct
-		errReq := context.BindJSON(&req)
+		errReq := ctx.BindJSON(&req)
 		if errReq != nil {
 			logger.Errorf("Could not decode request: %s", errReq)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Check if primary key is defined, otherwise gorm cannot update specific entry
 		if req.Id == 0 {
-			core.Respond(context, true, "Invalid ID.", responseBody{})
+			core.Respond(ctx, true, "Invalid ID.", responseBody{})
 			return
 		}
 
@@ -171,10 +173,10 @@ var AgentDelete = func() gin.HandlerFunc {
 
 		// Check for errors occurred while querying groups
 		if errors.Is(errScanAgents, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
 		} else if errScanAgents != nil {
-			core.RespondInternalError(context) // Return generic error information. Situation already logged!
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
@@ -189,21 +191,21 @@ var AgentDelete = func() gin.HandlerFunc {
 
 		// Check if user has rights to update scope
 		if !core.OwnerOrAdmin(agentScanScope.IdTGroup, contextUser) {
-			core.RespondAuthError(context)
+			core.RespondAuthError(ctx)
 			return
 		}
 
 		// Request manager to delete scan agent stats and associated data
 		errRpc := manager.RpcDeleteAgent(logger, core.RpcClient(), req.Id)
 		if errors.Is(errRpc, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
 		} else if errRpc != nil {
-			core.RespondInternalError(context) // Return generic error information. Situation already logged!
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
 		// Return response
-		core.Respond(context, false, "Scan agent deleted.", responseBody{})
+		core.Respond(ctx, false, "Scan agent deleted.", responseBody{})
 	}
 }

@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -37,8 +37,23 @@ func ServeRpc(
 	// Initialize connection variables
 	var chConnAttempts = make(chan connAttempt, 1)
 
+	// Convert wildcard notation to suitable variant
+	if strings.HasPrefix(listenAddress, "*:") {
+		listenAddress = strings.Replace(listenAddress, "*:", ":", 1)
+	}
+
 	// Open listening socket
-	socket, errSocket := SslSocket(listenAddress, certFilePath, keyFilePath)
+	var socket net.Listener
+	var errSocket error
+	if certFilePath != "" && keyFilePath != "" {
+		logger.Infof("Opening SSL socket for %s RPC.", strings.Title(name))
+		socket, errSocket = SslSocket(listenAddress, certFilePath, keyFilePath) // Return SSL socket if SSL keys are set
+	} else {
+		logger.Infof("Opening PLAIN socket for %s RPC.", strings.Title(name))
+		socket, errSocket = net.Listen("tcp", listenAddress) // Return plain socket if SSL keys are not set
+	}
+
+	// Check result and log
 	if errSocket != nil {
 		return errSocket
 	} else {

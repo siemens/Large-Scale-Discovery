@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -33,6 +33,8 @@ define(["knockout", "globals", './router', "postbox", "jquery", "hasher", "momen
         ko.components.register("configuration-views", {require: "pages/configuration/views/views"});
         ko.components.register("admin-users", {require: "pages/admin/users/users"});
         ko.components.register("admin-groups", {require: "pages/admin/groups/groups"});
+        ko.components.register("admin-databases", {require: "pages/admin/databases/databases"});
+        ko.components.register("admin-logs", {require: "pages/admin/logs/logs"});
         ko.components.register("installation", {require: "pages/installation/installation"});
         ko.components.register("profile", {require: "pages/profile/profile"});
 
@@ -46,8 +48,9 @@ define(["knockout", "globals", './router', "postbox", "jquery", "hasher", "momen
         ko.components.register("footer", {require: "components/footer/footer"});
         ko.components.register("groups-add", {require: "components/groups/add/add"});
         ko.components.register("groups-owners", {require: "components/groups/owners/owners"});
-        ko.components.register("nav-top", {require: "components/nav-top/nav-top"});
-        ko.components.register("nav-side", {require: "components/nav-side/nav-side"});
+        ko.components.register("nav-top", {require: "components/nav/nav-top"});
+        ko.components.register("nav-side", {require: "components/nav/nav-side"});
+        ko.components.register("databases-add", {require: "components/databases/add/add"});
         ko.components.register("scopes-list", {require: "components/scopes/list/list"});
         ko.components.register("scopes-add-custom", {require: "components/scopes/add/custom/custom"});
         ko.components.register("scopes-add-assets", {require: "components/scopes/add/assets/assets"});
@@ -81,6 +84,7 @@ define(["knockout", "globals", './router', "postbox", "jquery", "hasher", "momen
                 currentUser["admin"],
                 currentUser["owner"],
                 currentUser["access"],
+                currentUser["demo"],
                 currentUser["created"]
             );
         }
@@ -113,6 +117,7 @@ define(["knockout", "globals", './router', "postbox", "jquery", "hasher", "momen
                     response["body"]["admin"],
                     response["body"]["owner"],
                     response["body"]["access"],
+                    response["body"]["demo"],
                     response["body"]["created"]
                 );
 

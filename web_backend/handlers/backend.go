@@ -27,12 +27,13 @@ var BackendSettings = func() gin.HandlerFunc {
 
 	// Define expected response structure
 	type responseBody struct { // Access tokens will be automatically appended on success
-		DevelopmentLogin        bool `json:"development_login"`
-		CredentialsRegistration bool `json:"credentials_registration"`
+		DevelopmentLogin        bool                     `json:"development_login"`
+		CredentialsRegistration bool                     `json:"credentials_registration"`
+		FrontendLinks           map[string][]config.Link `json:"frontend_links"`
 	}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get config
 		conf := config.GetConfig()
@@ -43,19 +44,20 @@ var BackendSettings = func() gin.HandlerFunc {
 
 		// Respond with required authenticator. Empty string indicating arbitrary or default authenticator.
 		core.Respond(
-			context,
+			ctx,
 			false,
 			"",
 			responseBody{
 				DevelopmentLogin:        _build.DevMode,
 				CredentialsRegistration: credentialsRegistration,
+				FrontendLinks:           conf.FrontendLinks,
 			},
 		)
 	}
 }
 
-// BackendAuthenticator checks whether a redirect to a special authenticator is required for the given e-mail address. If no
-// special authenticator is required, and empty string is returned. "development" may be returned in development
+// BackendAuthenticator checks whether a redirect to a special authenticator is required for the given e-mail address.
+// If no special authenticator is required, and empty string is returned. "development" may be returned in development
 // mode to notify the frontend that no password is required. It's up to the frontend to decide where to redirect
 // the user, to ask the password from the user or to re-route the authentication request.
 var BackendAuthenticator = func() gin.HandlerFunc {
@@ -74,33 +76,33 @@ var BackendAuthenticator = func() gin.HandlerFunc {
 	}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Declare expected request struct
 		var req requestBody
 
 		// Decode JSON request into struct
-		errReq := context.BindJSON(&req)
+		errReq := ctx.BindJSON(&req)
 		if errReq != nil {
 			logger.Errorf("Could not decode request: %s", errReq)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Make sure Email address is set, which is the primary user identifier
 		if req.Email == "" {
 			logger.Debugf("No login e-mail address supplied.")
-			core.Respond(context, true, "E-mail address required.", responseBody{})
+			core.Respond(ctx, true, "E-mail address required.", responseBody{})
 			return
 		}
 
 		// Check if received email address is plausible
 		if !utils.IsPlausibleEmail(req.Email) {
 			logger.Warningf("Could not authenticate invalid email address '%s'.", req.Email)
-			core.RespondAuthError(context)
+			core.RespondAuthError(ctx)
 			return
 		}
 
@@ -112,7 +114,7 @@ var BackendAuthenticator = func() gin.HandlerFunc {
 
 		// Respond with required authenticator. Empty string indicating arbitrary or default authenticator.
 		core.Respond(
-			context,
+			ctx,
 			false,
 			"",
 			responseBody{
@@ -130,13 +132,13 @@ var BackendLogout = func() gin.HandlerFunc {
 	type responseBody struct{}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Update attributes
 		contextUser.LogoutCount += 1
@@ -145,15 +147,15 @@ var BackendLogout = func() gin.HandlerFunc {
 		_, errSave := contextUser.Save("logout_count")
 		if errSave != nil {
 			logger.Errorf("Could not update user's logout count: %s", errSave)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Unset current user, otherwise core.Respond() will re-generate and return a valid authentication token!
-		core.UnsetContextUser(context)
+		core.UnsetContextUser(ctx)
 
 		// Return response
 		logger.Debugf("Logout successful.")
-		core.Respond(context, false, "Authentication successful.", responseBody{})
+		core.Respond(ctx, false, "Authentication successful.", responseBody{})
 	}
 }

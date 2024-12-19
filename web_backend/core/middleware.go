@@ -32,7 +32,7 @@ import (
 // message, preparing a request-context bound storage for common data and logging a final message after the request
 // has been handled.
 func MwInitializeRequest() gin.HandlerFunc {
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Remember time to log response time
 		start := time.Now()
@@ -45,22 +45,22 @@ func MwInitializeRequest() gin.HandlerFunc {
 
 		// Log received request
 		logger.Debugf("%s %s from %s.",
-			context.Request.Method,
-			context.Request.URL.String(),
-			context.Request.RemoteAddr,
+			ctx.Request.Method,
+			ctx.Request.URL.String(),
+			ctx.Request.RemoteAddr,
 		)
 
 		// Log middleware execution
 		logger.Debugf("Preparing request storage.")
 
 		// Initialize and attach request storage to request context
-		SetContextStorage(context, &ContextStorage{
+		SetContextStorage(ctx, &ContextStorage{
 			Logger:      logger,
 			CurrentUser: nil,
 		})
 
 		// Success, step to next middleware plugin, if existing
-		context.Next() // Should only be called in middleware handlers!
+		ctx.Next() // Should only be called in middleware handlers!
 
 		// Log request completion
 		logger.Debugf("Response sent (%s).", time.Since(start))
@@ -68,10 +68,10 @@ func MwInitializeRequest() gin.HandlerFunc {
 }
 
 func MwPanicHandler() gin.HandlerFunc {
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := GetContextLogger(context)
+		logger := GetContextLogger(ctx)
 
 		// Log middleware execution
 		logger.Debugf("Checking for request panics.")
@@ -87,14 +87,14 @@ func MwPanicHandler() gin.HandlerFunc {
 						if strings.Contains(strings.ToLower(se.Error()), "broken pipe") ||
 							strings.Contains(strings.ToLower(se.Error()), "connection reset by peer") {
 							logger.Debugf("Connection closed unexpectedly.")
-							context.Abort()
+							ctx.Abort()
 							return
 						}
 					}
 				}
 
 				// Get current request headers, censoring the sensitive authentication header
-				httpRequest, _ := httputil.DumpRequest(context.Request, false)
+				httpRequest, _ := httputil.DumpRequest(ctx.Request, false)
 				headers := strings.Split(string(httpRequest), "\r\n")
 				for idx, header := range headers {
 					current := strings.Split(header, ":")
@@ -113,50 +113,50 @@ func MwPanicHandler() gin.HandlerFunc {
 				logger.Debugf("Aborting request.")
 
 				// Abort further request execution and return error to client
-				RespondInternalError(context)
+				RespondInternalError(ctx)
 			}
 		}()
 
 		// Success, step to next middleware plugin, if existing
-		context.Next() // Should only be called in middleware handlers!
+		ctx.Next() // Should only be called in middleware handlers!
 	}
 }
 
 // MwSetCorsHeaders adds CORS-relevant response headers to every response. Headers can (but should not) be
 // overwritten by actual handler function, if processed subsequently.
 func MwSetCorsHeaders() gin.HandlerFunc {
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := GetContextLogger(context)
+		logger := GetContextLogger(ctx)
 
 		// Log middleware execution
 		logger.Debugf("Preparing CORS headers.")
 
 		// Set REST relevant response headers
-		context.Writer.Header().Set("Access-Control-Max-Age", "86400")
-		context.Writer.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-		context.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
-		context.Writer.Header().Set("Access-Control-Expose-Headers", "Content-Length")
+		ctx.Writer.Header().Set("Access-Control-Max-Age", "86400")
+		ctx.Writer.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+		ctx.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+		ctx.Writer.Header().Set("Access-Control-Expose-Headers", "Content-Length")
 
 		// Success, step to next middleware plugin, if existing
-		context.Next() // Should only be called in middleware handlers!
+		ctx.Next() // Should only be called in middleware handlers!
 	}
 }
 
 // MwSetSecurityHeaders adds security-relevant response headers to every response. Headers can (but should not) be
 // overwritten by actual handler function, if processed subsequently.
 func MwSetSecurityHeaders() gin.HandlerFunc {
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := GetContextLogger(context)
+		logger := GetContextLogger(ctx)
 
 		// Log middleware execution
 		logger.Debugf("Preparing security headers.")
 
 		// Get currently set response headers
-		headers := context.Writer.Header()
+		headers := ctx.Writer.Header()
 
 		// Set "No Sniff" policy
 		headers.Set("X-Content-Type-Options", "nosniff")
@@ -209,65 +209,65 @@ func MwSetSecurityHeaders() gin.HandlerFunc {
 		headers.Set("Server", "Apache") // Haha
 
 		// Success, step to next middleware plugin, if existing
-		context.Next() // Should only be called in middleware handlers!
+		ctx.Next() // Should only be called in middleware handlers!
 	}
 }
 
 // MwAbortOptionsRequest aborts OPTIONS requests, as they should not get executed in the backend
 func MwAbortOptionsRequest() gin.HandlerFunc {
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := GetContextLogger(context)
+		logger := GetContextLogger(ctx)
 
 		// Log middleware execution
 		logger.Debugf("Checking for OPTIONS request.")
 
 		// Tell clients that there is no OPTIONS request available
-		context.Writer.Header().Set("access-control-allow-methods", "POST, GET")
+		ctx.Writer.Header().Set("access-control-allow-methods", "POST, GET")
 
 		// Abort OPTIONS requests
-		if context.Request.Method == "OPTIONS" {
+		if ctx.Request.Method == "OPTIONS" {
 			logger.Debugf("Aborted OPTIONS request.")
-			context.AbortWithStatus(200)
+			ctx.AbortWithStatus(200)
 			return
 		}
 
 		// Success, step to next middleware plugin, if existing
-		context.Next() // Should only be called in middleware handlers!
+		ctx.Next() // Should only be called in middleware handlers!
 	}
 }
 
 // MwJwtAuthentication is a middleware validating every request for valid authentication details
 func MwJwtAuthentication() gin.HandlerFunc {
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := GetContextLogger(context)
+		logger := GetContextLogger(ctx)
 
 		// Log middleware execution
 		logger.Debugf("Executing authentication middleware.")
 
 		// Stop validation if route does not require authentication
-		if !strings.HasPrefix(context.Request.URL.Path, "/api/") {
+		if !strings.HasPrefix(ctx.Request.URL.Path, "/api/") {
 			logger.Debugf("Static file accessible without authentication.")
-			context.Next() // Success, step to next middleware plugin, if existing
+			ctx.Next() // Success, step to next middleware plugin, if existing
 			return
-		} else if scanUtils.StrContained(context.Request.URL.Path, apiEndpointsNoAuth) {
+		} else if scanUtils.StrContained(ctx.Request.URL.Path, apiEndpointsNoAuth) {
 			logger.Debugf("API endpoint accessible without authentication.")
-			context.Next() // Success, step to next middleware plugin, if existing
+			ctx.Next() // Success, step to next middleware plugin, if existing
 			return
 		} else {
 			logger.Debugf("API endpoint requires authentication.")
 		}
 
 		// Retrieve the authorization header from the request
-		tokenHeader := context.Request.Header.Get("Authorization")
+		tokenHeader := ctx.Request.Header.Get("Authorization")
 
 		// Stop validation if authorization header is missing
 		if tokenHeader == "" {
 			logger.Debugf("Authentication failed. Authentication token is missing.")
-			RespondAuthError(context)
+			RespondAuthError(ctx)
 			return // Return, without processing further middleware plugins
 		}
 
@@ -275,7 +275,7 @@ func MwJwtAuthentication() gin.HandlerFunc {
 		splits := strings.Split(tokenHeader, " ")
 		if len(splits) != 2 {
 			logger.Debugf("Authentication failed. Authentication token is malformed.")
-			RespondAuthError(context)
+			RespondAuthError(ctx)
 			return // Return, without processing further middleware plugins
 		}
 
@@ -289,42 +289,42 @@ func MwJwtAuthentication() gin.HandlerFunc {
 		// Stop validation if token could not be parsed
 		if err != nil {
 			logger.Debugf("Authentication failed. Authentication token exceeded: %s", err)
-			RespondAuthError(context)
+			RespondAuthError(ctx)
 			return // Return, without processing further middleware plugins
 		}
 
 		// Stop validation if token is invalid. Maybe not signed on this server.
 		if !token.Valid {
 			logger.Debugf("Authentication failed. Authentication token is invalid.")
-			RespondAuthError(context)
+			RespondAuthError(ctx)
 			return // Return, without processing further middleware plugins
 		}
 
 		// Make sure there is a valid SAML ID associated with the token
 		if assertion.UserId <= 0 {
 			logger.Warningf("Authentication failed. Authentication token not assignable.")
-			RespondAuthError(context)
+			RespondAuthError(ctx)
 			return // Return, without processing further middleware plugins
 		}
 
 		userEntry, errUserEntry := database.GetUser(assertion.UserId)
 		if errUserEntry != nil {
 			logger.Warningf("Authentication failed. Could not query user: %s", errUserEntry)
-			RespondInternalError(context) // Return generic error information
+			RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Stop if user is invalid
 		if userEntry == nil {
 			logger.Warningf("Authentication failed. User with ID '%d' is not existing.", assertion.UserId)
-			RespondAuthError(context)
+			RespondAuthError(ctx)
 			return
 		}
 
 		// Abort login if JWT revision does not match user's logout count (revision is increased on each logout)
 		if assertion.Revision != userEntry.LogoutCount {
 			logger.Warningf("Authentication failed. Token revision invalid.")
-			RespondAuthError(context)
+			RespondAuthError(ctx)
 			return // Return, without processing further middleware plugins
 		}
 
@@ -334,7 +334,7 @@ func MwJwtAuthentication() gin.HandlerFunc {
 		// Stop if user is disabled
 		if !userEntry.Active {
 			logger.Debugf("Authorization failed. User is disabled.")
-			RespondAuthError(context)
+			RespondAuthError(ctx)
 			return
 		}
 
@@ -342,9 +342,9 @@ func MwJwtAuthentication() gin.HandlerFunc {
 		if userEntry.Admin {
 			logger.Debugf("Authorization successful as role administrator.")
 		} else {
-			if scanUtils.StrContained(context.Request.URL.Path, apiEndpointsAdmin) {
+			if scanUtils.StrContained(ctx.Request.URL.Path, apiEndpointsAdmin) {
 				logger.Debugf("Authorization failed. Admin privileges required.")
-				RespondAuthError(context)
+				RespondAuthError(ctx)
 				return
 			} else {
 				logger.Debugf("Authentication successful as user.")
@@ -352,9 +352,9 @@ func MwJwtAuthentication() gin.HandlerFunc {
 		}
 
 		// Set user in current request context on server side. Handlers can use this data subsequently.
-		getContextStorage(context).CurrentUser = userEntry
+		getContextStorage(ctx).CurrentUser = userEntry
 
 		// Success, step to next middleware plugin, if existing
-		context.Next() // Should only be called in middleware handlers!
+		ctx.Next() // Should only be called in middleware handlers!
 	}
 }

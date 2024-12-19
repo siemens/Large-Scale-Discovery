@@ -12,7 +12,7 @@ package memory
 
 import (
 	"fmt"
-	cmap "github.com/orcaman/concurrent-map/v2"
+	"github.com/orcaman/concurrent-map/v2"
 	managerdb "github.com/siemens/Large-Scale-Discovery/manager/database"
 	"github.com/siemens/Large-Scale-Discovery/utils"
 	"time"
@@ -26,13 +26,15 @@ func UpdateAgent(
 	agentName string,
 	agentHost string,
 	agentIp string,
+	agentShared bool, // Whether agent is shared between scan scopes
+	agentLimits bool, // Whether agent has dedicated task limits
 	scopeId uint64, // Associating the scan agent to a scan scope
 	moduleData map[string]int,
 	systemData utils.SystemData,
 ) {
 
 	// Generate agent identifier from agent information
-	identifier := buildIdentifier(agentName, agentHost, "") // Don't use IP for identification as it might be a dynamic one
+	identifier := buildIdentifier(agentName, agentHost, "", scopeId) // Don't use IP for identification as it might be a dynamic one
 
 	// Convert tasks map to json data
 	tasks := make(map[string]interface{}, len(moduleData))
@@ -46,6 +48,8 @@ func UpdateAgent(
 		Name:            agentName,
 		Host:            agentHost,
 		Ip:              agentIp,
+		Shared:          agentShared,
+		Limits:          agentLimits,
 		LastSeen:        time.Now(),
 		Tasks:           tasks,
 		CpuRate:         systemData.CpuRate,
@@ -58,10 +62,10 @@ func UpdateAgent(
 
 // RemoveAgent removes stats of a certain scan agent instance from memory. The scan agent identifier is a generated
 // string comprising the agent's name, hostname and ip (to be unique across all existing scan agents).
-func RemoveAgent(agentName string, agentHost string, agentIp string) {
+func RemoveAgent(agentName string, agentHost string, agentIp string, scopeId uint64) {
 
 	// Generate agent identifier from agent information
-	identifier := buildIdentifier(agentName, agentHost, "") // Don't use IP for identification as it might be a dynamic one
+	identifier := buildIdentifier(agentName, agentHost, "", scopeId) // Don't use IP for identification as it might be a dynamic one
 
 	// Remove entry
 	agents.Remove(identifier)
@@ -70,31 +74,21 @@ func RemoveAgent(agentName string, agentHost string, agentIp string) {
 // ClearAgents removes all entries from memory. This is necessary, e.g., after transferring all entries to the
 // manager, otherwise cleaned up entries on the manager side might pop up again.
 func ClearAgents() {
+
+	// Clear map
 	agents.Clear()
 }
 
 // GetAgents returns a copied list of all stored agent stats
 func GetAgents() map[string]managerdb.T_scan_agent {
 
-	// Grab cached scope items
-	cachedAgentItems := agents.Items()
-
-	// Prepare memory for copy
-	cachedAgents := make(
-		map[string]managerdb.T_scan_agent,
-		len(cachedAgentItems),
-	)
-
-	// Iterate cached scope items and copy data over
-	for identifier, item := range cachedAgentItems {
-		statItem := item
-		cachedAgents[identifier] = statItem
-	}
+	// Grab copy of cached scope items
+	items := agents.Items()
 
 	// Return copied map of scan scopes
-	return cachedAgents
+	return items
 }
 
-func buildIdentifier(agentName string, agentHost string, agentIp string) string {
-	return fmt.Sprintf("%s-%s-%s", agentName, agentHost, agentIp)
+func buildIdentifier(agentName string, agentHost string, agentIp string, scopeId uint64) string {
+	return fmt.Sprintf("%s-%s-%s-%d", agentName, agentHost, agentIp, scopeId) // Differentiate by scopeId, because a scan agent can process multiple scan scopes
 }

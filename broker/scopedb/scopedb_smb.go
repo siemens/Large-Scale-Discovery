@@ -80,19 +80,30 @@ func PrepareSmbResult(
 	}
 
 	// Create info entries, if not yet existing. It might exist from a previous scan attempt (if the scan crashed).
-	// This check which is applied here is specific to postgres. Use a new gorm session and force a limit on how
-	// many Entries can be batched, as we otherwise might exceed PostgreSQLs limit of 65535 parameters
+	// This check which is applied here is specific to postgres.
+	// Use a new gorm session and force a limit on how many Entries can be batched, as we otherwise might
+	//exceed the database's limit of 65535 parameters
 	errDb := scopeDb.
 		Session(&gorm.Session{CreateBatchSize: managerdb.MaxBatchSizeSmb}).
 		Create(&infoEntries).Error
-	var errCreate *pgconn.PgError
-	if errors.As(errDb, &errCreate) && errCreate.Code == "23505" { // Code for unique constraint violation
+
+	// Extract Postgres error if existing
+	var errPg *pgconn.PgError
+	errors.As(errDb, &errPg)
+
+	// Handle database errors
+	if errPg != nil && errPg.Code == "23505" { // Code for Postgres' unique constraint violation
 
 		// Fall back to inserting the entries one by one to ensure as many entries as possible being added to the db
 		for _, entry := range infoEntries {
 			errDb2 := scopeDb.Create(&entry).Error
-			var errCreate2 *pgconn.PgError
-			if errors.As(errDb2, &errCreate2) && errCreate2.Code == "23505" { // Code for unique constraint violation
+
+			// Extract Postgres error if existing
+			var errPg2 *pgconn.PgError
+			errors.As(errDb2, &errPg2)
+
+			// Handle database errors
+			if errPg2 != nil && errPg2.Code == "23505" { // Code for Postgres' unique constraint violation
 				logger.Debugf("SMB info entry '%d' already existing.", entry.IdTDiscoveryService)
 			} else if errDb2 != nil {
 				logger.Errorf("SMB info entry '%d' could not be created: %s", entry.IdTDiscoveryService, errDb2)
@@ -217,7 +228,7 @@ func addSmbResults(txScopeDb *gorm.DB, tSmbInfoId uint64, idTDiscoveryService ui
 	if len(dataEntries) > 0 {
 
 		// Use a new gorm session and force a limit on how many Entries can be batched, as we otherwise might
-		// exceed PostgreSQLs limit of 65535 parameters
+		// exceed the database's limit of 65535 parameters
 		errDb := txScopeDb.
 			Session(&gorm.Session{CreateBatchSize: managerdb.MaxBatchSizeSmbFile}).
 			Create(&dataEntries).Error

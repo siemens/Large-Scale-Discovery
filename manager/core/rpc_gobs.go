@@ -20,12 +20,14 @@ import (
 func RegisterGobs() {
 	gob.Register(database.T_db_server{})
 	gob.Register(database.T_scan_scope{})
-	gob.Register(database.T_scan_settings{})
+	gob.Register(database.T_scan_setting{})
 	gob.Register(database.T_scope_view{})
 	gob.Register(database.T_view_grant{})
 	gob.Register([]database.T_discovery{}) // database.JsonMap might include this kind of type
+	gob.Register(database.T_sql_log{})
 	gob.Register(time.Time{})              // Included in some of the above structs
 	gob.Register([]time.Weekday{})         // scope settings contain this type
 	gob.Register([]interface{}{})          // database.JsonMap might include this kind of type
 	gob.Register(map[string]interface{}{}) // database.JsonMap might include this kind of type
+	gob.Register(time.Time{})              // Included in some of the above structs
 }

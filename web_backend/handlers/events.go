@@ -35,17 +35,17 @@ var Events = func() gin.HandlerFunc {
 	}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Check if user has rights (is admin) to perform action
 		if !contextUser.Admin {
-			core.RespondAuthError(context)
+			core.RespondAuthError(ctx)
 			return
 		}
 
@@ -53,10 +53,10 @@ var Events = func() gin.HandlerFunc {
 		var req requestBody
 
 		// Decode JSON request into struct
-		errReq := context.BindJSON(&req)
+		errReq := ctx.BindJSON(&req)
 		if errReq != nil {
 			logger.Errorf("Could not decode request: %s", errReq)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
@@ -69,7 +69,7 @@ var Events = func() gin.HandlerFunc {
 		events, errEvents := database.GetEvents(req.Event, *req.Since)
 		if errEvents != nil {
 			logger.Errorf("Could not query events: %s", errEvents)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
@@ -79,6 +79,6 @@ var Events = func() gin.HandlerFunc {
 		}
 
 		// Return response
-		core.Respond(context, false, "Events returned.", body)
+		core.Respond(ctx, false, "Events returned.", body)
 	}
 }

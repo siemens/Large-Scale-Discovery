@@ -16,6 +16,7 @@ import (
 	"github.com/siemens/Large-Scale-Discovery/utils"
 	"go.uber.org/zap/zapcore"
 	"net/mail"
+	"path/filepath"
 	"time"
 )
 
@@ -29,7 +30,7 @@ func DefaultLogSettingsFactory() Settings {
 		File: &FileHandler{
 			Enabled: true,
 			Level:   zapcore.DebugLevel,
-			Path:    "./logs/application.log",
+			Path:    filepath.Join("logs", "application.log"),
 			SizeMb:  100,
 			History: 10,
 		},

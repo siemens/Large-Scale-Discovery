@@ -25,31 +25,31 @@ type ContextStorage struct {
 }
 
 // SetContextStorage allows to set the context storage
-func SetContextStorage(context *gin.Context, c *ContextStorage) {
-	context.Set(contextKey, c)
+func SetContextStorage(ctx *gin.Context, c *ContextStorage) {
+	ctx.Set(contextKey, c)
 }
 
 // GetContextLogger retrieves a reference to the tagged logger of the current requests context. This allows to use
 // the same tagged logger within one request, across multiple handlers and functions.
-func GetContextLogger(context *gin.Context) scanUtils.Logger {
-	return getContextStorage(context).Logger
+func GetContextLogger(ctx *gin.Context) scanUtils.Logger {
+	return getContextStorage(ctx).Logger
 }
 
 // GetContextUser retrieves a reference to the currently authenticated user from the requests context, which is set
 // after successful authentication. Referenced values can also be updated throughout a request context.
-func GetContextUser(context *gin.Context) *database.T_user {
-	return getContextStorage(context).CurrentUser
+func GetContextUser(ctx *gin.Context) *database.T_user {
+	return getContextStorage(ctx).CurrentUser
 }
 
 // UnsetContextUser removes the user from the context store for further processing. This function is only required in
 // the logout handler to prevent the core.Respond() function from automatically re-generating and returning a new
 // authentication token
-func UnsetContextUser(context *gin.Context) {
-	contextStorage := getContextStorage(context)
+func UnsetContextUser(ctx *gin.Context) {
+	contextStorage := getContextStorage(ctx)
 	contextStorage.CurrentUser = nil
 }
 
 // getContextStorage retrieves a reference to the complete context storage from the current request context.
-func getContextStorage(context *gin.Context) *ContextStorage {
-	return context.Value(contextKey).(*ContextStorage)
+func getContextStorage(ctx *gin.Context) *ContextStorage {
+	return ctx.Value(contextKey).(*ContextStorage)
 }

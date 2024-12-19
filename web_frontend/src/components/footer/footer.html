@@ -4,8 +4,9 @@
             <div class="three wide column">
                 <h4 class="ui header">Security Tooling</h4>
                 <div class="ui link list">
-                    <a class="item" href="https://nmap.org/" target="_blank">Nmap Port Scanner</a>
-                    <a class="item" href="https://github.com/nabla-c0d3/sslyze" target="_blank">SSLyze SSL Scanner</a>
+                    <!-- ko foreach: {data: frontendLinks()["tooling"]} -->
+                    <a class="item" data-bind="attr: {href: $data.href, target: $data.target}, text: $data.text"></a>
+                    <!-- /ko -->
                 </div>
             </div>
             <div class="one wide column">
@@ -23,9 +24,9 @@
             <div class="three wide column">
                 <h4 class="ui header">Repositories</h4>
                 <div class="ui link list">
-                    <a class="item" href="#" target="_blank">Active Directory</a>
-                    <a class="item" href="#" target="_blank">Asset Inventory</a>
-                    <a class="item" href="#" target="_blank">Network Inventory</a>
+                    <!-- ko foreach: {data: frontendLinks()["repositories"]} -->
+                    <a class="item" data-bind="attr: {href: $data.href, target: $data.target}, text: $data.text"></a>
+                    <!-- /ko -->
                 </div>
             </div>
         </div>

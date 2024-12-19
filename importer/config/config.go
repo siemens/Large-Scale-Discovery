@@ -18,6 +18,7 @@ import (
 	"github.com/siemens/Large-Scale-Discovery/log"
 	"go.uber.org/zap/zapcore"
 	"os"
+	"path/filepath"
 	"sync"
 )
 
@@ -123,7 +124,7 @@ func defaultImporterConfigFactory() ImporterConfig {
 
 	// Prepare default logging settings and adapt for importer
 	logging := log.DefaultLogSettingsFactory()
-	logging.File.Path = "./logs/importer.log"
+	logging.File.Path = filepath.Join("logs", "importer.log")
 	logging.Smtp.Connector.Subject = "Importer Error Log"
 
 	// Prepare default settings for development
@@ -133,9 +134,10 @@ func defaultImporterConfigFactory() ImporterConfig {
 
 	// Generate importer config with default values
 	conf := ImporterConfig{
-		ManagerAddress: "localhost:2222",
-		Logging:        logging,
-		Importer:       map[string]interface{}{ // Flexible map of arguments as needed by integrated importers
+		ManagerAddress:    "localhost:2222",
+		ManagerAddressSsl: true, // Encrypted endpoint be used, unless within a secure network or with a TLS load balancer is in front.
+		Logging:           logging,
+		Importer:          map[string]interface{}{ // Flexible map of arguments as needed by integrated importers
 		},
 	}
 
@@ -149,7 +151,8 @@ func defaultImporterConfigFactory() ImporterConfig {
 
 type ImporterConfig struct {
 	// The root configuration object tying all configuration segments together.
-	ManagerAddress string                 `json:"manager_address"`
-	Logging        log.Settings           `json:"logging"`
-	Importer       map[string]interface{} `json:"importer"` // Arbitrary arguments passed to importers. Flexible for own importer integrations.
+	ManagerAddress    string                 `json:"manager_address"`
+	ManagerAddressSsl bool                   `json:"manager_address_ssl"` // Encrypted endpoint be used, unless within a secure network or with a TLS load balancer is in front.
+	Logging           log.Settings           `json:"logging"`
+	Importer          map[string]interface{} `json:"importer"` // Arbitrary arguments passed to importers. Flexible for own importer integrations.
 }

@@ -37,9 +37,10 @@ type Scope struct {
 	managerdb.T_scan_scope
 
 	// Expand with additional information useful for the web frontend
-	GroupName    string                    `json:"group_name"`    // Additional information for the web frontend
-	Connection   Connection                `json:"connection"`    // The scope's current settings. Can be omitted if user should not see them.
-	ScanSettings managerdb.T_scan_settings `json:"scan_settings"` // The scope's current settings. Can be omitted if user should not see them.
+	GroupName    string                   `json:"group_name"`    // Additional information for the web frontend
+	Connection   Connection               `json:"connection"`    // The scope's current settings. Can be omitted if user should not see them.
+	ScanSettings managerdb.T_scan_setting `json:"scan_settings"` // The scope's current settings. Can be omitted if user should not see them.
+	ScanAgents   []managerdb.T_scan_agent `json:"scan_agents"`   // The scope's last seen agents. Can be omitted if user should not see them.
 }
 
 // Scopes returns scopes owned by the current user (all in case of admin)
@@ -54,13 +55,13 @@ var Scopes = func() gin.HandlerFunc {
 	}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Prepare memory for list of scopes
 		var scanScopes []managerdb.T_scan_scope
@@ -108,10 +109,10 @@ var Scopes = func() gin.HandlerFunc {
 
 		// Check for errors occurred while querying groups
 		if errors.Is(errScanScopes, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
 		} else if errScanScopes != nil {
-			core.RespondInternalError(context) // Return generic error information. Situation already logged!
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
@@ -119,7 +120,7 @@ var Scopes = func() gin.HandlerFunc {
 		groupEntries, errGroupEntries := database.GetGroups()
 		if errGroupEntries != nil {
 			logger.Warningf("Could not query groups: %s", errGroupEntries)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
@@ -156,6 +157,7 @@ var Scopes = func() gin.HandlerFunc {
 				},
 
 				ScanSettings: scanScope.ScanSettings,
+				ScanAgents:   scanScope.ScanAgents,
 			})
 		}
 
@@ -168,7 +170,7 @@ var Scopes = func() gin.HandlerFunc {
 		}
 
 		// Return response
-		core.Respond(context, false, "Scopes retrieved.", body)
+		core.Respond(ctx, false, "Scopes retrieved.", body)
 	}
 }
 
@@ -187,65 +189,65 @@ var ScopeDelete = func() gin.HandlerFunc {
 	type responseBody struct{}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Declare expected request struct
 		var req requestBody
 
 		// Decode JSON request into struct
-		errReq := context.BindJSON(&req)
+		errReq := ctx.BindJSON(&req)
 		if errReq != nil {
 			logger.Errorf("Could not decode request: %s", errReq)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Check if primary key is defined, otherwise gorm cannot update specific entry
 		if req.Id == 0 {
-			core.Respond(context, true, "Invalid ID.", responseBody{})
+			core.Respond(ctx, true, "Invalid ID.", responseBody{})
 			return
 		}
 
 		// Request scope details from manager
 		scanScope, errScanScope := manager.RpcGetScope(logger, core.RpcClient(), req.Id)
 		if errors.Is(errScanScope, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
 		} else if errScanScope != nil {
-			core.RespondInternalError(context) // Return generic error information. Situation already logged!
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
 		// Check ID to make sure it existed in the DB
 		if scanScope.Id == 0 {
-			core.Respond(context, true, "Invalid ID.", responseBody{})
+			core.Respond(ctx, true, "Invalid ID.", responseBody{})
 			return
 		}
 
 		// Check if user has rights to update scope
 		if !core.OwnerOrAdmin(scanScope.IdTGroup, contextUser) {
-			core.RespondAuthError(context)
+			core.RespondAuthError(ctx)
 			return
 		}
 
 		// Request manager to delete scan scope and associated data
 		errRpc := manager.RpcDeleteScope(logger, core.RpcClient(), req.Id)
 		if errors.Is(errRpc, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
 		} else if errRpc != nil {
-			core.RespondInternalError(context) // Return generic error information. Situation already logged!
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
 		// Return response
-		core.Respond(context, false, "Scope deleted.", responseBody{})
+		core.Respond(ctx, false, "Scope deleted.", responseBody{})
 	}
 }
 
@@ -267,60 +269,60 @@ var ScopeTargets = func() gin.HandlerFunc {
 	}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Declare expected request struct
 		var req requestBody
 
 		// Decode JSON request into struct
-		errReq := context.BindJSON(&req)
+		errReq := ctx.BindJSON(&req)
 		if errReq != nil {
 			logger.Errorf("Could not decode request: %s", errReq)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Check if primary key is defined, otherwise gorm cannot update specific entry
 		if req.Id == 0 {
-			core.Respond(context, true, "Invalid ID.", responseBody{})
+			core.Respond(ctx, true, "Invalid ID.", responseBody{})
 			return
 		}
 
 		// Request scope details from manager
 		scanScope, errScanScope := manager.RpcGetScope(logger, core.RpcClient(), req.Id)
 		if errors.Is(errScanScope, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
 		} else if errScanScope != nil {
-			core.RespondInternalError(context) // Return generic error information. Situation already logged!
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
 		// Check ID to make sure it existed in the DB
 		if scanScope.Id == 0 {
-			core.Respond(context, true, "Invalid ID.", responseBody{})
+			core.Respond(ctx, true, "Invalid ID.", responseBody{})
 			return
 		}
 
 		// Check if user has rights to update scope
 		if !core.OwnerOrAdmin(scanScope.IdTGroup, contextUser) {
-			core.RespondAuthError(context)
+			core.RespondAuthError(ctx)
 			return
 		}
 
 		// Request scope details from manager
 		synchronization, targets, errScanScopeTargets := manager.RpcGetScopeTargets(logger, core.RpcClient(), req.Id)
 		if errors.Is(errScanScopeTargets, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
 		} else if errScanScopeTargets != nil {
-			core.RespondInternalError(context) // Return generic error information. Situation already logged!
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
@@ -331,7 +333,82 @@ var ScopeTargets = func() gin.HandlerFunc {
 		}
 
 		// Return response
-		core.Respond(context, false, "Scope targets retrieved.", body)
+		core.Respond(ctx, false, "Scope targets retrieved.", body)
+	}
+}
+
+// ScopeResetFailed resets the scan status of failed scan inputs in order to trigger a rescan within the current scan cycle
+var ScopeResetFailed = func() gin.HandlerFunc {
+
+	// Define expected request structure
+	type requestBody struct {
+		// - Avoid pointer types for mandatory request arguments, to prevent nil pointer panics.
+		// - Use pointer types to represent optional request arguments. Pointer types allow modelling ternary states
+		//   (e.g. not set, empty string, string), but need to be handled carefully to avoid nil pointer panics.
+		Id uint64 `json:"id"` // PK of the DB element to identify associated entry for update
+	}
+
+	// Define expected response structure
+	type responseBody struct{}
+
+	// Return request handling function
+	return func(ctx *gin.Context) {
+
+		// Get logger for current request context
+		logger := core.GetContextLogger(ctx)
+
+		// Get user from context storage
+		contextUser := core.GetContextUser(ctx)
+
+		// Declare expected request struct
+		var req requestBody
+
+		// Decode JSON request into struct
+		errReq := ctx.BindJSON(&req)
+		if errReq != nil {
+			logger.Errorf("Could not decode request: %s", errReq)
+			core.RespondInternalError(ctx) // Return generic error information
+			return
+		}
+
+		// Check if primary key is defined, otherwise gorm cannot update specific item
+		if req.Id == 0 {
+			core.Respond(ctx, true, "Invalid ID.", responseBody{})
+			return
+		}
+
+		// Request scope details from manager
+		scanScope, errScanScope := manager.RpcGetScope(logger, core.RpcClient(), req.Id)
+		if errors.Is(errScanScope, utils.ErrRpcConnectivity) {
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
+			return
+		} else if errScanScope != nil {
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
+			return
+		}
+
+		// Check if user has rights to update scope
+		if !core.OwnerOrAdmin(scanScope.IdTGroup, contextUser) {
+			core.RespondAuthError(ctx)
+			return
+		}
+
+		// Request manager to reset failed scan targets
+		errRpc := manager.RpcResetFailed(
+			logger,
+			core.RpcClient(),
+			scanScope.Id,
+		)
+		if errors.Is(errRpc, utils.ErrRpcConnectivity) {
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
+			return
+		} else if errRpc != nil {
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
+			return
+		}
+
+		// Return response
+		core.Respond(ctx, false, "Reset failed scan targets.", responseBody{})
 	}
 }
 
@@ -351,44 +428,44 @@ var ScopeNewCycle = func() gin.HandlerFunc {
 	type responseBody struct{}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Declare expected request struct
 		var req requestBody
 
 		// Decode JSON request into struct
-		errReq := context.BindJSON(&req)
+		errReq := ctx.BindJSON(&req)
 		if errReq != nil {
 			logger.Errorf("Could not decode request: %s", errReq)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Check if primary key is defined, otherwise gorm cannot update specific item
 		if req.Id == 0 {
-			core.Respond(context, true, "Invalid ID.", responseBody{})
+			core.Respond(ctx, true, "Invalid ID.", responseBody{})
 			return
 		}
 
 		// Request scope details from manager
 		scanScope, errScanScope := manager.RpcGetScope(logger, core.RpcClient(), req.Id)
 		if errors.Is(errScanScope, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
 		} else if errScanScope != nil {
-			core.RespondInternalError(context) // Return generic error information. Situation already logged!
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
 		// Check if user has rights to update scope
 		if !core.OwnerOrAdmin(scanScope.IdTGroup, contextUser) {
-			core.RespondAuthError(context)
+			core.RespondAuthError(ctx)
 			return
 		}
 
@@ -399,15 +476,15 @@ var ScopeNewCycle = func() gin.HandlerFunc {
 			scanScope.Id,
 		)
 		if errors.Is(errRpc, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
 		} else if errRpc != nil {
-			core.RespondInternalError(context) // Return generic error information. Situation already logged!
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
 		// Return response
-		core.Respond(context, false, "New scan cycle initialized.", responseBody{})
+		core.Respond(ctx, false, "New scan cycle initialized.", responseBody{})
 	}
 }
 
@@ -427,44 +504,44 @@ var ScopeTogglePause = func() gin.HandlerFunc {
 	type responseBody struct{}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Declare expected request struct
 		var req requestBody
 
 		// Decode JSON request into struct
-		errReq := context.BindJSON(&req)
+		errReq := ctx.BindJSON(&req)
 		if errReq != nil {
 			logger.Errorf("Could not decode request: %s", errReq)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Check if primary key is defined, otherwise gorm cannot update specific item
 		if req.Id == 0 {
-			core.Respond(context, true, "Invalid ID.", responseBody{})
+			core.Respond(ctx, true, "Invalid ID.", responseBody{})
 			return
 		}
 
 		// Request scope details from manager
 		scanScope, errScanScope := manager.RpcGetScope(logger, core.RpcClient(), req.Id)
 		if errors.Is(errScanScope, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
 		} else if errScanScope != nil {
-			core.RespondInternalError(context) // Return generic error information. Situation already logged!
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
 		// Check if user has rights to update scope
 		if !core.OwnerOrAdmin(scanScope.IdTGroup, contextUser) {
-			core.RespondAuthError(context)
+			core.RespondAuthError(ctx)
 			return
 		}
 
@@ -475,18 +552,18 @@ var ScopeTogglePause = func() gin.HandlerFunc {
 			scanScope.Id,
 		)
 		if errors.Is(errRpc, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
 		} else if errRpc != nil {
-			core.RespondInternalError(context) // Return generic error information. Situation already logged!
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
 		// Return response
 		if scanScope.Enabled {
-			core.Respond(context, false, "Scope paused.", responseBody{})
+			core.Respond(ctx, false, "Scope paused.", responseBody{})
 		} else {
-			core.Respond(context, false, "Scope resumed.", responseBody{})
+			core.Respond(ctx, false, "Scope resumed.", responseBody{})
 		}
 	}
 }
@@ -499,73 +576,73 @@ var ScopeUpdateSettings = func() gin.HandlerFunc {
 		// - Avoid pointer types for mandatory request arguments, to prevent nil pointer panics.
 		// - Use pointer types to represent optional request arguments. Pointer types allow modelling ternary states
 		//   (e.g. not set, empty string, string), but need to be handled carefully to avoid nil pointer panics.
-		Id           uint64                    `json:"id"` // PK of the DB element to identify associated entry for update
-		ScanSettings managerdb.T_scan_settings `json:"scan_settings"`
+		Id           uint64                   `json:"id"` // PK of the DB element to identify associated entry for update
+		ScanSettings managerdb.T_scan_setting `json:"scan_settings"`
 	}
 
 	// Define expected response structure
 	type responseBody struct{}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Declare expected request struct
 		var req requestBody
 
 		// Decode JSON request into struct
-		errReq := context.BindJSON(&req)
+		errReq := ctx.BindJSON(&req)
 		if errReq != nil {
 			logger.Errorf("Could not decode request: %s", errReq)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Check if primary key is defined, otherwise gorm cannot update specific item
 		if req.Id == 0 {
-			core.Respond(context, true, "Invalid ID.", responseBody{})
+			core.Respond(ctx, true, "Invalid ID.", responseBody{})
 			return
 		}
 
 		// Request scope details from manager
 		scanScope, errScanScope := manager.RpcGetScope(logger, core.RpcClient(), req.Id)
 		if errors.Is(errScanScope, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
 		} else if errScanScope != nil {
-			core.RespondInternalError(context) // Return generic error information. Situation already logged!
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
 		// Check ID to make sure it existed in the DB
 		if scanScope.Id == 0 {
-			core.Respond(context, true, "Invalid ID.", responseBody{})
+			core.Respond(ctx, true, "Invalid ID.", responseBody{})
 			return
 		}
 
 		// Check if user has rights to update scope
 		if !core.OwnerOrAdmin(scanScope.IdTGroup, contextUser) {
-			core.RespondAuthError(context)
+			core.RespondAuthError(ctx)
 			return
 		}
 
 		// Request manager to update scan settings
 		errRpc := manager.RpcUpdateSettings(logger, core.RpcClient(), req.Id, req.ScanSettings)
 		if errors.Is(errRpc, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
 		} else if errRpc != nil {
-			core.RespondInternalError(context) // Return generic error information. Situation already logged!
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
 		// Return response
-		core.Respond(context, false, "Scope settings updated.", responseBody{})
+		core.Respond(ctx, false, "Scope settings updated.", responseBody{})
 	}
 }
 
@@ -591,35 +668,35 @@ var ScopeCreateUpdateCustom = func() gin.HandlerFunc {
 	type responseBody struct{}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Declare expected request struct
 		var req requestBody
 
 		// Decode JSON request into struct
-		errReq := context.BindJSON(&req)
+		errReq := ctx.BindJSON(&req)
 		if errReq != nil {
 			logger.Errorf("Could not decode request: %s", errReq)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Abort request because it is invalid
 		if (req.ExistingScopeId == nil && req.GroupId == nil) || (req.ExistingScopeId != nil && req.GroupId != nil) {
 			logger.Debugf("Scope ID to update or group ID to create scope required.")
-			core.Respond(context, true, "Scope ID or group ID required.", responseBody{})
+			core.Respond(ctx, true, "Scope ID or group ID required.", responseBody{})
 			return
 		}
 
 		// Check if scope name is defined
 		if len(req.Name) == 0 {
-			core.Respond(context, true, "Invalid scope name.", responseBody{})
+			core.Respond(ctx, true, "Invalid scope name.", responseBody{})
 			return
 		}
 
@@ -644,13 +721,13 @@ var ScopeCreateUpdateCustom = func() gin.HandlerFunc {
 			groupEntry, errGroupEntry := database.GetGroup(*req.GroupId)
 			if errGroupEntry != nil {
 				logger.Warningf("Could not query group: %s", errGroupEntry)
-				core.RespondInternalError(context)
+				core.RespondInternalError(ctx)
 				return
 			}
 
 			// Check if group exists
 			if groupEntry == nil {
-				core.Respond(context, true, "Invalid group.", responseBody{})
+				core.Respond(ctx, true, "Invalid group.", responseBody{})
 				return
 			}
 
@@ -661,16 +738,16 @@ var ScopeCreateUpdateCustom = func() gin.HandlerFunc {
 			// Request scope details from manager
 			scanScope, errScanScope := manager.RpcGetScope(logger, core.RpcClient(), *req.ExistingScopeId)
 			if errors.Is(errScanScope, utils.ErrRpcConnectivity) {
-				core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+				core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 				return
 			} else if errScanScope != nil {
-				core.RespondInternalError(context) // Return generic error information. Situation already logged!
+				core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 				return
 			}
 
 			// Check ID to make sure it existed in the DB
 			if scanScope.Id == 0 {
-				core.Respond(context, true, "Invalid ID.", responseBody{})
+				core.Respond(ctx, true, "Invalid ID.", responseBody{})
 				return
 			}
 
@@ -681,13 +758,13 @@ var ScopeCreateUpdateCustom = func() gin.HandlerFunc {
 			groupEntry, errGroupEntry := database.GetGroup(scanScope.IdTGroup)
 			if errGroupEntry != nil {
 				logger.Warningf("Could not query group: %s", errGroupEntry)
-				core.RespondInternalError(context)
+				core.RespondInternalError(ctx)
 				return
 			}
 
 			// Check if group exists
 			if groupEntry == nil {
-				core.Respond(context, true, "Invalid group in scan scope.", responseBody{})
+				core.Respond(ctx, true, "Invalid group in scan scope.", responseBody{})
 				return
 			}
 
@@ -697,13 +774,13 @@ var ScopeCreateUpdateCustom = func() gin.HandlerFunc {
 
 		// Check if user has rights to update scope
 		if !core.OwnerOrAdmin(scopeGroup.Id, contextUser) {
-			core.RespondAuthError(context)
+			core.RespondAuthError(ctx)
 			return
 		}
 
 		// Check if user is allowed to create scan scopes of this kind
 		if !contextUser.Admin && !scopeGroup.AllowCustom {
-			core.RespondAuthError(context)
+			core.RespondAuthError(ctx)
 			return
 		}
 
@@ -711,7 +788,7 @@ var ScopeCreateUpdateCustom = func() gin.HandlerFunc {
 		groupScopes, errScopes := manager.RpcGetScopesOf(logger, core.RpcClient(), []uint64{scopeGroup.Id})
 		if errScopes != nil {
 			logger.Warningf("Could not query scopes of group '%d': %s", scopeGroup.Id, errScopes)
-			core.RespondTemporaryError(context)
+			core.RespondTemporaryError(ctx)
 			return
 		}
 
@@ -720,15 +797,21 @@ var ScopeCreateUpdateCustom = func() gin.HandlerFunc {
 
 			// Check if new scope can be created
 			if scopeGroup.MaxScopes >= 0 && len(groupScopes) >= scopeGroup.MaxScopes {
-				core.Respond(context, true, "Scope limit reached.", responseBody{})
+				core.Respond(ctx, true, "Scope limit reached.", responseBody{})
 				return
+			}
+
+			// Chose database server by ID to use for the new scan scope
+			dbServerId := scopeGroup.DbServerId // Use other database server if assigned for scope group
+			if dbServerId <= 0 {
+				dbServerId = 1 // Use default database server is no other is specified
 			}
 
 			// Execute create on manager via RPC
 			createId, errCreate := manager.RpcCreateScope(
 				logger,
 				core.RpcClient(),
-				1, // TODO: change from hardcoded to dynamic value
+				dbServerId,
 				req.Name,
 				scopeGroup.Id,
 				contextUser.Email,
@@ -739,7 +822,7 @@ var ScopeCreateUpdateCustom = func() gin.HandlerFunc {
 			)
 			if errCreate != nil {
 				logger.Warningf("Could not create scan scope: %s", errCreate)
-				core.RespondTemporaryError(context) // Return generic error information
+				core.RespondTemporaryError(ctx) // Return generic error information
 				return
 			}
 
@@ -751,7 +834,7 @@ var ScopeCreateUpdateCustom = func() gin.HandlerFunc {
 			)
 			if errEvent != nil {
 				logger.Errorf("Could not create event log: %s", errEvent)
-				core.RespondInternalError(context) // Return generic error information
+				core.RespondInternalError(ctx) // Return generic error information
 				return
 			}
 
@@ -774,7 +857,7 @@ var ScopeCreateUpdateCustom = func() gin.HandlerFunc {
 				// Check if target input is valid
 				if !scanUtils.IsValidAddress(target.Input) && !scanUtils.IsValidIpRange(target.Input) {
 					core.Respond(
-						context,
+						ctx,
 						true,
 						fmt.Sprintf("Invalid scope target '%s'.", target.Input),
 						responseBody{},
@@ -786,7 +869,7 @@ var ScopeCreateUpdateCustom = func() gin.HandlerFunc {
 				count, errCount := utils.CountIpsInInput(target.Input)
 				if errCount != nil {
 					core.Respond(
-						context,
+						ctx,
 						true,
 						fmt.Sprintf("Invalid scope target '%s'.", target.Input),
 						responseBody{},
@@ -812,7 +895,7 @@ var ScopeCreateUpdateCustom = func() gin.HandlerFunc {
 
 				// Check if group limit is exceeded
 				if int(count) >= scopeGroup.MaxTargets {
-					core.Respond(context, true, "Target limit reached.", responseBody{})
+					core.Respond(ctx, true, "Target limit reached.", responseBody{})
 					return
 				}
 			}
@@ -828,13 +911,13 @@ var ScopeCreateUpdateCustom = func() gin.HandlerFunc {
 				false,
 			)
 			if errRpc != nil && errRpc.Error() == manager.ErrScopeUpdateOngoing.Error() { // Errors received from RPC lose their original type!!
-				core.Respond(context, true, "Synchronization of scan targets still ongoing.", responseBody{})
+				core.Respond(ctx, true, "Synchronization of scan targets still ongoing.", responseBody{})
 				return
 			} else if errors.Is(errRpc, utils.ErrRpcConnectivity) {
-				core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+				core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 				return
 			} else if errRpc != nil {
-				core.RespondInternalError(context) // Return generic error information. Situation already logged!
+				core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 				return
 			}
 		}
@@ -853,19 +936,19 @@ var ScopeCreateUpdateCustom = func() gin.HandlerFunc {
 				nil,
 			)
 			if errors.Is(errRpc, utils.ErrRpcConnectivity) {
-				core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+				core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 				return
 			} else if errRpc != nil {
-				core.RespondInternalError(context) // Return generic error information. Situation already logged!
+				core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 				return
 			}
 
 			// Set response message
-			respMsg = "Scope details updated."
+			respMsg = "Scope updated."
 		}
 
 		// Return response
-		core.Respond(context, false, respMsg, responseBody{})
+		core.Respond(ctx, false, respMsg, responseBody{})
 		return
 	}
 }
@@ -906,35 +989,35 @@ var ScopeCreateUpdateNetworks = func() gin.HandlerFunc {
 	type responseBody struct{}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Declare expected request struct
 		var req requestBody
 
 		// Decode JSON request into struct
-		errReq := context.BindJSON(&req)
+		errReq := ctx.BindJSON(&req)
 		if errReq != nil {
 			logger.Errorf("Could not decode request: %s", errReq)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Abort request because it is invalid
 		if (req.ExistingScopeId == nil && req.GroupId == nil) || (req.ExistingScopeId != nil && req.GroupId != nil) {
 			logger.Debugf("Scope ID to update or group ID to create scope required.")
-			core.Respond(context, true, "Scope ID or group ID required.", responseBody{})
+			core.Respond(ctx, true, "Scope ID or group ID required.", responseBody{})
 			return
 		}
 
 		// Check if scope name is defined
 		if len(req.Name) == 0 {
-			core.Respond(context, true, "Invalid scope name.", responseBody{})
+			core.Respond(ctx, true, "Invalid scope name.", responseBody{})
 			return
 		}
 
@@ -957,13 +1040,13 @@ var ScopeCreateUpdateNetworks = func() gin.HandlerFunc {
 			groupEntry, errGroupEntry := database.GetGroup(*req.GroupId)
 			if errGroupEntry != nil {
 				logger.Warningf("Could not query group: %s", errGroupEntry)
-				core.RespondInternalError(context)
+				core.RespondInternalError(ctx)
 				return
 			}
 
 			// Check if group exists
 			if groupEntry == nil {
-				core.Respond(context, true, "Invalid group.", responseBody{})
+				core.Respond(ctx, true, "Invalid group.", responseBody{})
 				return
 			}
 
@@ -974,16 +1057,16 @@ var ScopeCreateUpdateNetworks = func() gin.HandlerFunc {
 			// Request scope details from manager
 			scanScope, errScanScope := manager.RpcGetScope(logger, core.RpcClient(), *req.ExistingScopeId)
 			if errors.Is(errScanScope, utils.ErrRpcConnectivity) {
-				core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+				core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 				return
 			} else if errScanScope != nil {
-				core.RespondInternalError(context) // Return generic error information. Situation already logged!
+				core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 				return
 			}
 
 			// Check ID to make sure it existed in the DB
 			if scanScope.Id == 0 {
-				core.Respond(context, true, "Invalid ID.", responseBody{})
+				core.Respond(ctx, true, "Invalid ID.", responseBody{})
 				return
 			}
 
@@ -994,13 +1077,13 @@ var ScopeCreateUpdateNetworks = func() gin.HandlerFunc {
 			groupEntry, errGroupEntry := database.GetGroup(scanScope.IdTGroup)
 			if errGroupEntry != nil {
 				logger.Warningf("Could not query group: %s", errGroupEntry)
-				core.RespondInternalError(context)
+				core.RespondInternalError(ctx)
 				return
 			}
 
 			// Check if group exists
 			if groupEntry == nil {
-				core.Respond(context, true, "Invalid group in scan scope.", responseBody{})
+				core.Respond(ctx, true, "Invalid group in scan scope.", responseBody{})
 				return
 			}
 
@@ -1010,13 +1093,13 @@ var ScopeCreateUpdateNetworks = func() gin.HandlerFunc {
 
 		// Check if user has rights to update scope
 		if !core.OwnerOrAdmin(scopeGroup.Id, contextUser) {
-			core.RespondAuthError(context)
+			core.RespondAuthError(ctx)
 			return
 		}
 
 		// Check if user is allowed to create scan scopes of this kind
 		if !contextUser.Admin && !scopeGroup.AllowNetwork {
-			core.RespondAuthError(context)
+			core.RespondAuthError(ctx)
 			return
 		}
 
@@ -1024,14 +1107,14 @@ var ScopeCreateUpdateNetworks = func() gin.HandlerFunc {
 		groupScopes, errScopes := manager.RpcGetScopesOf(logger, core.RpcClient(), []uint64{scopeGroup.Id})
 		if errScopes != nil {
 			logger.Warningf("Could not query scopes of group '%d': %s", scopeGroup.Id, errScopes)
-			core.RespondTemporaryError(context)
+			core.RespondTemporaryError(ctx)
 			return
 		}
 
 		// Check if new scope can be created
 		if createScope {
 			if scopeGroup.MaxScopes >= 0 && len(groupScopes) >= scopeGroup.MaxScopes {
-				core.Respond(context, true, "Scope limit reached.", responseBody{})
+				core.Respond(ctx, true, "Scope limit reached.", responseBody{})
 				return
 			}
 		}
@@ -1070,11 +1153,17 @@ var ScopeCreateUpdateNetworks = func() gin.HandlerFunc {
 				scopeType = req.Type
 			}
 
+			// Chose database server by ID to use for the new scan scope
+			dbServerId := scopeGroup.DbServerId // Use other database server if assigned for scope group
+			if dbServerId <= 0 {
+				dbServerId = 1 // Use default database server is no other is specified
+			}
+
 			// Execute create on manager via RPC
 			_, errCreate := manager.RpcCreateScope(
 				logger,
 				core.RpcClient(),
-				1, // TODO: change from hardcoded to dynamic value
+				dbServerId,
 				req.Name,
 				scopeGroup.Id,
 				contextUser.Email,
@@ -1085,7 +1174,7 @@ var ScopeCreateUpdateNetworks = func() gin.HandlerFunc {
 			)
 			if errCreate != nil {
 				logger.Warningf("Could not create scan scope: %s", errCreate)
-				core.RespondTemporaryError(context) // Return generic error information
+				core.RespondTemporaryError(ctx) // Return generic error information
 				return
 			}
 
@@ -1097,12 +1186,12 @@ var ScopeCreateUpdateNetworks = func() gin.HandlerFunc {
 			)
 			if errEvent != nil {
 				logger.Errorf("Could not create event log: %s", errEvent)
-				core.RespondInternalError(context) // Return generic error information
+				core.RespondInternalError(ctx) // Return generic error information
 				return
 			}
 
 			// Return response
-			core.Respond(context, false, "Scope created.", responseBody{})
+			core.Respond(ctx, false, "Scope created.", responseBody{})
 		}
 
 		// Execute update of scan scope
@@ -1119,15 +1208,15 @@ var ScopeCreateUpdateNetworks = func() gin.HandlerFunc {
 				&attributes,
 			)
 			if errors.Is(errRpc, utils.ErrRpcConnectivity) {
-				core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+				core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 				return
 			} else if errRpc != nil {
-				core.RespondInternalError(context) // Return generic error information. Situation already logged!
+				core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 				return
 			}
 
 			// Return response
-			core.Respond(context, false, "Scope details updated.", responseBody{})
+			core.Respond(ctx, false, "Scope updated.", responseBody{})
 		}
 	}
 }
@@ -1166,35 +1255,35 @@ var ScopeCreateUpdateAssets = func() gin.HandlerFunc {
 	type responseBody struct{}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Declare expected request struct
 		var req requestBody
 
 		// Decode JSON request into struct
-		errReq := context.BindJSON(&req)
+		errReq := ctx.BindJSON(&req)
 		if errReq != nil {
 			logger.Errorf("Could not decode request: %s", errReq)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Abort request because it is invalid
 		if (req.ExistingScopeId == nil && req.GroupId == nil) || (req.ExistingScopeId != nil && req.GroupId != nil) {
 			logger.Debugf("Scope ID to update or group ID to create scope required.")
-			core.Respond(context, true, "Scope ID or group ID required.", responseBody{})
+			core.Respond(ctx, true, "Scope ID or group ID required.", responseBody{})
 			return
 		}
 
 		// Check if scope name is defined
 		if len(req.Name) == 0 {
-			core.Respond(context, true, "Invalid scope name.", responseBody{})
+			core.Respond(ctx, true, "Invalid scope name.", responseBody{})
 			return
 		}
 
@@ -1216,13 +1305,13 @@ var ScopeCreateUpdateAssets = func() gin.HandlerFunc {
 			groupEntry, errGroupEntry := database.GetGroup(*req.GroupId)
 			if errGroupEntry != nil {
 				logger.Warningf("Could not query group: %s", errGroupEntry)
-				core.RespondInternalError(context)
+				core.RespondInternalError(ctx)
 				return
 			}
 
 			// Check if group exists
 			if groupEntry == nil {
-				core.Respond(context, true, "Invalid group.", responseBody{})
+				core.Respond(ctx, true, "Invalid group.", responseBody{})
 				return
 			}
 
@@ -1233,16 +1322,16 @@ var ScopeCreateUpdateAssets = func() gin.HandlerFunc {
 			// Request scope details from manager
 			scanScope, errScanScope := manager.RpcGetScope(logger, core.RpcClient(), *req.ExistingScopeId)
 			if errors.Is(errScanScope, utils.ErrRpcConnectivity) {
-				core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+				core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 				return
 			} else if errScanScope != nil {
-				core.RespondInternalError(context) // Return generic error information. Situation already logged!
+				core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 				return
 			}
 
 			// Check ID to make sure it existed in the DB
 			if scanScope.Id == 0 {
-				core.Respond(context, true, "Invalid ID.", responseBody{})
+				core.Respond(ctx, true, "Invalid ID.", responseBody{})
 				return
 			}
 
@@ -1253,13 +1342,13 @@ var ScopeCreateUpdateAssets = func() gin.HandlerFunc {
 			group, errGroupEntry := database.GetGroup(scanScope.IdTGroup)
 			if errGroupEntry != nil {
 				logger.Warningf("Could not query group: %s", errGroupEntry)
-				core.RespondInternalError(context)
+				core.RespondInternalError(ctx)
 				return
 			}
 
 			// Check if group exists
 			if group == nil {
-				core.Respond(context, true, "Invalid group in scan scope.", responseBody{})
+				core.Respond(ctx, true, "Invalid group in scan scope.", responseBody{})
 				return
 			}
 
@@ -1269,13 +1358,13 @@ var ScopeCreateUpdateAssets = func() gin.HandlerFunc {
 
 		// Check if user has rights to update scope
 		if !core.OwnerOrAdmin(scopeGroup.Id, contextUser) {
-			core.RespondAuthError(context)
+			core.RespondAuthError(ctx)
 			return
 		}
 
 		// Check if user is allowed to create scan scopes of this kind
 		if !contextUser.Admin && !scopeGroup.AllowAsset {
-			core.RespondAuthError(context)
+			core.RespondAuthError(ctx)
 			return
 		}
 
@@ -1283,25 +1372,25 @@ var ScopeCreateUpdateAssets = func() gin.HandlerFunc {
 		groupScopes, errScopes := manager.RpcGetScopesOf(logger, core.RpcClient(), []uint64{scopeGroup.Id})
 		if errScopes != nil {
 			logger.Warningf("Could not query scopes of group '%d': %s", scopeGroup.Id, errScopes)
-			core.RespondTemporaryError(context)
+			core.RespondTemporaryError(ctx)
 			return
 		}
 
 		// Check if new scope can be created
 		if createScope {
 			if scopeGroup.MaxScopes >= 0 && len(groupScopes) >= scopeGroup.MaxScopes {
-				core.Respond(context, true, "Scope limit reached.", responseBody{})
+				core.Respond(ctx, true, "Scope limit reached.", responseBody{})
 				return
 			}
 		}
 
 		// Check some passed values for plausibility
 		if !scanUtils.StrContained(req.AssetType, []string{"Any", "Server", "Network", "Client"}) {
-			core.Respond(context, true, "Invalid asset type value.", responseBody{})
+			core.Respond(ctx, true, "Invalid asset type value.", responseBody{})
 			return
 		}
 		if !scanUtils.StrContained(req.AssetCritical, []string{"Any", "Yes", "No"}) {
-			core.Respond(context, true, "Invalid critical value.", responseBody{})
+			core.Respond(ctx, true, "Invalid critical value.", responseBody{})
 			return
 		}
 
@@ -1333,11 +1422,17 @@ var ScopeCreateUpdateAssets = func() gin.HandlerFunc {
 				scopeType = req.Type
 			}
 
+			// Chose database server by ID to use for the new scan scope
+			dbServerId := scopeGroup.DbServerId // Use other database server if assigned for scope group
+			if dbServerId <= 0 {
+				dbServerId = 1 // Use default database server is no other is specified
+			}
+
 			// Execute create on manager via RPC
 			_, errCreate := manager.RpcCreateScope(
 				logger,
 				core.RpcClient(),
-				1, // TODO: change from hardcoded to dynamic value
+				dbServerId,
 				req.Name,
 				scopeGroup.Id,
 				contextUser.Email,
@@ -1348,7 +1443,7 @@ var ScopeCreateUpdateAssets = func() gin.HandlerFunc {
 			)
 			if errCreate != nil {
 				logger.Warningf("Could not create scan scope: %s", errCreate)
-				core.RespondTemporaryError(context) // Return generic error information
+				core.RespondTemporaryError(ctx) // Return generic error information
 				return
 			}
 
@@ -1360,12 +1455,12 @@ var ScopeCreateUpdateAssets = func() gin.HandlerFunc {
 			)
 			if errEvent != nil {
 				logger.Errorf("Could not create event log: %s", errEvent)
-				core.RespondInternalError(context) // Return generic error information
+				core.RespondInternalError(ctx) // Return generic error information
 				return
 			}
 
 			// Return response
-			core.Respond(context, false, "Scope created.", responseBody{})
+			core.Respond(ctx, false, "Scope created.", responseBody{})
 		}
 
 		// Execute update of scan scope
@@ -1382,15 +1477,15 @@ var ScopeCreateUpdateAssets = func() gin.HandlerFunc {
 				&attributes,
 			)
 			if errors.Is(errRpc, utils.ErrRpcConnectivity) {
-				core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+				core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 				return
 			} else if errRpc != nil {
-				core.RespondInternalError(context) // Return generic error information. Situation already logged!
+				core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 				return
 			}
 
 			// Return response
-			core.Respond(context, false, "Scope details updated.", responseBody{})
+			core.Respond(ctx, false, "Scope updated.", responseBody{})
 		}
 	}
 }
@@ -1411,73 +1506,70 @@ var ScopeResetInput = func() gin.HandlerFunc {
 	type responseBody struct{}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Declare expected request struct
 		var req requestBody
 
 		// Decode JSON request into struct
-		errReq := context.BindJSON(&req)
+		errReq := ctx.BindJSON(&req)
 		if errReq != nil {
 			logger.Errorf("Could not decode request: %s", errReq)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Check if primary key is defined, otherwise gorm cannot update specific entry
 		if req.ScopeId == 0 {
-			core.Respond(context, true, "Invalid ID.", responseBody{})
+			core.Respond(ctx, true, "Invalid ID.", responseBody{})
 			return
 		}
 
 		// Request scope details from manager
 		scanScope, errScanScope := manager.RpcGetScope(logger, core.RpcClient(), req.ScopeId)
 		if errors.Is(errScanScope, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
 		} else if errScanScope != nil {
-			core.RespondInternalError(context) // Return generic error information. Situation already logged!
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
 		// Check ID to make sure it existed in the DB
 		if scanScope.Id == 0 {
-			core.Respond(context, true, "Invalid ID.", responseBody{})
+			core.Respond(ctx, true, "Invalid ID.", responseBody{})
 			return
 		}
 
 		// Check if user has rights to update scope
 		if !core.OwnerOrAdmin(scanScope.IdTGroup, contextUser) {
-			core.RespondAuthError(context)
+			core.RespondAuthError(ctx)
 			return
 		}
 
 		// Request manager to reset a scan scope's input entry
 		errRpc := manager.RpcResetInput(logger, core.RpcClient(), req.ScopeId, req.Input)
 		if errors.Is(errRpc, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
 		} else if errRpc != nil {
-			core.RespondInternalError(context) // Return generic error information. Situation already logged!
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
 		// Return response
-		core.Respond(context, false, "Scope target reset.", responseBody{})
+		core.Respond(ctx, false, "Scope target reset.", responseBody{})
 	}
 }
 
 // ScopeResetSecret sets a new scope secret used to associate scan agents, if the user has ownership rights (or is admin)
-var ScopeResetSecret = func(
-	frontendUrl string,
-	smtpConnection *utils.Smtp,
-) gin.HandlerFunc {
+var ScopeResetSecret = func(smtpConnection *utils.Smtp) gin.HandlerFunc {
 
 	// Define expected request structure
 	type requestBody struct {
@@ -1491,60 +1583,60 @@ var ScopeResetSecret = func(
 	type responseBody struct{}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Declare expected request struct
 		var req requestBody
 
 		// Decode JSON request into struct
-		errReq := context.BindJSON(&req)
+		errReq := ctx.BindJSON(&req)
 		if errReq != nil {
 			logger.Errorf("Could not decode request: %s", errReq)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Check if primary key is defined, otherwise gorm cannot update specific entry
 		if req.Id == 0 {
-			core.Respond(context, true, "Invalid ID.", responseBody{})
+			core.Respond(ctx, true, "Invalid ID.", responseBody{})
 			return
 		}
 
 		// Request scope details from manager
 		scanScope, errScanScope := manager.RpcGetScope(logger, core.RpcClient(), req.Id)
 		if errors.Is(errScanScope, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
 		} else if errScanScope != nil {
-			core.RespondInternalError(context) // Return generic error information. Situation already logged!
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
 		// Check ID to make sure it existed in the DB
 		if scanScope.Id == 0 {
-			core.Respond(context, true, "Invalid ID.", responseBody{})
+			core.Respond(ctx, true, "Invalid ID.", responseBody{})
 			return
 		}
 
 		// Check if user has rights to update scope
 		if !core.OwnerOrAdmin(scanScope.IdTGroup, contextUser) {
-			core.RespondAuthError(context)
+			core.RespondAuthError(ctx)
 			return
 		}
 
 		// Request manager to update scope secret
 		newToken, errNewToken := manager.RpcResetSecret(logger, core.RpcClient(), req.Id)
 		if errors.Is(errNewToken, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
 		} else if errNewToken != nil {
-			core.RespondInternalError(context) // Return generic error information. Situation already logged!
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
@@ -1553,7 +1645,10 @@ var ScopeResetSecret = func(
 		message := fmt.Sprintf("Scan Scope:\t%s\n"+
 			"Scope Secret:\t%s\n\n"+
 			"Scan scopes can be configured at %s.",
-			scanScope.Name, newToken, frontendUrl)
+			scanScope.Name,
+			newToken,
+			ctx.Request.Host, // Prepare dynamically, website might be accessed via different domains
+		)
 
 		// Enable encryption by setting user certificate, if available
 		var encCert [][]byte
@@ -1588,12 +1683,12 @@ var ScopeResetSecret = func(
 					contextUser.Email,
 					errMail,
 				)
-				core.RespondInternalError(context) // Return generic error information
+				core.RespondInternalError(ctx) // Return generic error information
 				return
 			}
 		}
 
 		// Return response
-		core.Respond(context, false, "Secret reset and sent via E-mail.", responseBody{})
+		core.Respond(ctx, false, "Secret reset and sent via E-mail.", responseBody{})
 	}
 }

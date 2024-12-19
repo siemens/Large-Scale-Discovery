@@ -19,7 +19,8 @@
         <div class="ui horizontal list" data-bind="foreach: {data: activities, afterRender: initActivityEntry}">
             <div class="item">
                 <div class="ui circular image" style="width: 52px"></div>
-                <div class="content" style="width: 151px;" data-bind="style: { color: last_login_color }">
+                <div class="content" style="width: 150px; padding:0;"
+                     data-bind="style: { color: last_login_color }">
                     <!-- ko if: name.length > 0 -->
                     <div style="max-width: 100%;overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
                          data-bind="class: presentationClass()">

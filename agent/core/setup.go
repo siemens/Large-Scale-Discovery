@@ -192,7 +192,7 @@ func CheckConfig() error {
 			"vmware-version,tls-ticketbleed,smb2-time,smb2-security-mode,smb2-capabilities,smb-vuln-ms17-010,smb-double-pulsar-backdoor,openwebnet-discovery,Http-vuln-cve2017-1001000,Http-security-headers,Http-cookie-flags,ftp-syst,cics-info",
 		},
 		true,
-		[]string{instanceIp}, // Exclude local IP from scans, scan would have extended privileges discovering content that isn't visible from the outside
+		[]string{instanceInfo.Ip}, // Exclude local IP from scans, scan would have extended privileges discovering content that isn't visible from the outside
 		conf.Modules.Discovery.BlacklistFile,
 		[]string{".local", "sub1.local", "sub2.local", "third-party.com"},
 		conf.Modules.Discovery.LdapServer,

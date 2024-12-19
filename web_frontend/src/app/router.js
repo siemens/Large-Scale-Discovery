@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -68,6 +68,8 @@ define(["knockout", "postbox", "crossroads", "hasher"],
                 new RouterItem('configuration/tokens', 'configuration-tokens', 'configuration'),
                 new RouterItem('admin/users', 'admin-users', 'admin'),
                 new RouterItem('admin/groups', 'admin-groups', 'admin'),
+                new RouterItem('admin/databases', 'admin-databases', 'admin'),
+                new RouterItem('admin/logs', 'admin-logs', 'admin'),
                 new RouterItem('installation', 'installation', 'installation'),
                 new RouterItem('profile', 'profile', 'profile'),
             ]

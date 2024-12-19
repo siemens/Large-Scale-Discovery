@@ -101,7 +101,7 @@
         <h4 class="ui horizontal divider header">
             Agent Processes
             <span
-                    data-html="A scan agent executes multiple instances of each scan module in parallel."
+                    data-html="A scan agent executes multiple instances of each scan module in parallel. This are the default instance limits for agents, but they can be overridden in each agent's configuration!"
                     data-position="right center" data-variation="tiny">
                 <i class="question circle outline icon"></i>
             </span>
@@ -237,6 +237,17 @@
                     </div>
                 </div>
             </div>
+
+            <!-- ko if: agentLimits -->
+            <div class="row" style="padding: 0;">
+                <div class="ui tiny visible warning message"
+                     style="width:inherit; margin-left: 1rem; margin-right: 1rem;">
+                    <i class="exclamation triangle icon"></i>
+                    At least one scan agent assigned to this scan scope has dedicated scan limits configured. Above scan
+                    scope limits only apply to those scan agents without dedicated limits.
+                </div>
+            </div>
+            <!-- /ko -->
 
         </div>
 

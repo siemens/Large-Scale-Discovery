@@ -16,6 +16,22 @@ import (
 	"time"
 )
 
+type ArgsDbServerId struct {
+	DbServerId uint64
+}
+
+type ArgsDatabaseDetails struct {
+	DbServerId uint64 // The ID of the database server to edit
+	Name       string
+	Dialect    string
+	Host       string
+	HostPublic string
+	Port       int
+	Admin      string
+	Password   string
+	Args       string
+}
+
 type ArgsScopeFull struct {
 	PrivilegeSecret string
 	ScopeSecret     string
@@ -67,7 +83,7 @@ type ArgsTargetReset struct {
 
 type ArgsSettingsUpdate struct {
 	IdTScanScopes uint64 // The ID of the scan scope to update
-	ScanSettings  database.T_scan_settings
+	ScanSettings  database.T_scan_setting
 }
 
 type ArgsStatsUpdate struct {
@@ -119,4 +135,11 @@ type ArgsRevokeGrants struct {
 
 type ArgsAgentId struct {
 	AgentId uint64
+}
+
+type ArgsSqlLogCreate database.T_sql_log
+
+type ArgsSqlLogsFilter struct {
+	DbName string
+	Since  time.Time
 }

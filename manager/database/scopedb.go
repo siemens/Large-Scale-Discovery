@@ -11,6 +11,7 @@
 package database
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	escape "github.com/segmentio/go-pg-escape"
@@ -38,7 +39,7 @@ var dbMaxConn = 20
 
 // Map of db connection handles. Db connection handles are used to administrate databases on a database server and independent of scan scopes
 var dbsLock sync.RWMutex            // Lock to control access to db handles to avoid duplicate creation of the same
-var dbs = make(map[uint64]*gorm.DB) // Map of db handles (one handle per db server). We want to keep the connection open in order to let the sql driver handle connection pooling internally.
+var dbs = make(map[uint64]*gorm.DB) // Map of db handles (one handle per database server). We want to keep the connection open in order to let the sql driver handle connection pooling internally.
 
 // Map of scope db connection handles. Scope db connection handles are used to edit data of a specific scan scope and cannot be used to create or delete scan scopes
 var scopeDbsLock sync.RWMutex            // Lock to control access to scope db handles to avoid duplicate creation of the same
@@ -432,6 +433,91 @@ func AutomigrateScanScopes(logger scanUtils.Logger) error {
 	return nil
 }
 
+// SetScopeDbComment set a comment on a scope database, making it easier to distinguish databases
+func SetScopeDbComment(serverDb *gorm.DB, dbName string, dbComment string) error {
+
+	// Build escaped query manually, as it can't be executed as a prepared statement
+	// ATTENTION: This is tailored for Postgres databases and might not be safe with others!
+	query, errQuery := escape.Escape(`COMMENT ON DATABASE %I IS %L;`, dbName, dbComment)
+	if errQuery != nil {
+		return errQuery
+	}
+
+	// Drop view
+	return serverDb.Exec(query).Error
+}
+
+// EnableDatabaseCredentials disables a user, but leaves access rights untouched
+func EnableDatabaseCredentials(serverDb *gorm.DB, username string) error {
+
+	// Build escaped query manually, as it can't be executed as a prepared statement
+	// ATTENTION: This is tailored for Postgres databases and might not be safe with others!
+	query, errQuery := escape.Escape(`ALTER USER %I WITH LOGIN;`, username)
+	if errQuery != nil {
+		return errQuery
+	}
+
+	// Enable user
+	errDb := serverDb.Exec(query).Error
+	if errDb != nil {
+		return errDb
+	}
+
+	// Return nil as everything went fine
+	return nil
+}
+
+// DisableDatabaseCredentials disables a user, but leaves access rights untouched
+func DisableDatabaseCredentials(serverDb *gorm.DB, username string) error {
+
+	// Build escaped query manually, as it can't be executed as a prepared statement
+	// ATTENTION: This is tailored for Postgres databases and might not be safe with others!
+	query, errQuery := escape.Escape(`ALTER USER %I WITH NOLOGIN;`, username)
+	if errQuery != nil {
+		return errQuery
+	}
+
+	// Kill existing connections
+	errKill := killUserConnections(serverDb, username)
+	if errKill != nil {
+		return errKill
+	}
+
+	// Disable user
+	errDb := serverDb.Exec(query).Error
+	if errDb != nil {
+		return errDb
+	}
+
+	// Return nil as everything went fine
+	return nil
+}
+
+// UpdateDatabaseCredentials updates a user's password on the database server
+func UpdateDatabaseCredentials(serverDb *gorm.DB, username string, password string, expiry time.Time) error {
+
+	// Build escaped query manually, as it can't be executed as a prepared statement
+	// ATTENTION: This is tailored for Postgres databases and might not be safe with others!
+	query, errQuery := escape.Escape(
+		`ALTER USER %I WITH ENCRYPTED PASSWORD %L VALID UNTIL %L;`,
+		username,
+		password,
+		expiry.Format(time.RFC3339),
+	)
+	if errQuery != nil {
+		return errQuery
+	}
+
+	// Update user
+	errDb := serverDb.Exec(query).Error
+	if errDb != nil {
+		return errDb
+	}
+
+	// Return nil as everything went fine
+	return nil
+}
+
 func AutoMigrateScopeDb(scopeDb *gorm.DB) error {
 
 	allModels := []interface{}{
@@ -454,6 +540,7 @@ func AutoMigrateScopeDb(scopeDb *gorm.DB) error {
 		&T_webcrawler_page{},
 		&T_webenum{},
 		&T_webenum_results{},
+		&T_sql_log{},
 	}
 
 	// Create or update db tables.
@@ -470,20 +557,6 @@ func AutoMigrateScopeDb(scopeDb *gorm.DB) error {
 
 	// Return nil as everything went fine
 	return nil
-}
-
-// SetScopeDbComment set a comment on a scope database, making it easier to distinguish databases
-func SetScopeDbComment(serverDb *gorm.DB, dbName string, dbComment string) error {
-
-	// Build escaped query manually, as it can't be executed as a prepared statement
-	// ATTENTION: This is tailored for Postgres databases and might not be safe with others!
-	sql, errSql := escape.Escape(`COMMENT ON DATABASE %I IS %L;`, dbName, dbComment)
-	if errSql != nil {
-		return errSql
-	}
-
-	// Drop view
-	return serverDb.Exec(sql).Error
 }
 
 // SetTargets changes current scan scope targets to the given list (inserting new, deleting vanished and
@@ -534,8 +607,9 @@ func SetTargets(scopeDb *gorm.DB, targets []T_discovery) (created uint64, remove
 			missingTargets = append(missingTargets, createEntry)
 		}
 
-		// Execute the actual insert. Use a new gorm session and force a limit on how many Entries can be batched,
-		// as we otherwise might exceed PostgreSQLs limit of 65535 parameters
+		// Execute the actual insert.
+		// Use a new gorm session and force a limit on how many Entries can be batched, as we otherwise might
+		// exceed the database's limit of 65535 parameters
 		errDb2 := txScopeDb.
 			Session(&gorm.Session{CreateBatchSize: MaxBatchSizeDiscovery}).
 			Create(&missingTargets).Error
@@ -557,7 +631,7 @@ func SetTargets(scopeDb *gorm.DB, targets []T_discovery) (created uint64, remove
 			}
 		}
 
-		// Update meta data of remaining targets
+		// Update metadata of remaining targets
 		for _, updateEntry := range updateEntries {
 
 			// Execute update
@@ -684,98 +758,48 @@ func GetProgress(scopeDb *gorm.DB) (total int64, done int64, running int64, fail
 	return
 }
 
-// EnableServerCredentials disables a user, but leaves access rights untouched
-func EnableServerCredentials(db *gorm.DB, username string) error {
+// ResetFailed resets the scan status of failed scan inputs in order to trigger a rescan within the current scan cycle
+func ResetFailed(scopeDb *gorm.DB) error {
 
-	// Build escaped query manually, as it can't be executed as a prepared statement
-	// ATTENTION: This is tailored for Postgres databases and might not be safe with others!
-	sql, errSql := escape.Escape(`ALTER USER %I WITH LOGIN;`, username)
-	if errSql != nil {
-		return errSql
-	}
-
-	// Enable user
-	errDb := db.Exec(sql).Error
-	if errDb != nil {
-		return errDb
-	}
-
-	// Return nil as everything went fine
-	return nil
-}
-
-// DisableServerCredentials disables a user, but leaves access rights untouched
-func DisableServerCredentials(db *gorm.DB, username string) error {
-
-	// Build escaped query manually, as it can't be executed as a prepared statement
-	// ATTENTION: This is tailored for Postgres databases and might not be safe with others!
-	sql, errSql := escape.Escape(`ALTER USER %I WITH NOLOGIN;`, username)
-	if errSql != nil {
-		return errSql
-	}
-
-	// Kill existing connections
-	errKill := killUserConnections(db, username)
-	if errKill != nil {
-		return errKill
-	}
-
-	// Disable user
-	errDb := db.Exec(sql).Error
-	if errDb != nil {
-		return errDb
+	// Execute cycle reset by resetting all scan input states
+	errScopeDb := scopeDb.Model(&T_discovery{}).
+		Where("scan_started IS NOT NULL").
+		Where("scan_finished IS NOT NULL").
+		Where("scan_status = ?", scanUtils.StatusFailed).
+		Updates(map[string]interface{}{
+			"scan_started":  sql.NullTime{},
+			"scan_finished": sql.NullTime{},
+			"scan_status":   scanUtils.StatusWaiting,
+		}).Error
+	if errScopeDb != nil {
+		return fmt.Errorf("could not reset failed scan targets in scope db: %s", errScopeDb)
 	}
 
 	// Return nil as everything went fine
 	return nil
 }
 
-// UpdateServerCredentials updates a user's password on the database server
-func UpdateServerCredentials(db *gorm.DB, username string, password string, expiry time.Time) error {
-
-	// Build escaped query manually, as it can't be executed as a prepared statement
-	// ATTENTION: This is tailored for Postgres databases and might not be safe with others!
-	sql, errSql := escape.Escape(
-		`ALTER USER %I WITH ENCRYPTED PASSWORD %L VALID UNTIL %L;`,
-		username,
-		password,
-		expiry.Format(time.RFC3339),
-	)
-	if errSql != nil {
-		return errSql
-	}
-
-	// Update user
-	errDb := db.Exec(sql).Error
-	if errDb != nil {
-		return errDb
-	}
-
-	// Return nil as everything went fine
-	return nil
-}
-
-// createServerCredentials creates a new user in the database, if not yet existing
-func createServerCredentials(db *gorm.DB, username string, password string, expiry time.Time, connections int) error {
+// createDatabaseCredentials creates a new user in the database, if not yet existing
+func createDatabaseCredentials(serverDb *gorm.DB, username string, password string, expiry time.Time, connections int) error {
 
 	// Convert connection value to string to build query
 	c := strconv.Itoa(connections)
 
 	// Build escaped query manually, as it can't be executed as a prepared statement
 	// ATTENTION: This is tailored for Postgres databases and might not be safe with others!
-	sql, errSql := escape.Escape(
+	query, errQuery := escape.Escape(
 		`CREATE USER %I WITH LOGIN NOSUPERUSER INHERIT NOCREATEDB NOCREATEROLE NOREPLICATION ENCRYPTED PASSWORD %L VALID UNTIL %L CONNECTION LIMIT %s;`,
 		username,
 		password,
 		expiry.Format(time.RFC3339),
 		c,
 	)
-	if errSql != nil {
-		return errSql
+	if errQuery != nil {
+		return errQuery
 	}
 
 	// Create user
-	errDb := db.Exec(sql).Error
+	errDb := serverDb.Exec(query).Error
 	if errDb != nil {
 		return errDb
 	}
@@ -784,30 +808,30 @@ func createServerCredentials(db *gorm.DB, username string, password string, expi
 	return nil
 }
 
-// deleteServerCredentials removes a given user from database server. If a user is still referenced by some table,
+// deleteDatabaseCredentials removes a given user from database server. If a user is still referenced by some table,
 // it can't be deleted. In case of such error, the error will be ignored and the user remains.
-func deleteServerCredentials(txDb *gorm.DB, username string) {
+func deleteDatabaseCredentials(txServerDb *gorm.DB, username string) {
 
 	// Build escaped query manually, as it can't be executed as a prepared statement
 	// ATTENTION: This is tailored for Postgres databases and might not be safe with others!
-	sql, _ := escape.Escape(`DROP USER IF EXISTS %I;`, username)
+	query, _ := escape.Escape(`DROP USER IF EXISTS %I;`, username)
 
 	// Prepare savepoint within transaction. Dropping the user might fail if the user is still required for some
 	// other tables or databases. In that case we just want to ignore the error and continue as if it didn't happen.
-	txDb.SavePoint("sp1")
+	txServerDb.SavePoint("sp1")
 
 	// Drop user
-	errDb := txDb.Exec(sql).Error
+	errDb := txServerDb.Exec(query).Error
 	if errDb != nil {
-		txDb.RollbackTo("sp1")
+		txServerDb.RollbackTo("sp1")
 	}
 }
 
 // killUserConnections kills active database sessions of a given user. This should be called in certain cases,
 // where a user should not be able to continue using the database (e.g. user gets deleted or disabled). Make sure
 // re-connection is prevented, before calling, otherwise connections might be re-established automatically.
-func killUserConnections(db *gorm.DB, username string) error {
-	return db.Exec(`
+func killUserConnections(serverDb *gorm.DB, username string) error {
+	return serverDb.Exec(`
 		SELECT
 			pg_terminate_backend(pid)
 		FROM
@@ -891,13 +915,13 @@ func deleteScopeDb(serverDb *gorm.DB, name string) error {
 
 	// Build escaped query manually, as it can't be executed as a prepared statement
 	// ATTENTION: This is tailored for Postgres databases and might not be safe with others!
-	sql, errSql := escape.Escape(`DROP DATABASE %I;`, name)
-	if errSql != nil {
-		return errSql
+	query, errQuery := escape.Escape(`DROP DATABASE %I;`, name)
+	if errQuery != nil {
+		return errQuery
 	}
 
 	// Drop database
-	errDb = serverDb.Exec(sql).Error
+	errDb = serverDb.Exec(query).Error
 	if errDb != nil {
 		return errDb
 	}
@@ -970,13 +994,13 @@ func deleteScopeView(txScopeDb *gorm.DB, viewTableNames []string) error {
 
 		// Build escaped query manually, as it can't be executed as a prepared statement
 		// ATTENTION: This is tailored for Postgres databases and might not be safe with others!
-		sql, errSql := escape.Escape(`DROP VIEW IF EXISTS %I;`, viewName)
-		if errSql != nil {
-			return errSql
+		query, errQuery := escape.Escape(`DROP VIEW IF EXISTS %I;`, viewName)
+		if errQuery != nil {
+			return errQuery
 		}
 
 		// Drop view
-		errDb := txScopeDb.Exec(sql).Error
+		errDb := txScopeDb.Exec(query).Error
 		if errDb != nil {
 			return errDb
 		}
@@ -1065,18 +1089,18 @@ func grantScopeView(
 		return errDb
 	}
 
-	// Create user if not existing on db server
+	// Create user if not existing on database server
 	if userCount == 0 {
 
 		// Create credentials
-		errCreate := createServerCredentials(
+		errCreate := createDatabaseCredentials(
 			txScopeDb, credentials.Username, credentials.Password, expiry, connections)
 		if errCreate != nil {
 			return errCreate
 		}
 	}
 
-	// By default every user belongs to the role "public" and is thereby allowed to create tables in the default
+	// By default, every user belongs to the role "public" and is thereby allowed to create tables in the default
 	// schema. In order to prevent this, the rights of "public" have to be revoked from the default schema. This
 	// action requires a direct connection to the respective database, so it could not be done during database creation.
 	// As a work-around, this is done now before the first user is granted [... and, as a side-effect re-executed

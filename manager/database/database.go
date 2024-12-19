@@ -15,7 +15,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/lib/pq"
+	"github.com/sanyokbig/pqinterval"
 	"github.com/siemens/GoScans/banner"
 	"github.com/siemens/GoScans/discovery"
 	"github.com/siemens/GoScans/nfs"
@@ -29,13 +31,14 @@ import (
 	"github.com/siemens/Large-Scale-Discovery/utils"
 	"gorm.io/gorm"
 	"math/rand"
+	"net"
 	"strings"
 	"time"
 )
 
 // Some development values
 var (
-	devDbServerName      = "Local development DB" // Name of the db server entry
+	devDbServerName      = "Local development DB" // Name of the database server entry
 	devDbServerAdmin     = "postgres"
 	devDbServerPassword  = "test123!$LSD"
 	devScopeMaxInstances = map[string]uint32{
@@ -52,7 +55,7 @@ var (
 
 // XDeploySampleData applies a default configuration for development purposes to the manager db and some sample data
 // to the scope db
-func XDeploySampleData(logger scanUtils.Logger, scanDefaults T_scan_settings) error {
+func XDeploySampleData(logger scanUtils.Logger, scanDefaults T_scan_setting) error {
 
 	// Define sample data struct
 	type sampleScopesAndViews struct {
@@ -183,15 +186,15 @@ func XDeploySampleData(logger scanUtils.Logger, scanDefaults T_scan_settings) er
 		},
 	}
 
-	// Get or create development db server entry
-	serverEntry, errServerEntry := getServerEntryByName(devDbServerName)
-	if errServerEntry != nil && errors.Is(errServerEntry, gorm.ErrRecordNotFound) { // Check if entry didn't exist
+	// Get or create development database server entry
+	dbEntry, errDbEntry := getDatabaseEntryByName(devDbServerName)
+	if errDbEntry != nil && errors.Is(errDbEntry, gorm.ErrRecordNotFound) { // Check if entry didn't exist
 
 		// Log creation
 		logger.Debugf("Creating development database server.")
 
-		// Create db server entry
-		serverEntry, errServerEntry = createServerEntry(
+		// Create database server entry
+		dbEntry, errDbEntry = createDatabaseEntry(
 			managerDb,
 			devDbServerName,
 			"postgres",
@@ -202,15 +205,15 @@ func XDeploySampleData(logger scanUtils.Logger, scanDefaults T_scan_settings) er
 			"localhost",
 			"sslmode=disable", // Disabled SSL mode ONLY for local development DB!
 		)
-		if errServerEntry != nil {
-			return fmt.Errorf("could not create database server entry: %s", errServerEntry)
+		if errDbEntry != nil {
+			return fmt.Errorf("could not create database server entry: %s", errDbEntry)
 		}
-	} else if errServerEntry != nil {
-		return fmt.Errorf("could not retrieve database server entry: %s", errServerEntry)
+	} else if errDbEntry != nil {
+		return fmt.Errorf("could not retrieve database server entry: %s", errDbEntry)
 	}
 
 	// Open connection to database server
-	serverDb, errHandle := GetServerDbHandle(logger, serverEntry)
+	serverDb, errHandle := GetServerDbHandle(logger, dbEntry)
 	if errHandle != nil {
 		return fmt.Errorf("could not open database server: %s", errHandle)
 	}
@@ -235,7 +238,7 @@ func XDeploySampleData(logger scanUtils.Logger, scanDefaults T_scan_settings) er
 			var errScanScope error
 			scopeEntry, errScanScope = XCreateScope(
 				serverDb,
-				serverEntry,
+				dbEntry,
 				sample.scopeName,
 				sample.scopeDbName,
 				sample.scopeGroupId,
@@ -251,9 +254,6 @@ func XDeploySampleData(logger scanUtils.Logger, scanDefaults T_scan_settings) er
 				return fmt.Errorf("could not create development scan scope: %s", errScanScope)
 			}
 
-			// Initialize random number generation
-			rand.Seed(time.Now().UnixNano())
-
 			// Set some scan stats
 			scopeEntry.CycleDone = float64(rand.Intn(82-10) + 10)
 			scopeEntry.CycleActive = float64(rand.Intn(8-2) + 2)
@@ -263,7 +263,7 @@ func XDeploySampleData(logger scanUtils.Logger, scanDefaults T_scan_settings) er
 				return fmt.Errorf("could not update scan scope stats")
 			}
 
-			// Prepare sample scan agent active tasks
+			// Prepare sample scan agent active instances
 			tasks := utils.JsonMap(map[string]interface{}{
 				"Discovery": 5, "Banner": 10, "Nfs": 0, "Smb": 1, "Ssh": 2, "Ssl": 2, "Webcrawler": 4, "Webenum": 3,
 			})
@@ -348,7 +348,13 @@ func XDeploySampleData(logger scanUtils.Logger, scanDefaults T_scan_settings) er
 		// Open scope database itself
 		logger.Debugf("Opening scope database.")
 		scopeDb, errScopeHandle := GetScopeDbHandle(logger, scopeEntry)
-		if errScopeHandle != nil {
+		var netConnectErr *net.OpError
+		var pgConnectErr *pgconn.ConnectError
+		if errors.As(errScopeHandle, &netConnectErr) {
+			return fmt.Errorf("could not connect to scope database '%s'", scopeEntry.DbServer.Name)
+		} else if errors.As(errScopeHandle, &pgConnectErr) {
+			return fmt.Errorf("could not authenticate on scope database '%s'", scopeEntry.DbServer.Name)
+		} else if errScopeHandle != nil {
 
 			// Re-create sample database (might be missing)
 			errCreate := createScopeDb(serverDb, sample.scopeDbName, sample.scopeName)
@@ -450,7 +456,7 @@ func XCreateScope(
 	cycles bool,
 	cyclesRetention int,
 	attributes utils.JsonMap,
-	scanSettings T_scan_settings,
+	scanSettings T_scan_setting,
 ) (*T_scan_scope, error) {
 
 	// Prepare scan scope memory
@@ -564,7 +570,8 @@ func XDeleteScope(serverDb *gorm.DB, scopeDb *gorm.DB, scanScope *T_scan_scope) 
 		// ATTENTION: Scope database connections will be killed and have to be committed already!
 		// ATTENTION: Last step, it cannot be rolled back!
 		errDelete4 := deleteScopeDb(serverDb, scanScope.DbName)
-		if errDb, ok := errDelete4.(*pq.Error); ok && errDb.Code.Name() == "invalid_catalog_name" {
+		var errDb *pq.Error
+		if errors.As(errDelete4, &errDb) && errDb.Code.Name() == "invalid_catalog_name" {
 			// Scope database not existing anymore
 		} else if errDelete4 != nil {
 			return fmt.Errorf(
@@ -951,8 +958,9 @@ func XGrantToken(
 }
 
 // XGrantUsers grants view access rights for the given list of users by adding the rights to the scopeDb and adding the
-// grant entry to manager db in a transactional manner. List of users must be a DbCredentials struct, because the user
-// might need to be created on the database server if not existing yet.
+// a grant entry to manager db in a transactional manner. List of users must be a DbCredentials struct, because the user
+//
+//	might need to be created on the database server if not existing yet.
 func XGrantUsers(
 	scopeDb *gorm.DB,
 	viewEntry *T_scope_view,
@@ -1138,8 +1146,83 @@ func xRevokeGrant(
 	}
 
 	// Try to delete user. It will succeed if the user has no other privileges on the same database server
-	deleteServerCredentials(txScopeDb, viewGrant.Username)
+	deleteDatabaseCredentials(txScopeDb, viewGrant.Username)
 
 	// Return nil as everything went fine
 	return nil
+}
+
+// CreateSqlLog creates a new query log entry in the PgProxy db.
+func CreateSqlLog(
+	logger scanUtils.Logger,
+	dbName string,
+	dbUser string,
+	dbTable string,
+	query string,
+	queryResults int,
+	queryTimestamp time.Time,
+	queryDuration pqinterval.Duration,
+	totalDuration pqinterval.Duration,
+	clientName string,
+) (*T_sql_log, error) {
+
+	// Get database entry based on the respective database name the query targeted
+	scopeEntry, errScopeEntry := GetScopeEntryByName(dbName)
+	if errScopeEntry != nil {
+		return nil, fmt.Errorf("could not find database server entry for '%s': %s", dbName, errScopeEntry)
+	}
+
+	// Open connection to database server
+	scopeDb, errHandle := GetScopeDbHandle(logger, &scopeEntry)
+	if errHandle != nil {
+		return nil, fmt.Errorf("could not open scope database: %s", errHandle)
+	}
+
+	// Prepare development database server
+	sqlEntry := &T_sql_log{
+		DbName:         dbName,
+		DbUser:         dbUser,
+		DbTable:        dbTable,
+		Query:          query,
+		QueryResults:   queryResults,
+		QueryTimestamp: queryTimestamp,
+		QueryDuration:  queryDuration,
+		TotalDuration:  totalDuration,
+		ClientName:     clientName,
+	}
+
+	// Create scan scope
+	errDb := scopeDb.Create(&sqlEntry).Error
+	if errDb != nil {
+		return nil, errDb
+	}
+
+	// Return entry
+	return sqlEntry, nil
+}
+
+// GetSqlLogs returns a list of log entries for given search arguments
+func GetSqlLogs(logger scanUtils.Logger, scopeEntry *T_scan_scope, since time.Time) ([]T_sql_log, error) {
+
+	// Open connection to database server
+	serverDb, errHandle := GetScopeDbHandle(logger, scopeEntry)
+	if errHandle != nil {
+		return nil, fmt.Errorf("could not open database server: %s", errHandle)
+	}
+
+	// Prepare query result
+	var scanScope []T_sql_log
+
+	// Get the requested scan scope
+	db := serverDb.
+		Where("query_timestamp > ?", since)
+
+	// Execute query
+	db.Find(&scanScope)
+	if db.Error != nil {
+		return nil, db.Error
+	}
+
+	// Return scope entry
+	return scanScope, nil
 }

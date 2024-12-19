@@ -73,9 +73,9 @@ func Init() error {
 	manager.RegisterGobs()
 
 	// Initialize RPC client manager facing
-	rpcClient = utils.NewRpcClient(conf.ManagerAddress, rpcRemoteCrt)
+	rpcClient = utils.NewRpcClient(conf.ManagerAddress, conf.ManagerAddressSsl, rpcRemoteCrt)
 
-	// Connect to manager but don't wait to start answering client requests. Connection attempts continue in background.
+	// Connect to manager but don't wait to start answering client requests. Connection attempt continues in background.
 	_ = rpcClient.Connect(logger, true)
 
 	// Return as everything went fine

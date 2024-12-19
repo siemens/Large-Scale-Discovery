@@ -32,15 +32,15 @@ import (
 
 // T_db_server contains connection details and credentials to a database hosting one or multiple scan scopes
 type T_db_server struct {
-	Id         uint64 `gorm:"column:id;primaryKey"`         // Id autoincrement
-	Name       string `gorm:"column:name;type:text"`        // Name of the database as a note for administrators
-	Dialect    string `gorm:"column:dialect;type:text"`     // DB connection details...
-	Host       string `gorm:"column:host;type:text"`        // ...
-	Port       int    `gorm:"column:port"`                  // ...
-	Admin      string `gorm:"column:admin;type:text"`       // ...
-	Password   string `gorm:"column:password;type:text"`    // ...
-	HostPublic string `gorm:"column:host_public;type:text"` // Public endpoint for user access (might be different to the internally used one, e.g. load balancer)
-	Args       string `gorm:"column:args;type:text"`        // Additional connection arguments
+	Id         uint64 `gorm:"column:id;primaryKey" json:"id"`                                                 // Id autoincrement
+	Name       string `gorm:"column:name;type:text" json:"name"`                                              // Name of the database as a note for administrators
+	Dialect    string `gorm:"column:dialect;type:text;uniqueIndex:uix_db_server_multi_column" json:"dialect"` // DB connection details...
+	Host       string `gorm:"column:host;type:text;uniqueIndex:uix_db_server_multi_column" json:"host"`       // ...
+	HostPublic string `gorm:"column:host_public;type:text" json:"host_public"`                                // Public endpoint for user access (might be different to the internally used one, e.g. load balancer)
+	Port       int    `gorm:"column:port;uniqueIndex:uix_db_server_multi_column" json:"port"`                 // ...
+	Admin      string `gorm:"column:admin;type:text" json:"admin"`                                            // ...
+	Password   string `gorm:"column:password;type:text" json:"-"`                                             // ...
+	Args       string `gorm:"column:args;type:text" json:"args"`                                              // Additional connection arguments
 
 	ScanScopes []T_scan_scope `gorm:"foreignKey:IdTDbServer"`
 }
@@ -66,14 +66,27 @@ func (dbServer *T_db_server) BeforeSave(tx *gorm.DB) error {
 	dbServer.Admin = b.Sanitize(dbServer.Admin)
 	tx.Statement.SetColumn("admin", dbServer.Admin)
 
-	dbServer.Password = b.Sanitize(dbServer.Password)
-	tx.Statement.SetColumn("password", dbServer.Password)
+	// Password should never be shown anywhere. Therefore, it doesn't need to be encoded.
+	// It should be stored plain original, otherwise quotes symbols in passwords would make it invalid.
 
 	dbServer.HostPublic = b.Sanitize(dbServer.HostPublic)
 	tx.Statement.SetColumn("host_public", dbServer.HostPublic)
 
 	dbServer.Args = b.Sanitize(dbServer.Args)
 	tx.Statement.SetColumn("args", dbServer.Args)
+
+	// Return nil as everything went fine
+	return nil
+}
+
+// Delete a user
+func (dbServer *T_db_server) Delete() error {
+
+	// Delete user from database
+	db := managerDb.Delete(dbServer)
+	if db.Error != nil {
+		return db.Error
+	}
 
 	// Return nil as everything went fine
 	return nil
@@ -86,7 +99,7 @@ type T_scan_scope struct {
 	IdTGroup    uint64 `gorm:"column:id_t_group;type:int;not null;index" json:"-"`     // Group reference this scan scope belongs to. Table "t_groups" is maintained by the web backend and not known to the manager.
 
 	Name            string        `gorm:"column:name;type:text" json:"name"`                                   // Name of the scope selected by the user
-	DbName          string        `gorm:"column:db_name;type:text" json:"-"`                                   // Database name (UID) to connect to on respective DB server
+	DbName          string        `gorm:"column:db_name;type:text;uniqueIndex" json:"-"`                       // Database name (UID) to connect to on respective DB server. Unique across all DB servers to avoid future conflicts.
 	Created         time.Time     `gorm:"column:created;default:CURRENT_TIMESTAMP" json:"created"`             // Timestamp of creation
 	CreatedBy       string        `gorm:"column:created_by;type:text;not null" json:"created_by"`              // User who created this scope
 	Secret          string        `gorm:"column:secret;type:text;unique" json:"-"`                             // Random none-guessable scope secret used by agents to authenticate/associate. Value may change.
@@ -104,10 +117,10 @@ type T_scan_scope struct {
 	CycleActive  float64   `gorm:"column:cycle_active;type:float;default:0" json:"cycle_active"`        // Percentage of active input scan tasks. Is updated in intervals and not a 100% current.
 	CycleFailed  float64   `gorm:"column:cycle_failed;type:float;default:0" json:"cycle_failed"`        // Percentage of failed input scan tasks. Is updated in intervals and not a 100% current.
 
-	DbServer     T_db_server     `gorm:"foreignKey:IdTDbServer;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"-"` // Database server connection details to connect to
-	ScanSettings T_scan_settings `gorm:"foreignKey:IdTScanScope" json:"-"`
-	ScanAgents   []T_scan_agent  `gorm:"foreignKey:IdTScanScope" json:"-"` // Scan agent data (cached data)
-	ScopeViews   []T_scope_view  `gorm:"foreignKey:IdTScanScope" json:"-"`
+	DbServer     T_db_server    `gorm:"foreignKey:IdTDbServer;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"-"` // Database server connection details to connect to
+	ScanSettings T_scan_setting `gorm:"foreignKey:IdTScanScope" json:"-"`
+	ScanAgents   []T_scan_agent `gorm:"foreignKey:IdTScanScope" json:"-"` // Scan agent data (cached data)
+	ScopeViews   []T_scope_view `gorm:"foreignKey:IdTScanScope" json:"-"`
 }
 
 // BeforeSave is a GORM hook that's executed every time the user object is written to the DB. This should be used to
@@ -168,7 +181,7 @@ func (scanScope *T_scan_scope) Save(columns ...string) (int64, error) {
 	return db.RowsAffected, nil
 }
 
-type T_scan_settings struct {
+type T_scan_setting struct {
 	Id           uint64 `gorm:"column:id;primaryKey" json:"-"`                                 // Id autoincrement
 	IdTScanScope uint64 `gorm:"column:id_t_scan_scope;type:int;not null;uniqueIndex" json:"-"` // Index recommended on foreign keys for efficient update/delete cascaded actions
 
@@ -226,7 +239,7 @@ type T_scan_settings struct {
 // BeforeSave is a GORM hook that's executed every time the user object is written to the DB. This should be used to
 // do some data sanitization, e.g. to strip illegal HTML tags in user attributes or to convert values to a certain
 // format.
-func (scanSettings *T_scan_settings) BeforeSave(tx *gorm.DB) error {
+func (scanSettings *T_scan_setting) BeforeSave(tx *gorm.DB) error {
 
 	// Initialize sanitizer
 	b := bluemonday.StrictPolicy()
@@ -247,14 +260,12 @@ func (scanSettings *T_scan_settings) BeforeSave(tx *gorm.DB) error {
 	scanSettings.DiscoverySkipDays = b.Sanitize(scanSettings.DiscoverySkipDays)
 	tx.Statement.SetColumn("discovery_skip_days", scanSettings.DiscoverySkipDays)
 
-	scanSettings.DiscoveryNmapArgs = b.Sanitize(scanSettings.DiscoveryNmapArgs)
 	for strings.Contains(scanSettings.DiscoveryNmapArgs, "  ") { // Duplicate spaces in Nmap args may cause scan errors
 		scanSettings.DiscoveryNmapArgs = strings.ReplaceAll(scanSettings.DiscoveryNmapArgs, "  ", " ")
 	}
 	scanSettings.DiscoveryNmapArgs = strings.TrimSpace(scanSettings.DiscoveryNmapArgs)
 	tx.Statement.SetColumn("discovery_nmap_args", scanSettings.DiscoveryNmapArgs)
 
-	scanSettings.DiscoveryNmapArgsPrescan = b.Sanitize(scanSettings.DiscoveryNmapArgsPrescan)
 	for strings.Contains(scanSettings.DiscoveryNmapArgsPrescan, "  ") { // Duplicate spaces in Nmap args may cause scan errors
 		scanSettings.DiscoveryNmapArgsPrescan = strings.ReplaceAll(scanSettings.DiscoveryNmapArgsPrescan, "  ", " ")
 	}
@@ -305,7 +316,7 @@ func (scanSettings *T_scan_settings) BeforeSave(tx *gorm.DB) error {
 
 // AfterFind updates yet empty struct fields with the derived values. Some setting values are not stored in
 // the database but derived from other fields in the database.
-func (scanSettings *T_scan_settings) AfterFind(tx *gorm.DB) (err error) {
+func (scanSettings *T_scan_setting) AfterFind(tx *gorm.DB) (err error) {
 
 	// Check if clock values can be parsed
 	var errParse error
@@ -351,10 +362,10 @@ func (scanSettings *T_scan_settings) AfterFind(tx *gorm.DB) (err error) {
 	return
 }
 
-func (scanSettings *T_scan_settings) UnmarshalJSON(b []byte) error {
+func (scanSettings *T_scan_setting) UnmarshalJSON(b []byte) error {
 
 	// Prepare temporary auxiliary data structure to load raw Json data
-	type aux T_scan_settings
+	type aux T_scan_setting
 	var raw aux
 
 	// Unmarshal serialized Json into temporary auxiliary structure
@@ -432,7 +443,7 @@ func (scanSettings *T_scan_settings) UnmarshalJSON(b []byte) error {
 	}
 
 	// Copy loaded Json values to actual scan settings
-	*scanSettings = T_scan_settings(raw)
+	*scanSettings = T_scan_setting(raw)
 
 	// Check if port values can be parsed
 	if len(scanSettings.SensitivePortsSlice) > 0 {
@@ -475,7 +486,7 @@ func (scanSettings *T_scan_settings) UnmarshalJSON(b []byte) error {
 }
 
 // SaveAll updates *all* columns of a user entry in the database. It overwrites existing values with the ones passed in
-func (scanSettings *T_scan_settings) SaveAll(values *T_scan_settings) (int64, error) {
+func (scanSettings *T_scan_setting) SaveAll(values *T_scan_setting) (int64, error) {
 
 	// Inject entry ID to update
 	values.Id = scanSettings.Id
@@ -493,7 +504,7 @@ func (scanSettings *T_scan_settings) SaveAll(values *T_scan_settings) (int64, er
 }
 
 // MaxInstances extracts the set amount of maximum instances from a scan scope for a given scan module label
-func (scanSettings *T_scan_settings) MaxInstances(label string) (int, error) {
+func (scanSettings *T_scan_setting) MaxInstances(label string) (int, error) {
 
 	// Get instances for module
 	switch label {
@@ -527,6 +538,9 @@ type T_scan_agent struct {
 	Host string `gorm:"column:host;type:text;not null;uniqueIndex:idx_agent_identifier" json:"host"`
 	Ip   string `gorm:"column:ip;type:text;not null" json:"ip"`
 
+	Shared bool `gorm:"column:shared;type:bool;default:false" json:"shared"`
+	Limits bool `gorm:"column:limits;type:bool;default:false" json:"limits"`
+
 	LastSeen   time.Time     `gorm:"column:last_seen;default:CURRENT_TIMESTAMP" json:"last_seen"`
 	Tasks      utils.JsonMap `gorm:"column:tasks;default:'{}'" json:"tasks"`
 	CpuRate    float64       `gorm:"column:cpu_rate;type:float;default:0" json:"cpu_rate"`
@@ -538,10 +552,6 @@ type T_scan_agent struct {
 
 	ScanScope T_scan_scope `gorm:"foreignKey:IdTScanScope;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"-"` // Can be empty if the ID is set in turn
 }
-
-// MaxBatchSizeScanAgent defines the maximum number T_scan_agent instances that can be batched together
-// during an insert. This is calculated dividing 999 (SQLITE) by the number of fields (that are actually written to the db).
-const MaxBatchSizeScanAgent = 76 // 999 (SQLITE) / 13
 
 // BeforeSave is a GORM hook that's executed every time the user object is written to the DB. This should be used to
 // do some data sanitization, e.g. to strip illegal HTML tags in user attributes or to convert values to a certain

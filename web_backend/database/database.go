@@ -186,6 +186,7 @@ func DeploySampleData() error {
 			Name:         "Dev Group",
 			Created:      time.Now(),
 			CreatedBy:    sampleUser1.Email,
+			DbServerId:   1,
 			MaxScopes:    10,
 			MaxViews:     10,
 			MaxTargets:   20000000,

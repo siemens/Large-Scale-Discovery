@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -21,6 +21,7 @@ define(["knockout", "postbox", "jquery", "moment", "semantic-ui"],
         this.activeRequests = ko.observableArray().extend({rateLimit: 300}); // suppress change notifications for 300 ms
         this.developmentLogin = ko.observable(false);
         this.credentialsRegistration = ko.observable(false);
+        this.frontendLinks = ko.observable({});
 
         // Initialize global session attributes
         this.authToken = ko.observable("");
@@ -36,6 +37,7 @@ define(["knockout", "postbox", "jquery", "moment", "semantic-ui"],
         this.userAdmin = ko.observable(false);
         this.userOwner = ko.observable(false);
         this.userAccess = ko.observable(false);
+        this.userDemo = ko.observable(false);
         this.userCreated = ko.observable(null);
 
         // Initialize presentation mode observables used for hiding sensitive values in the frontend
@@ -64,6 +66,7 @@ define(["knockout", "postbox", "jquery", "moment", "semantic-ui"],
                     // Store returned attributes in global variables
                     self.developmentLogin(response["body"]["development_login"]);
                     self.credentialsRegistration(response["body"]["credentials_registration"]);
+                    self.frontendLinks(response["body"]["frontend_links"]);
                 },
                 null
             );
@@ -90,6 +93,7 @@ define(["knockout", "postbox", "jquery", "moment", "semantic-ui"],
             userGender("");
             userAdmin(false);
             userOwner(false);
+            userDemo(false)
             userCreated(moment(null));
             authToken(null);
             authExpiry(null);
@@ -104,7 +108,7 @@ define(["knockout", "postbox", "jquery", "moment", "semantic-ui"],
         };
 
         // Helper function to set profile data after retrieval
-        Globals.prototype.profileSet = function (id, mail, name, surname, gender, admin, owner, access, created) {
+        Globals.prototype.profileSet = function (id, mail, name, surname, gender, admin, owner, access, demo, created) {
             userId(id);
             userEmail(mail);
             userName(name);
@@ -113,6 +117,7 @@ define(["knockout", "postbox", "jquery", "moment", "semantic-ui"],
             userAdmin(admin);
             userOwner(owner);
             userAccess(access);
+            userDemo(demo)
             userCreated(moment(created));
         };
 

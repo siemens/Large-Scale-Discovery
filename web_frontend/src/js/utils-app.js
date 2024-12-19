@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -109,7 +109,7 @@ function apiCall(method, endpoint, headers, data, fnCallSuccess, fnCallError, su
 
                 // Clear storage and redirect to login
                 sessionStorage.clear();
-                window.location.replace("/");
+                window.location.replace("/?error=Unauthorized");
             } else if (jqXHR.status === 503) {
 
                 // Set error message to display
@@ -330,6 +330,16 @@ function isFqdn(value) { // Don't be too strict, people might chose weird (sub) 
     return true;
 }
 
+function isIpOrFqdn(value) {
+    if (value.includes("/")) {
+        return false
+    }
+    if (value === "localhost") {
+        return true
+    }
+    return isFqdn(value) || isIpV4OrSubnet(value) || isIpV6OrSubnet(value);
+}
+
 function sanitizeTargets(targets) {
 
     // Clean list
@@ -461,6 +471,19 @@ function getParameterByName(name) {
     if (!results) return null;
     if (!results[2]) return '';
     return decodeURIComponent(results[2].replace(/\+/g, ' '));
+}
+
+/*
+ * Checks whether the user has the requested role in the backend
+ */
+function userAllowed(roleTag) {
+    if (userAdmin()) {
+        return true
+    }
+    if (!userDemo()) {
+        return false
+    }
+    return userRoles().indexOf(roleTag) >= 0;
 }
 
 function home() {

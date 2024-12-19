@@ -42,7 +42,8 @@
                      data-bind="class: presentationClass()">
                     <h3 class="ui header">
                         <!-- ko if: $index() === 0 -->
-                        <span style="color: rgba(0, 0, 0, 0.3);" data-bind="text: $parent.scope_name"></span>
+                        <span data-bind="attr: {'data-tooltip': $parent.scope_db, 'data-position': 'right center', 'data-variation': 'tiny'}"><span
+                                style="color: rgba(0, 0, 0, 0.3);" data-bind="text: $parent.scope_name"></span>&nbsp;&nbsp;</span>
                         <!-- /ko -->
                         <!-- ko if: $index() !== 0 -->
                         &nbsp;
@@ -50,12 +51,22 @@
                     </h3>
                 </div>
                 <div class="ui image" style="width: 38px; padding-right: 0;"
-                     data-bind="style: { filter: last_seen_text === 'weeks ago' ? 'grayscale(100%)' : '' }"></div>
+                     data-bind="style: { filter: last_seen_text === 'weeks ago' ? 'grayscale(100%)' : '' }">
+                    <div class="avatar"></div>
+                    <!-- ko if: $data.shared -->
+                    <div class="bottom floating ui mini circular label"
+                         style="background-color: rgba(255,255,255,0.7);right: 0.6em;bottom: -0.8em;"
+                         data-tooltip="Shared" data-position="bottom center" data-variation="tiny">
+                        <i class="teal fitted project diagram icon"></i>
+                    </div>
+                    <!-- /ko -->
+                </div>
                 <div class="ui content" style="width: 157px"
                      data-bind="style: {color: last_seen_text === 'weeks ago' ? last_seen_color : ''}">
                     <div style="max-width: 100%;overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                         <b data-bind="attr: {title: name, 'data-html': '<b>' + host + '</b> ' + ip + '', 'data-position': 'top center', 'data-variation': 'tiny'}">
-                            <span style="text-transform: capitalize;" data-bind="text: name"></span>
+                                <span style="text-transform: capitalize;"
+                                      data-bind="text: name != '' ? name : '&nbsp;'"></span>
                         </b>
                     </div>
                     <div>

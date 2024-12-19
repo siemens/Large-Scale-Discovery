@@ -1,3 +1,17 @@
+<!-- ko if: userDemo() -->
+<div style="background-color:#fff6f6; margin-bottom:0">
+    <div class="ui center aligned container">
+        <div class="ui stackable grid">
+            <div class="column"
+                 style="font-family: Lato, system-ui, -apple-system, Segoe UI, Roboto, Oxygen, Ubuntu, Cantarell, Helvetica Neue, Arial, Noto Sans, Liberation Sans, sans-serif, Apple Color Emoji, Segoe UI Emoji, Segoe UI Symbol, Noto Color Emoji; color: #9f3a38; margin: 10px;">
+                Unfortunately, your <b>business unit</b> is <b>not a signed-up</b> customer yet.
+                You can only use this web interface to <b>get an impression</b> about what you are missing out on.
+            </div>
+        </div>
+    </div>
+</div>
+<!-- /ko -->
+
 <div style="height:160px; background-color: teal; background-image: url('img/header2.jpg'); background-repeat: no-repeat; background-position: center bottom;"></div>
 <div id="divNavTop" class="ui borderless teal inverted pointing menu"
      style="margin-top: -40px; background-color: transparent; z-index: 1111">
@@ -14,6 +28,15 @@
            data-bind="style: { 'background-color': btnBackground('configuration'), 'color': btnColor('configuration') }">
             <i class="sliders horizontal icon"></i>
             Configuration
+        </a>
+        <!-- /ko -->
+
+        <!-- ko foreach: {data: frontendLinks()["menu"]} -->
+        <a class="item" data-bind="attr: {href: $data.href, target: $data.target}">
+            <!-- ko if: $data.icon !== "" -->
+            <i data-bind="class: $data.icon" class="icon"></i>
+            <!-- /ko -->
+            <span data-bind="text: $data.text"></span>
         </a>
         <!-- /ko -->
 

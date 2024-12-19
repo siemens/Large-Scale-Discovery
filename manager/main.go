@@ -62,7 +62,7 @@ func main() {
 		logger.Debugf("Manager terminated.")
 	})
 
-	// Catch potential panics to gracefully log issue with stacktrace
+	// Catch potential panics to gracefully log issue
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)

@@ -28,6 +28,7 @@ const (
 	EventScopeCreate Event = "Scope Created"
 	EventViewGrant   Event = "User Granted"
 	EventViewToken   Event = "Token Generated"
+	EventDatabaseAdd Event = "Database Added"
 )
 
 type T_event struct {
@@ -138,7 +139,7 @@ func validEvent(event Event) error {
 
 	// Check whether event type value is valid
 	switch event {
-	case EventLogin, EventDbPassword, EventScopeCreate, EventViewGrant, EventViewToken:
+	case EventLogin, EventDbPassword, EventScopeCreate, EventViewGrant, EventViewToken, EventDatabaseAdd:
 		// Ok
 	default:
 		return fmt.Errorf("invalid event type '%s'", event)

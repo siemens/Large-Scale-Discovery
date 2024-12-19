@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -11,7 +11,9 @@
 define(["knockout", "text!./settings.html", "postbox", "jquery", "tabulator-tables", "semantic-ui-dropdown", "semantic-ui-calendar"],
     function (ko, template, postbox, $, Tabulator, mod1, mod2, str) {
 
+        /////////////////////////
         // VIEWMODEL CONSTRUCTION
+        /////////////////////////
         function ViewModel(params) {
 
             // Keep reference to PARENT view model context
@@ -43,6 +45,19 @@ define(["knockout", "text!./settings.html", "postbox", "jquery", "tabulator-tabl
             this.maxInstancesSsl = ko.observable(params.args["scan_settings"]["max_instances_ssl"]);
             this.maxInstancesWebcrawler = ko.observable(params.args["scan_settings"]["max_instances_webcrawler"]);
             this.maxInstancesWebenum = ko.observable(params.args["scan_settings"]["max_instances_webenum"]);
+
+            this.agentLimits = ko.computed(function () {
+                var limits = false
+                if (params.args["scan_agents"] !== null) {
+                    params.args["scan_agents"].forEach(function (obj) {
+                        if (obj.limits === true) {
+                            limits = true
+                        }
+                        console.log(obj.limits);
+                    });
+                }
+                return limits
+            }, this);
 
             this.followQs = ko.observable(params.args["scan_settings"]["webcrawler_follow_query_strings"]);
             this.storeRoot = ko.observable(params.args["scan_settings"]["webcrawler_always_store_root"]);

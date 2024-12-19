@@ -33,7 +33,7 @@ func RpcRequestScanTasks(
 	rpc *utils.Client,
 	ctx context.Context,
 	rpcArgs *ArgsGetScanTask,
-) []ScanTask {
+) ([]ScanTask, error) {
 
 	// Prepare RPC request
 	rpcEndpoint := "Broker.RequestScanTasks"
@@ -43,10 +43,10 @@ func RpcRequestScanTasks(
 	for {
 
 		// Log action
-		logger.Debugf("Requesting scan tasks.")
+		logger.Debugf("Requesting scan tasks with scope secret '%s...'.", rpcArgs.ScopeSecret[:5])
 
 		// Send RPC request.
-		errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+		errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be a pointer to receive a result!
 		if errors.Is(errRpc, utils.ErrRpcConnectivity) {
 
 			// Log situation
@@ -55,17 +55,17 @@ func RpcRequestScanTasks(
 			// Wait until RPC connection or agent shutdown
 			select {
 			case <-ctx.Done(): // Cancellation signal
-				return []ScanTask{}
+				return []ScanTask{}, nil
 			case <-rpc.Established():
 				logger.Debugf("Broker re-connected.")
 				break
 			}
 
-		} else if errRpc != nil { // In case of error, return empty list, it will be retried later again.
-			return []ScanTask{}
+		} else if errRpc != nil {
+			return []ScanTask{}, errRpc
 		} else {
 			logger.Debugf("Scan tasks requested.")
-			return rpcReply.ScanTasks
+			return rpcReply.ScanTasks, nil
 		}
 	}
 }
@@ -80,7 +80,7 @@ func RpcSubmitScanResult(
 	rpcArgs interface{},
 ) {
 
-	// Catch potential panics to gracefully log issue with stacktrace
+	// Catch potential panics to gracefully log issue
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -128,8 +128,7 @@ func RpcSubmitScanResult(
 			}
 
 		} else if errRpc != nil {
-			logger.Warningf("Sending scan result failed: %s", errRpc)
-			return
+			return // Error already logged by RPC call
 		} else {
 			logger.Debugf("Scan result sent.")
 			return

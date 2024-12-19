@@ -136,11 +136,6 @@ func GetLocalIp() (string, error) {
 // SslSocket initializes an SSL socket listening for RPC connections
 func SslSocket(listenAddress string, certFile string, keyFile string) (net.Listener, error) {
 
-	// Sanitize wildcard input if contained
-	if strings.HasPrefix(listenAddress, "*:") {
-		listenAddress = strings.Replace(listenAddress, "*:", ":", 1)
-	}
-
 	// Load key files for RPC encryption
 	cert, errLoad := tls.LoadX509KeyPair(certFile, keyFile)
 	if errLoad != nil {

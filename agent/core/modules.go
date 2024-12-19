@@ -43,7 +43,7 @@ func launchBanner(
 	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-%d", label, scanTask.Id))
 	logger.Debugf("Initializing scan.")
 
-	// Catch potential panics to gracefully log issue with stacktrace
+	// Catch potential panics to gracefully log issue
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -53,16 +53,12 @@ func launchBanner(
 	}()
 
 	// Decrease the module usage counter
-	defer decreaseUsageModule(label)
+	defer DecrementModuleCount(scanTask.Secret, label)
 
 	// Prepare result template that can be returned to the broker
 	rpcArgs := broker.ArgsSaveScanResult{
-		AgentInfo: broker.AgentInfo{
-			Name: instanceName,
-			Host: instanceHostname,
-			Ip:   instanceIp,
-		},
-		ScopeSecret: scopeSecret,
+		AgentInfo:   instanceInfo,
+		ScopeSecret: scanTask.Secret,
 		Id:          scanTask.Id,
 	}
 
@@ -109,7 +105,7 @@ func launchDiscovery(
 	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-%d", label, scanTask.Id))
 	logger.Debugf("Initializing scan.")
 
-	// Catch potential panics to gracefully log issue with stacktrace
+	// Catch potential panics to gracefully log issue
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -119,19 +115,15 @@ func launchDiscovery(
 	}()
 
 	// Decrease the module usage counter
-	defer decreaseUsageModule(label)
+	defer DecrementModuleCount(scanTask.Secret, label)
 
 	// Get config
 	conf := config.GetConfig()
 
 	// Prepare result template that can be returned to the broker
 	rpcArgs := broker.ArgsSaveScanResult{
-		AgentInfo: broker.AgentInfo{
-			Name: instanceName,
-			Host: instanceHostname,
-			Ip:   instanceIp,
-		},
-		ScopeSecret: scopeSecret,
+		AgentInfo:   instanceInfo,
+		ScopeSecret: scanTask.Secret,
 		Id:          scanTask.Id,
 	}
 
@@ -139,9 +131,9 @@ func launchDiscovery(
 	var nmapArgsPreScan []string
 	var excludeDomains []string
 	networkTimeout := time.Second * time.Duration(scanTask.ScanSettings.NetworkTimeoutSeconds)
-	nmapArgs := strings.Split(scanTask.ScanSettings.DiscoveryNmapArgs, " ") // Nmap arguments for the main port scan scan
+	nmapArgs := strings.Split(scanTask.ScanSettings.DiscoveryNmapArgs, " ") // Nmap's arguments for the main port scan
 	if len(scanTask.ScanSettings.DiscoveryNmapArgsPrescan) > 0 {
-		nmapArgsPreScan = strings.Split(scanTask.ScanSettings.DiscoveryNmapArgsPrescan, " ") // Nmap arguments for a smaller pre-scan intended to discover some scan results before an IDS might block
+		nmapArgsPreScan = strings.Split(scanTask.ScanSettings.DiscoveryNmapArgsPrescan, " ") // Nmap's arguments for a smaller pre-scan intended to discover some scan results before an IDS might block
 	}
 	if len(scanTask.ScanSettings.DiscoveryExcludeDomains) > 0 {
 		excludeDomains = strings.Split(strings.Replace(scanTask.ScanSettings.DiscoveryExcludeDomains, " ", "", -1), ",")
@@ -203,7 +195,7 @@ func launchDiscovery(
 	}
 
 	// Prepare map of IPs where the actual port scan succeeded (delivered something)
-	hostsDiscovered := make(map[string]struct{})
+	hostsDiscovered := make(map[string]struct{}, len(result.Data))
 	for _, host := range result.Data {
 		hostsDiscovered[host.Ip] = struct{}{}
 	}
@@ -239,7 +231,7 @@ func launchNfs(
 	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-%d", label, scanTask.Id))
 	logger.Debugf("Initializing scan.")
 
-	// Catch potential panics to gracefully log issue with stacktrace
+	// Catch potential panics to gracefully log issue
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -249,16 +241,12 @@ func launchNfs(
 	}()
 
 	// Decrease the module usage counter
-	defer decreaseUsageModule(label)
+	defer DecrementModuleCount(scanTask.Secret, label)
 
 	// Prepare result template that can be returned to the broker
 	rpcArgs := broker.ArgsSaveScanResult{
-		AgentInfo: broker.AgentInfo{
-			Name: instanceName,
-			Host: instanceHostname,
-			Ip:   instanceIp,
-		},
-		ScopeSecret: scopeSecret,
+		AgentInfo:   instanceInfo,
+		ScopeSecret: scanTask.Secret,
 		Id:          scanTask.Id,
 	}
 
@@ -316,7 +304,7 @@ func launchSsh(
 	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-%d", label, scanTask.Id))
 	logger.Debugf("Initializing scan.")
 
-	// Catch potential panics to gracefully log issue with stacktrace
+	// Catch potential panics to gracefully log issue
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -326,16 +314,12 @@ func launchSsh(
 	}()
 
 	// Decrease the module usage counter
-	defer decreaseUsageModule(label)
+	defer DecrementModuleCount(scanTask.Secret, label)
 
 	// Prepare result template that can be returned to the broker
 	rpcArgs := broker.ArgsSaveScanResult{
-		AgentInfo: broker.AgentInfo{
-			Name: instanceName,
-			Host: instanceHostname,
-			Ip:   instanceIp,
-		},
-		ScopeSecret: scopeSecret,
+		AgentInfo:   instanceInfo,
+		ScopeSecret: scanTask.Secret,
 		Id:          scanTask.Id,
 	}
 
@@ -381,7 +365,7 @@ func launchSsl(
 	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-%d", label, scanTask.Id))
 	logger.Debugf("Initializing scan.")
 
-	// Catch potential panics to gracefully log issue with stacktrace
+	// Catch potential panics to gracefully log issue
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -391,19 +375,15 @@ func launchSsl(
 	}()
 
 	// Decrease the module usage counter
-	defer decreaseUsageModule(label)
+	defer DecrementModuleCount(scanTask.Secret, label)
 
 	// Get config
 	conf := config.GetConfig()
 
 	// Prepare result template that can be returned to the broker
 	rpcArgs := broker.ArgsSaveScanResult{
-		AgentInfo: broker.AgentInfo{
-			Name: instanceName,
-			Host: instanceHostname,
-			Ip:   instanceIp,
-		},
-		ScopeSecret: scopeSecret,
+		AgentInfo:   instanceInfo,
+		ScopeSecret: scanTask.Secret,
 		Id:          scanTask.Id,
 	}
 
@@ -458,7 +438,7 @@ func launchWebcrawler(
 	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-%d", label, scanTask.Id))
 	logger.Debugf("Initializing scan.")
 
-	// Catch potential panics to gracefully log issue with stacktrace
+	// Catch potential panics to gracefully log issue
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -468,19 +448,15 @@ func launchWebcrawler(
 	}()
 
 	// Decrease the module usage counter
-	defer decreaseUsageModule(label)
+	defer DecrementModuleCount(scanTask.Secret, label)
 
 	// Get config
 	conf := config.GetConfig()
 
 	// Prepare result template that can be returned to the broker
 	rpcArgs := broker.ArgsSaveScanResult{
-		AgentInfo: broker.AgentInfo{
-			Name: instanceName,
-			Host: instanceHostname,
-			Ip:   instanceIp,
-		},
-		ScopeSecret: scopeSecret,
+		AgentInfo:   instanceInfo,
+		ScopeSecret: scanTask.Secret,
 		Id:          scanTask.Id,
 	}
 
@@ -558,7 +534,7 @@ func launchWebenum(
 	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-%d", label, scanTask.Id))
 	logger.Debugf("Initializing scan.")
 
-	// Catch potential panics to gracefully log issue with stacktrace
+	// Catch potential panics to gracefully log issue
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -568,19 +544,15 @@ func launchWebenum(
 	}()
 
 	// Decrease the module usage counter
-	defer decreaseUsageModule(label)
+	defer DecrementModuleCount(scanTask.Secret, label)
 
 	// Get config
 	conf := config.GetConfig()
 
 	// Prepare result template that can be returned to the broker
 	rpcArgs := broker.ArgsSaveScanResult{
-		AgentInfo: broker.AgentInfo{
-			Name: instanceName,
-			Host: instanceHostname,
-			Ip:   instanceIp,
-		},
-		ScopeSecret: scopeSecret,
+		AgentInfo:   instanceInfo,
+		ScopeSecret: scanTask.Secret,
 		Id:          scanTask.Id,
 	}
 

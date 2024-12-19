@@ -1,17 +1,19 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
 *
  */
 
-define(["knockout", "text!./add.html", "postbox", "jquery", "semantic-ui-modal"],
+define(["knockout", "text!./add.html", "postbox", "jquery", "semantic-ui-popup", "semantic-ui-dropdown"],
     function (ko, template, postbox, $) {
 
+        /////////////////////////
         // VIEWMODEL CONSTRUCTION
+        /////////////////////////
         function ViewModel(params) {
 
             // Keep reference to PARENT view model context
@@ -26,10 +28,18 @@ define(["knockout", "text!./add.html", "postbox", "jquery", "semantic-ui-modal"]
             this.allowCustom = ko.observable(true);
             this.allowNetwork = ko.observable(false);
             this.allowAsset = ko.observable(false);
+            this.databasesAvailable = ko.observableArray([]);
+            this.databaseSelected = ko.observable(-1);
 
             // Get reference to the view model's actual HTML within the DOM
             this.$domComponent = $('#divGroupAdd');
             this.$domForm = this.$domComponent.find("form");
+
+            // Initialize dropdown elements
+            this.$domComponent.find('select.dropdown').dropdown();
+
+            // Initialize tooltips
+            this.$domComponent.find('[data-html]').popup();
 
             // Define custom range validation rule
             $.fn.form.settings.rules.numberOrUnlimited = function (value) {
@@ -44,6 +54,7 @@ define(["knockout", "text!./add.html", "postbox", "jquery", "semantic-ui-modal"]
             this.$domForm.form({
                 fields: {
                     inputName: ['minLength[3]'],
+                    selectDatabase: ['empty'],
                     inputMaxScopes: ['numberOrUnlimited'],
                     inputMaxViews: ['numberOrUnlimited'],
                     inputMaxTargets: ['numberOrUnlimited'],
@@ -51,11 +62,45 @@ define(["knockout", "text!./add.html", "postbox", "jquery", "semantic-ui-modal"]
                 },
             });
 
-            // Initialize tooltips
-            this.$domComponent.find('[data-html]').popup();
-
             // Fade in
-            this.$domComponent.transition('fade up');
+            this.$domComponent.transition('fade down');
+
+            // Scroll to form (might be outside visible area if there are long lists)
+            $([document.documentElement, document.body]).animate({
+                scrollTop: this.$domComponent.offset().top - 160
+            }, 200);
+
+            // Load databases to map DB IDs and DB names
+            this.loadDatabases();
+        }
+
+        // VIEWMODEL ACTION
+        ViewModel.prototype.loadDatabases = function (data, event, callbackCompletion) {
+
+            // Keep reference THIS view model context
+            var ctx = this;
+
+            // Handle request success
+            const callbackSuccess = function (response, textStatus, jqXHR) {
+
+                // Init array of databases
+                ctx.databasesAvailable(response.body["databases"]);
+
+                // Set scope group, if there is only one
+                if (response.body["databases"].length === 1) {
+                    ctx.databaseSelected(response.body["databases"][0].id);
+                }
+            };
+
+            // Send request
+            apiCall(
+                "GET",
+                "/api/v1/admin/databases",
+                {},
+                null,
+                callbackSuccess,
+            );
+
         }
 
         // VIEWMODEL ACTION
@@ -106,6 +151,7 @@ define(["knockout", "text!./add.html", "postbox", "jquery", "semantic-ui-modal"]
             // Prepare request body
             var reqData = {
                 name: this.groupName(),
+                db_server_id: this.databaseSelected(),
                 max_scopes: maxScopes,
                 max_views: maxViews,
                 max_targets: maxTargets,

@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -11,7 +11,9 @@
 define(["knockout", "text!./agents.html", "postbox", "jquery", "avatars-bottts", "semantic-ui-popup"],
     function (ko, template, postbox, $, avatarBottts) {
 
+        /////////////////////////
         // VIEWMODEL CONSTRUCTION
+        /////////////////////////
         function ViewModel(params) {
 
             // Initialize observables
@@ -115,9 +117,11 @@ define(["knockout", "text!./agents.html", "postbox", "jquery", "avatars-bottts",
                         } else if (hours < 2 && hours >= 1) {
                             last_seen_text = "an hour ago"
                             last_seen_color = "#fbbd08" // seems strange
+                            show_delete = true
                         } else if (hours >= 1) {
                             last_seen_text = Math.floor(hours) + " hours ago"
                             last_seen_color = "#fbbd08" // seems strange
+                            show_delete = true
                         } else if (minutes > 30) {
                             last_seen_text = Math.floor(minutes) + " min ago"
                             last_seen_color = "#fbbd08" // seems all good
@@ -204,7 +208,7 @@ define(["knockout", "text!./agents.html", "postbox", "jquery", "avatars-bottts",
             }
 
             // Generate and render scan agent avatar
-            $(element).find(".image").each(function (index) {
+            $(element).find(".avatar").each(function (index) {
                 var options = {
                     // https://avatars.dicebear.com/styles/bottts
                     colors: ["amber", "blue", "blueGrey", "brown", "cyan", "deepOrange",

@@ -55,19 +55,21 @@ func Init() error {
 	conf := config.GetConfig()
 
 	// Prepare backend key and certificate path
-	httpServerCrt = filepath.Join("keys", "backend.crt")
-	httpServerKey = filepath.Join("keys", "backend.key")
-	if _build.DevMode {
-		httpServerCrt = filepath.Join("keys", "backend_dev.crt")
-		httpServerKey = filepath.Join("keys", "backend_dev.key")
-	}
-	errServerCrt := scanUtils.IsValidFile(httpServerCrt)
-	if errServerCrt != nil {
-		return errServerCrt
-	}
-	errServerKey := scanUtils.IsValidFile(httpServerKey)
-	if errServerKey != nil {
-		return errServerKey
+	if conf.ListenAddressHttps != "" {
+		httpServerCrt = filepath.Join("keys", "backend.crt")
+		httpServerKey = filepath.Join("keys", "backend.key")
+		if _build.DevMode {
+			httpServerCrt = filepath.Join("keys", "backend_dev.crt")
+			httpServerKey = filepath.Join("keys", "backend_dev.key")
+		}
+		errServerCrt := scanUtils.IsValidFile(httpServerCrt)
+		if errServerCrt != nil {
+			return errServerCrt
+		}
+		errServerKey := scanUtils.IsValidFile(httpServerKey)
+		if errServerKey != nil {
+			return errServerKey
+		}
 	}
 
 	// Set GIN release mode before initializing
@@ -109,6 +111,11 @@ func Init() error {
 
 	// Return 405 NOT ALLOWED if route is called with invalid method
 	httpRouter.HandleMethodNotAllowed = true
+
+	// Return a valid JSON body with HTTP error status code. Browser might try to parse response body as JSON.
+	httpRouter.NoRoute(func(c *gin.Context) {
+		respondError(c, http.StatusNotFound, "404 Not Found")
+	})
 
 	// Attach GIN default logger middleware, which will take care of access logging
 	httpRouter.Use(gin.Logger())
@@ -173,9 +180,9 @@ func InitManager() error {
 	manager.RegisterGobs()
 
 	// Initialize RPC client manager facing
-	rpcClient = utils.NewRpcClient(conf.ManagerAddress, rpcRemoteCrt)
+	rpcClient = utils.NewRpcClient(conf.ManagerAddress, conf.ManagerAddressSsl, rpcRemoteCrt)
 
-	// Connect to manager but don't wait to start answering client requests. Connection attempts continue in background.
+	// Connect to manager but don't wait to start answering client requests. Connection attempt continues in background.
 	_ = rpcClient.Connect(logger, true)
 
 	// Return as everything went fine
@@ -223,6 +230,7 @@ func Run() error {
 		httpRouter.Static(appBase, pathSrc)
 		httpRouter.Static("/node_modules/", pathModules)
 		httpRouter.StaticFile("/favicon.ico", filepath.Join(pathSrc, "favicon.ico"))
+
 	} else {
 
 		// Prepare frontend path
@@ -261,28 +269,52 @@ func Run() error {
 	// Prepare potential error
 	var err error = nil
 
-	// Launch web server
-	go func() {
+	// Start goroutine for HTTP endpoint
+	if conf.ListenAddressHttp != "" {
+		go func() {
 
-		// HTTP takes a different wildcard style than RPC, so make sure * works too...
-		listen := conf.ListenAddress
-		if strings.HasPrefix(listen, "*:") {
-			listen = strings.Replace(listen, "*:", ":", 1)
-		}
+			// Convert wildcard notation to suitable variant
+			listen := conf.ListenAddressHttp
+			if strings.HasPrefix(listen, "*:") {
+				listen = strings.Replace(listen, "*:", ":", 1)
+			}
 
-		// Create the TLS conf
-		tlsConf := utils.TlsConfigFactory()
+			// Create TLS web server
+			server := &http.Server{Addr: listen, Handler: httpRouter}
 
-		// Create TLS web server
-		server := &http.Server{Addr: listen, Handler: httpRouter, TLSConfig: tlsConf}
+			// Start listening
+			errServe := server.ListenAndServe()
+			if errServe != nil {
+				err = errServe
+				coreCtxCancelFunc()
+			}
+		}()
+	}
 
-		// Start TLS web server
-		errServe := server.ListenAndServeTLS(httpServerCrt, httpServerKey)
-		if errServe != nil {
-			err = errServe
-			coreCtxCancelFunc()
-		}
-	}()
+	// Start goroutine for HTTPS endpoint
+	if conf.ListenAddressHttps != "" {
+		go func() {
+
+			// Convert wildcard notation to suitable variant
+			listen := conf.ListenAddressHttps
+			if strings.HasPrefix(listen, "*:") {
+				listen = strings.Replace(listen, "*:", ":", 1)
+			}
+
+			// Create the TLS conf
+			tlsConf := utils.TlsConfigFactory()
+
+			// Create TLS web server
+			server := &http.Server{Addr: listen, Handler: httpRouter, TLSConfig: tlsConf}
+
+			// Start listening
+			errServe := server.ListenAndServeTLS(httpServerCrt, httpServerKey)
+			if errServe != nil {
+				err = errServe
+				coreCtxCancelFunc()
+			}
+		}()
+	}
 
 	// Block until termination request
 	<-coreCtx.Done()
@@ -317,22 +349,27 @@ func Shutdown() {
 
 // RegisterApiEndpoint registers a new route, which requires authentication.
 func RegisterApiEndpoint(version string, method string, path string, handlers ...gin.HandlerFunc) {
-	relUrl := fmt.Sprintf("/api/%s/%s", version, strings.Trim(path, "/"))
+	relUrl := GenerateRelativeUrl(version, strings.Trim(path, "/"))
 	httpRouter.Handle(method, relUrl, handlers...)
 }
 
 // RegisterApiEndpointAdmin registers a new route, which should not require authentication.
 func RegisterApiEndpointAdmin(version string, method string, path string, handlers ...gin.HandlerFunc) {
-	relUrl := fmt.Sprintf("/api/%s/%s", version, strings.Trim(path, "/"))
+	relUrl := GenerateRelativeUrl(version, strings.Trim(path, "/"))
 	apiEndpointsAdmin = append(apiEndpointsAdmin, relUrl)
 	RegisterApiEndpoint(version, method, path, handlers...)
 }
 
 // RegisterApiEndpointNoAuth registers a new route, which requires admin privileges.
 func RegisterApiEndpointNoAuth(version string, method string, path string, handlers ...gin.HandlerFunc) {
-	relUrl := fmt.Sprintf("/api/%s/%s", version, strings.Trim(path, "/"))
+	relUrl := GenerateRelativeUrl(version, strings.Trim(path, "/"))
 	apiEndpointsNoAuth = append(apiEndpointsNoAuth, relUrl)
 	RegisterApiEndpoint(version, method, path, handlers...)
+}
+
+// GenerateRelativeUrl generates a relative URL for an endpoint
+func GenerateRelativeUrl(version string, path string) string {
+	return fmt.Sprintf("/api/%s/%s", version, strings.Trim(path, "/"))
 }
 
 // RpcClient exposes the RPC client to external packages

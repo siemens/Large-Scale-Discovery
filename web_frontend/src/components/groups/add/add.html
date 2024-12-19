@@ -1,10 +1,21 @@
 <div id="divGroupAdd" style="display: none; margin-bottom: 56px;">
     <h2 class="ui dividing header">Create Group</h2>
     <form class="ui form" data-bind="submit: submitGroup">
-        <div class="required field">
-            <label for="inputName">Name</label>
-            <input id="inputName" type="text" placeholder="Group Name" data-bind="textInput: groupName">
+
+        <div class="two fields">
+            <div class="required eight wide field">
+                <label for="inputName">Name</label>
+                <input id="inputName" type="text" placeholder="Group Name" data-bind="textInput: groupName">
+            </div>
+            <div class="required eight wide field">
+                <label for="selectDatabase">Database</label>
+                <select id="selectDatabase" class="ui search dropdown"
+                        data-bind="options: databasesAvailable, optionsText: 'name', optionsValue: 'id', optionsCaption:'Please Select', value: databaseSelected">
+                    <option value="">Please select</option>
+                </select>
+            </div>
         </div>
+
         <div class="four fields">
             <div class="required field">
                 <label for="inputMaxScopes">Max Scopes</label>

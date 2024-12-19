@@ -116,7 +116,7 @@ func executeNmapScan(
 		conf.Paths.Nmap,
 		nmapArgs,
 		false,
-		[]string{instanceIp}, // Exclude local IP from scans, scan would have extended privileges discovering content that isn't visible from the outside
+		[]string{instanceInfo.Ip}, // Exclude local IP from scans, scan would have extended privileges discovering content that isn't visible from the outside
 		conf.Modules.Discovery.BlacklistFile,
 		conf.Modules.Discovery.DomainOrder,
 		conf.Modules.Discovery.LdapServer,

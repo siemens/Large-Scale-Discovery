@@ -34,7 +34,7 @@ func launchSmb(
 	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-%d", label, scanTask.Id))
 	logger.Debugf("Initializing scan.")
 
-	// Catch potential panics to gracefully log issue with stacktrace
+	// Catch potential panics to gracefully log issue
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -44,19 +44,15 @@ func launchSmb(
 	}()
 
 	// Decrease the module usage counter
-	defer decreaseUsageModule(label)
+	defer DecrementModuleCount(scanTask.Secret, label)
 
 	// Get config
 	conf := config.GetConfig()
 
 	// Prepare result template that can be returned to the broker
 	rpcArgs := broker.ArgsSaveScanResult{
-		AgentInfo: broker.AgentInfo{
-			Name: instanceName,
-			Host: instanceHostname,
-			Ip:   instanceIp,
-		},
-		ScopeSecret: scopeSecret,
+		AgentInfo:   instanceInfo,
+		ScopeSecret: scanTask.Secret,
 		Id:          scanTask.Id,
 	}
 

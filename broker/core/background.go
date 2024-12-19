@@ -36,7 +36,7 @@ import (
 
 var cleanupGracePeriod = time.Minute * 20 // Period after broker launch, in which timed out scans are not cleaned up to allow scan agents to save accumulated scan results
 var cleanupInterval = time.Minute * 5     // Interval in which cleanup of exceeded scan tasks will execute
-var submitInterval = time.Minute          // Interval in which scan agent stats will be transferred to the manager
+var submitInterval = time.Second * 6      // Interval in which scan agent stats will be transferred to the manager. Interval should be longer than agent request interval!
 var rpcStatsLock = nsync.NewTryMutex()    // Named mutex to prevent parallel manager submits of scope stats
 
 // backgroundTasks initializes and handles background tasks to be executed on a regular basis.
@@ -156,7 +156,7 @@ func cleanMemory(logger scanUtils.Logger, notification manager.ReplyNotification
 	// Clean scan agent stats of expired scan scopes from memory
 	for _, agentStat := range memory.GetAgents() {
 		if !utils.Uint64Contained(agentStat.IdTScanScope, notification.RemainingScopeIds) {
-			memory.RemoveAgent(agentStat.Name, agentStat.Host, "") // Don't use IP for identification as it might be a dynamic one
+			memory.RemoveAgent(agentStat.Name, agentStat.Host, "", agentStat.IdTScanScope) // Don't use IP for identification as it might be a dynamic one
 			logger.Infof(
 				"Scan agent stats of '%s-%s-%s' removed from memory.",
 				agentStat.Name,
@@ -343,6 +343,10 @@ func submitStats(logger scanUtils.Logger) {
 		// Get copy of map of agent stats
 		agentStats := memory.GetAgents()
 
+		// Clear memory so that new entries can accumulate already for the next execution
+		// and to minimize possible race conditions of agent requests between GetAgents() and ClearAgents()
+		memory.ClearAgents()
+
 		// Group scan agent stats by scan scope ID
 		scopeAgents := make(map[uint64][]managerdb.T_scan_agent)
 		for _, agent := range agentStats {
@@ -373,8 +377,5 @@ func submitStats(logger scanUtils.Logger) {
 			logger.Warningf("Could not submit scan stats: %s", errRpc)
 			return
 		}
-
-		// Clear memory, after latest entries were submitted successfully
-		memory.ClearAgents()
 	}
 }

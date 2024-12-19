@@ -18,6 +18,7 @@ import (
 	"github.com/siemens/Large-Scale-Discovery/log"
 	"go.uber.org/zap/zapcore"
 	"os"
+	"path/filepath"
 	"sync"
 )
 
@@ -133,51 +134,24 @@ func defaultAgentConfigFactory() AgentConfig {
 
 	// Prepare default logging settings and adapt for agent
 	logging := log.DefaultLogSettingsFactory()
-	logging.File.Path = "./logs/agent.log"
+	logging.File.Path = filepath.Join("logs", "agent.log")
 	logging.Smtp.Connector.Subject = "Agent Error Log"
 
 	// Prepare default settings for development
-	scopeSecret := ""
+	var scopeSecrets = make([]string, 0)
 	if _build.DevMode {
-		scopeSecret = "dev_secret"
+		scopeSecrets = []string{"dev_secret"}
 		logging.Console.Level = zapcore.DebugLevel
 	}
 
 	// Prepare default agent config
 	conf := AgentConfig{
 		BrokerAddress:  "localhost:3333",
-		ScopeSecret:    scopeSecret,
+		ScopeSecrets:   scopeSecrets,
 		Paths:          templatePaths,
 		Authentication: templateAuthentication,
 		Logging:        logging,
-		Modules: Modules{
-			Discovery: ModuleDiscovery{
-				LdapServerComment:  "If *no* LDAP server is configured, the respective scan target's domain will be queried. Cross-domain queries might only work with implicit LDAP authentication on Windows.",
-				LdapServer:         "",
-				BlacklistFile:      "",
-				DomainOrderComment: "Sometimes there might be multiple DNS names discovered for a single host. With this grouped and ordered list of domains, you can force them into a deterministic order to promote the most plausible one. E.g. allows to prefer domain.local over domain.com.",
-				DomainOrder: []string{
-					"local",
-					"sub1.local",
-					"sub2.local",
-					"third-party.com",
-				},
-			},
-			Ssl: ModuleSsl{
-				Comment:              "SSL certificates will always be validated against default browser's trust stores. Additionally, they will be matched against the local OS' trust store, unless you want to set a custom one!",
-				CustomTruststoreFile: "",
-			},
-			Webcrawler: ModuleWebcrawler{
-				Download:     false,
-				DownloadPath: "",
-				DownloadTypes: []string{
-					"application/pdf", "application/msword", "application/vnd.ms-excel", "vnd.ms-excel.addin.macroEnabled.12",
-					"vnd.ms-excel.sheet.binary.macroEnabled.12", "vnd.ms-excel.sheet.macroEnabled.12",
-					"vnd.ms-excel.template.macroEnabled.12", "application/vnd.ms-word.document.macroEnabled.12",
-					"vnd.ms-word.template.macroEnabled.12", "application/vnd.ms-word.template.macroEnabled.12",
-				},
-			},
-		},
+		Modules:        templateModules,
 	}
 
 	// Return generated config
@@ -195,15 +169,43 @@ type Credentials struct {
 	Password string `json:"password"`
 }
 
-type Modules struct {
-	// Module specific configurations. Values set here, should only be required by the associated scan module or are
-	// meant to override other generic values.
-	Discovery  ModuleDiscovery  `json:"discovery"`
-	Ssl        ModuleSsl        `json:"ssl"`
-	Webcrawler ModuleWebcrawler `json:"webcrawler"`
+type Module struct {
+	MaxInstances int `json:"max_instances"`
+}
+
+func (m *Module) UnmarshalJSON(b []byte) error {
+
+	// Prepare temporary auxiliary data structure to load raw Json data
+	type aux Module
+	var raw aux
+
+	// Set default value if no other value is present in the read Json file
+	raw.MaxInstances = -1
+
+	// Unmarshal serialized Json into temporary auxiliary structure
+	err := json.Unmarshal(b, &raw)
+	if err != nil {
+		return err
+	}
+
+	// Fix invalid settings
+	if raw.MaxInstances < -1 {
+		raw.MaxInstances = -1
+	}
+
+	// Update struct with de-serialized values
+	*m = Module(raw)
+
+	// Return nil as everything went fine
+	return nil
+}
+
+type ModuleBanner struct {
+	Module
 }
 
 type ModuleDiscovery struct {
+	Module
 	// Discovery-specific configuration values.
 	LdapServerComment  string   `json:"ldap_server_comment"`
 	LdapServer         string   `json:"ldap_server"`
@@ -217,6 +219,9 @@ func (m *ModuleDiscovery) UnmarshalJSON(b []byte) error {
 	// Prepare temporary auxiliary data structure to load raw Json data
 	type aux ModuleDiscovery
 	var raw aux
+
+	// Set default value if no other value is present in the read Json file
+	raw.MaxInstances = -1
 
 	// Unmarshal serialized Json into temporary auxiliary structure
 	err := json.Unmarshal(b, &raw)
@@ -242,7 +247,16 @@ func (m *ModuleDiscovery) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+type ModuleNfs struct {
+	Module
+}
+
+type ModuleSsh struct {
+	Module
+}
+
 type ModuleSsl struct {
+	Module
 	// Ssl-specific configuration values.
 	Comment              string `json:"custom_truststore_file_comment"`
 	CustomTruststoreFile string `json:"custom_truststore_file"` // Path to custom trust store. Otherwise, OS one is used
@@ -276,6 +290,7 @@ func (m *ModuleSsl) UnmarshalJSON(b []byte) error {
 }
 
 type ModuleWebcrawler struct {
+	Module
 	// Webcrawler-specific configuration values.
 	Download      bool     `json:"download_files"` // Whether to download downloadable contents
 	DownloadPath  string   `json:"download_path"`  // Path to to folder to download files to. If empty the working directory is chosen.
@@ -308,10 +323,14 @@ func (m *ModuleWebcrawler) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+type ModuleWebenum struct {
+	Module
+}
+
 type AgentConfig struct {
 	// The root configuration object tying all configuration segments together.
 	BrokerAddress  string         `json:"broker_address"`
-	ScopeSecret    string         `json:"scope_secret"`
+	ScopeSecrets   []string       `json:"scope_secrets"`
 	Paths          Paths          `json:"paths"`
 	Authentication Authentication `json:"authentication"`
 	Logging        log.Settings   `json:"logging"`
@@ -330,9 +349,16 @@ func (c *AgentConfig) UnmarshalJSON(b []byte) error {
 		return err
 	}
 
-	// Do input validation
-	if raw.ScopeSecret == "" || len(raw.ScopeSecret) < 10 {
-		return fmt.Errorf("invalid scope secret")
+	// Check if there is at least one scope secret defined
+	if len(raw.ScopeSecrets) == 0 {
+		return fmt.Errorf("no scope secret")
+	}
+
+	// Validate defined scope secrets
+	for _, secret := range raw.ScopeSecrets {
+		if len(secret) < 10 {
+			return fmt.Errorf("invalid scope secret")
+		}
 	}
 
 	// Update struct with de-serialized values

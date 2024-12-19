@@ -20,6 +20,7 @@ import (
 	"github.com/siemens/Large-Scale-Discovery/utils"
 	"go.uber.org/zap/zapcore"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -126,7 +127,7 @@ func defaultManagerConfigFactory() ManagerConfig {
 
 	// Prepare default logging settings and adapt for manager
 	logging := log.DefaultLogSettingsFactory()
-	logging.File.Path = "./logs/manager.log"
+	logging.File.Path = filepath.Join("logs", "manager.log")
 	logging.Smtp.Connector.Subject = "Manager Error Log"
 
 	// Prepare default settings for development
@@ -151,7 +152,7 @@ func defaultManagerConfigFactory() ManagerConfig {
 	}
 
 	// Prepare default manager config
-	scanDefaults := database.T_scan_settings{
+	scanDefaults := database.T_scan_setting{
 		MaxInstancesDiscovery:        30,
 		MaxInstancesBanner:           100,
 		MaxInstancesNfs:              0,
@@ -220,6 +221,7 @@ func defaultManagerConfigFactory() ManagerConfig {
 	// Generate manager config with default values
 	conf := ManagerConfig{
 		ListenAddress:    "localhost:2222",
+		ListenAddressSsl: true, // Encrypted endpoint be used, unless within a secure network or with a TLS load balancer is in front.
 		PrivilegeSecrets: privilegeSecrets,
 		Database: Database{
 			Connections:         30,
@@ -286,9 +288,10 @@ func (d *Database) UnmarshalJSON(b []byte) error {
 
 type ManagerConfig struct {
 	// The root configuration object tying all configuration segments together.
-	ListenAddress    string                   `json:"listen_address"`
-	PrivilegeSecrets []string                 `json:"privilege_secrets"` // Tokens granting the privilege to query full scope details, including scope secret and the scope's database credentials. E.g. the web backend does not require these details, in contrast to the broker.
-	Database         Database                 `json:"database"`
-	Logging          log.Settings             `json:"logging"`
-	ScanDefaults     database.T_scan_settings `json:"scan_defaults"`
+	ListenAddress    string                  `json:"listen_address"`
+	ListenAddressSsl bool                    `json:"listen_address_ssl"` // Encrypted endpoint be used, unless within a secure network or with a TLS load balancer is in front.
+	PrivilegeSecrets []string                `json:"privilege_secrets"`  // Tokens granting the privilege to query full scope details, including scope secret and the scope's database credentials. E.g. the web backend does not require these details, in contrast to the broker.
+	Database         Database                `json:"database"`
+	Logging          log.Settings            `json:"logging"`
+	ScanDefaults     database.T_scan_setting `json:"scan_defaults"`
 }

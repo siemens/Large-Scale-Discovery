@@ -82,7 +82,7 @@ func main() {
 		logger.Debugf("Agent terminated.")
 	})
 
-	// Catch potential panics to gracefully log issue with stacktrace
+	// Catch potential panics to gracefully log issue
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -127,7 +127,7 @@ func main() {
 	}
 
 	// Initialize asset inventory functionality of discovery module
-	errInventory := discovery.InitInventories(conf.Authentication.Inventories)
+	errInventory := discovery.InitInventories(logger, conf.Authentication.Inventories)
 	if errInventory != nil {
 		logger.Errorf("Could not initialize asset inventory: %s", errInventory)
 		logger.Infof("Please check the configuration!")

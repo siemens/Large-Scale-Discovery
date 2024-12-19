@@ -13,9 +13,12 @@ package core
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"github.com/Pallinder/go-randomdata"
-	"github.com/orcaman/concurrent-map/v2"
+	"github.com/juju/fslock"
 	"github.com/siemens/GoScans/ssl"
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/Large-Scale-Discovery/_build"
@@ -26,6 +29,8 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"sync"
 	"time"
 )
@@ -36,13 +41,12 @@ const instanceFile = ".instance"            // File storing a generated agent in
 
 var coreCtx, coreCtxCancelFunc = context.WithCancel(context.Background()) // Agent context and cancellation function. Agent should terminate when context is closed
 var shutdownOnce sync.Once                                                // Helper variable to prevent shutdown from doing its work multiple times.
-var instanceName string                                                   // Agent instance name, randomly generated to be (most likely) unique
-var instanceIp string                                                     // Agent IP at the default gateway used for scanning
-var instanceHostname string                                               // Agent hostname used for scanning
-var scopeSecret string                                                    // Scope secret to authenticate/associate the agent with a certain scan scope during RPC requests
-var moduleInstances = cmap.New[int]()                                     // Concurrent map holding the total number of running scans for each module
+var instanceInfo broker.AgentInfo                                         // Agent instance info holding static information like ip, hostname, compatibility version,...
 var rpcClient *utils.Client                                               // RPC client struct handling RPC connections and requests
 var sysMon *utils.SystemMonitor                                           // Monitoring service collecting information about system utilization, e.g. CPU, memory,...)
+
+var instanceIp string
+var instanceHostname string
 
 // Init initializes the agent and all of its parameters
 func Init() error {
@@ -52,12 +56,6 @@ func Init() error {
 
 	// Get config
 	conf := config.GetConfig()
-
-	// Load agent instance name. Generate new one if not existing.
-	errName := loadInstanceName()
-	if errName != nil {
-		return errName
-	}
 
 	// Lookup agent IP
 	instanceIp = utils.GetOutboundIP()
@@ -69,30 +67,61 @@ func Init() error {
 		}
 	}
 
-	// Lookup agent hostname
+	// Lookup agent
 	var errHostname error
 	instanceHostname, errHostname = os.Hostname()
 	if errHostname != nil {
 		return fmt.Errorf("could not read local hostname: %s", errHostname)
 	}
 
-	// Initialize attributes
-	scopeSecret = conf.ScopeSecret
+	// Load agent instance name. Generate new one if not existing.
+	instanceName, errName := loadInstanceName()
+	if errName != nil {
+		return errName
+	}
+
+	// Prepare anonymized scope secret strings
+	var secrets []string
+	for _, secret := range conf.ScopeSecrets {
+		secrets = append(secrets, secret[0:5]+"...")
+	}
+
+	// Check whether scan agent is shared across multiple scan scopes
+	shared := false
+	if len(conf.ScopeSecrets) > 1 {
+		shared = true
+	}
+
+	// Check whether scan agent has dedicated limits configured
+	limits := false
+	v := reflect.ValueOf(conf.Modules)
+	for i := 0; i < v.NumField(); i++ {
+		moduleInstances := v.Field(i).FieldByName("MaxInstances").Interface().(int)
+		if moduleInstances > 0 {
+			limits = true
+		}
+	}
 
 	// Log agent attributes
-	logger.Infof("Agent Name  : %s", instanceName)
-	logger.Infof("Agent Host  : %s", instanceHostname)
-	logger.Infof("Agent IP    : %s", instanceIp)
-	logger.Infof("Scope Secret: %s...", scopeSecret[0:5])
+	logger.Infof("Agent Name   : %s", instanceName)
+	logger.Infof("Agent Host   : %s", instanceHostname)
+	logger.Infof("Agent IP     : %s", instanceIp)
+	logger.Infof("Scope Secrets: %s", strings.Join(secrets, ", "))
+
+	// Prepare agent info data to be sent along with RPC requests to the broker
+	instanceInfo = broker.AgentInfo{
+		CompatibilityLevel: broker.CompatibilityLevel,
+		Name:               instanceName,
+		Host:               instanceHostname,
+		Ip:                 instanceIp,
+		Shared:             shared,
+		Limits:             limits,
+	}
 
 	// Prepare RPC certificate path
 	rpcRemoteCrt := filepath.Join("keys", "broker.crt")
 	if _build.DevMode {
 		rpcRemoteCrt = filepath.Join("keys", "broker_dev.crt")
-	}
-	errCrt := scanUtils.IsValidFile(rpcRemoteCrt)
-	if errCrt != nil {
-		return errCrt
 	}
 
 	// Initialize system monitor
@@ -100,7 +129,7 @@ func Init() error {
 	go sysMon.Run(taskRequestInterval)
 
 	// Initialize module counters for all available scan modules
-	osInitModules()
+	initModules(conf.ScopeSecrets)
 
 	// Loads the ciphers
 	ssl.LoadCiphers(logger)
@@ -109,7 +138,7 @@ func Init() error {
 	broker.RegisterGobs()
 
 	// Initialize RPC client broker facing
-	rpcClient = utils.NewRpcClient(conf.BrokerAddress, rpcRemoteCrt)
+	rpcClient = utils.NewRpcClient(conf.BrokerAddress, true, rpcRemoteCrt)
 
 	// Connect to broker and wait for successful connection. Abort on shutdown request.
 	success := rpcClient.Connect(logger, true)
@@ -193,82 +222,81 @@ func Shutdown() {
 	})
 }
 
-func loadInstanceName() error {
+func loadInstanceName() (string, error) {
 
-	// Check whether agent instance name exists
-	if _, err := os.Stat(instanceFile); err == nil {
+	// Prepare memory for instance name and origin hash
+	instanceName := ""
+	instanceOrigin := ""
 
-		// Load agent instance name
-		name, errRead := os.ReadFile(instanceFile)
-		if errRead != nil {
-			return fmt.Errorf("could not load agent idientifier: %s", errRead)
+	// Prepare file lock on instance file so that only one process can use it
+	l := fslock.New(instanceFile)
+
+	// Test whether file is accessible
+	// This will create the file on the first time if not existing
+	if l.TryLock() != nil {
+		return "", fmt.Errorf("same agent already running")
+	}
+	_ = l.Unlock() // Unlock to allow reading agent identifier
+
+	// Load agent instance name
+	content, errRead := os.ReadFile(instanceFile)
+	if errRead != nil {
+		return "", fmt.Errorf("could not load agent idientifier: %s", errRead)
+	}
+
+	// Get current location
+	instanceFilePath, errInstanceFilePath := filepath.Abs(instanceFile)
+	if errInstanceFilePath != nil {
+		return "", fmt.Errorf("could retrieve instance file path: %s", errInstanceFilePath)
+	}
+
+	// Hash current location
+	h := sha256.New()
+	h.Write([]byte(instanceIp + instanceHostname + instanceFilePath)) // Distinguishable hashes across hosts and file paths
+	currentLocation := hex.EncodeToString(h.Sum(nil))
+
+	// Extract instance name and origin hash
+	splits := strings.Split(string(content), "|")
+	if len(splits) == 2 {
+		instanceName = strings.Trim(splits[0], " ")
+		instanceOrigin = splits[1]
+
+		// Generate new instance name if location hash does not match current location
+		if instanceOrigin != currentLocation {
+			instanceName = "" // Agent might have been moved, give it a new name
+			instanceOrigin = ""
 		}
+	} else if len(splits) == 1 {
+		instanceName = strings.Trim(splits[0], " ") // Allow existing instance name but store with location hash
+	}
 
-		// Set agent instance name
-		instanceName = string(name)
-
-	} else if os.IsNotExist(err) {
-
-		// Prepare name file
-		outputFile, errOpen := os.OpenFile(instanceFile, os.O_CREATE|os.O_WRONLY, 0660)
-		if errOpen != nil {
-			return fmt.Errorf("could not create agent idientifier: %s", errOpen)
-		}
-
-		// Decide random gender based on cryptographic random number generator to not run into diversity issues
+	// Generate new instance name if necessary
+	if instanceName == "" {
 		n, _ := rand.Int(rand.Reader, big.NewInt(2))
 		g := int(n.Int64())
-
-		// Generate agent instance name
 		instanceName = fmt.Sprintf("%s %s", randomdata.SillyName(), randomdata.FirstName(g))
+	}
 
-		// Store agent instance name
-		_, errWrite := outputFile.WriteString(instanceName)
-		if errWrite != nil {
-			return fmt.Errorf("could not save agent idientifier: %s", errWrite)
+	// Persist new values if instance origin was invalid
+	if instanceOrigin == "" {
+
+		// Prepare output in bytes
+		output := []byte(instanceName + "|" + currentLocation)
+
+		// Persist new name
+		err := os.WriteFile(instanceFile, output, 0660)
+		if err != nil {
+			return "", fmt.Errorf("could not create agent idientifier: %s", err)
 		}
+	}
 
-	} else {
-		return err
+	// Lock instance file until process terminates to prevent other instances using the same identifier
+	if l.TryLock() != nil {
+		return "", fmt.Errorf("same agent already running")
 	}
 
 	// Return nil as everything went fine
-	return nil
-}
-
-// increaseUsageModule - increase the usage counter
-func increaseUsageModule(moduleName string) error {
-
-	// Get interface to map value
-	count, ok := moduleInstances.Get(moduleName)
-
-	// Abort if module name is not existing
-	if !ok {
-		return fmt.Errorf("unknwon module")
-	}
-
-	// Cast and increase the counter
-	moduleInstances.Set(moduleName, count+1)
-
-	// Return nil as everything went fine
-	return nil
-}
-
-// decreaseUsageModule - decrease the usage counter
-func decreaseUsageModule(moduleName string) {
-
-	// Get interface to map value
-	count, ok := moduleInstances.Get(moduleName)
-
-	// Abort if module name is not existing
-	if !ok {
-		return
-	}
-
-	// Cast and decrease the counter
-	if count > 0 {
-		moduleInstances.Set(moduleName, count-1)
-	}
+	return instanceName, nil
 }
 
 // scanTaskLoader keeps asking the broker for new scan tasks
@@ -283,7 +311,7 @@ func scanTaskLoader(wg *sync.WaitGroup, chOut chan broker.ScanTask) {
 	// Get tagged logger
 	logger := log.GetLogger().Tagged("scanTaskLoader")
 
-	// Catch potential panics to gracefully log issue with stacktrace
+	// Catch potential panics to gracefully log issue
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -292,55 +320,79 @@ func scanTaskLoader(wg *sync.WaitGroup, chOut chan broker.ScanTask) {
 		}
 	}()
 
-	// Initialize stats data to send along. Stats data is collected after new scan tasks were launched and reported
-	// with the subsequent request for new tasks. This is to avoid under-reporting actual load, because e.g. banner
-	// tasks might be completed until next request interval.
-	systemData := sysMon.Get()
-	moduleData := make([]broker.ModuleData, 0, len(moduleInstances.Items()))
+	// Get config
+	conf := config.GetConfig()
 
 	// Closure for reusable request code
 	requestFunc := func() {
 
-		// Log attempt
-		logger.Debugf("Asking for targets.")
+		// Get current system load. Use same system load for all scope task requests,
+		// otherwise it might be confusing to the frontend user.
+		systemData := sysMon.Get()
 
-		// Prepare the request to the RPC server
-		rpcArgs := broker.ArgsGetScanTask{
-			AgentInfo: broker.AgentInfo{
-				Name: instanceName,
-				Host: instanceHostname,
-				Ip:   instanceIp,
-			},
-			ScopeSecret: scopeSecret,
-			ModuleData:  moduleData,
-			SystemData:  systemData,
-		}
+		// Get Overall scan agent module instances counts
+		totalInstances := GetTotalInstanceCounts()
 
-		// Send RPC request for scan targets
-		scanTasks := broker.RpcRequestScanTasks(logger, rpcClient, coreCtx, &rpcArgs)
+		// Randomize scope secret order to give each scan scope a similar chance or processing,
+		// if overall scan agent limits are configured in the agent configuration.
+		scopeSecrets := scanUtils.Shuffle(conf.ScopeSecrets)
 
-		// Log response information
-		logger.Debugf("Received %d scan tasks.", len(scanTasks))
+		// Execute request for each scan scope
+		for _, scopeSecret := range scopeSecrets {
 
-		// Send received scan tasks to launcher
-		for _, scanTask := range scanTasks {
-			chOut <- scanTask
-		}
+			// Log attempt
+			logger.Debugf("Asking for targets for scan scope '%s...'.", scopeSecret[:5])
 
-		// Capture updated system load, after new scan tasks got launched
-		systemData = sysMon.Get()
+			// Read module instances counts by agent and by scan scope
+			scopeInstances := GetScopeInstanceCounts(scopeSecret)
 
-		// Capture updated active tasks, after new scan tasks got launched
-		moduleData = make([]broker.ModuleData, 0, len(moduleInstances.Items()))
-		for module := range moduleInstances.IterBuffered() {
-			moduleData = append(moduleData, broker.ModuleData{
-				Label:       module.Key,
-				ActiveTasks: module.Val,
-			})
+			// Get initialized module labels
+			labels := GetModuleLabels()
+
+			// Prepare module data to be filled with active instances and module settings
+			moduleData := make([]broker.ModuleData, 0, len(labels))
+
+			// Get list of initialized module labels to iterate
+			for _, label := range labels {
+
+				// Check if module has dedicated agent-side limit configured in agent config file
+				labelMax := conf.Modules.ReadMaxInstances(label)
+
+				// Prepare and append module data
+				moduleData = append(moduleData, broker.ModuleData{
+					Label:          label,
+					MaxInstances:   labelMax,              // Maximum instances of this scan module the scan agents want to handle
+					TotalInstances: totalInstances[label], // Current amount of instances of this module on the scan agent across all scan scopes
+					ScopeInstances: scopeInstances[label], // Current amount of instances of this module on the scan agent in the current scan scope
+				})
+			}
+
+			// Prepare the request to the RPC server
+			rpcArgs := broker.ArgsGetScanTask{
+				AgentInfo:   instanceInfo,
+				ScopeSecret: scopeSecret,
+				ModuleData:  moduleData,
+				SystemData:  systemData,
+			}
+
+			// Send RPC request for scan targets
+			scanTasks, errScanTasks := broker.RpcRequestScanTasks(logger, rpcClient, coreCtx, &rpcArgs)
+			if errors.Is(errScanTasks, utils.ErrRpcCompatibility) { // Just address compatibility errors. Ignore other server-side errors to retry again later.
+				Shutdown()
+				return
+			}
+
+			// Log response information
+			logger.Debugf("Received %d scan tasks.", len(scanTasks))
+
+			// Send received scan tasks to launcher
+			for _, scanTask := range scanTasks {
+				chOut <- scanTask
+			}
 		}
 	}
 
-	// Request scan tasks (immediately, without ticker delay)
+	// Execute initial scope task requests for all initialized scan scopes (immediately, without ticker delay)
 	requestFunc()
 
 	// Initialize retry interval ticker
@@ -353,7 +405,7 @@ func scanTaskLoader(wg *sync.WaitGroup, chOut chan broker.ScanTask) {
 			logger.Infof("Scan task loader terminated.")
 			return
 		case <-ticker.C: // Wait for next attempt
-			requestFunc()
+			requestFunc() // Execute scope task requests for all initialized scan scopes
 		}
 	}
 }
@@ -368,7 +420,7 @@ func scanTaskLauncher(wg *sync.WaitGroup, chIn chan broker.ScanTask, chOut chan 
 	// Get tagged logger
 	logger := log.GetLogger().Tagged("scanTaskLauncher")
 
-	// Catch potential panics to gracefully log issue with stacktrace
+	// Catch potential panics to gracefully log issue
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -393,7 +445,7 @@ func scanTaskLauncher(wg *sync.WaitGroup, chIn chan broker.ScanTask, chOut chan 
 		logger.Debugf("Received a scan task for module '%s' (%s).", scanTask.Label, scanTask.Target)
 
 		// Increase module counter
-		errIncrease := increaseUsageModule(scanTask.Label)
+		errIncrease := IncrementModuleCount(scanTask.Secret, scanTask.Label)
 		if errIncrease != nil {
 			logger.Warningf("Scan task '%s' not handled by this agent.", scanTask.Label)
 			continue
@@ -414,7 +466,7 @@ func scanTaskSaver(wg *sync.WaitGroup, wgSave *sync.WaitGroup, chIn chan broker.
 	// Get tagged logger
 	logger := log.GetLogger().Tagged("scanTaskSaver")
 
-	// Catch potential panics to gracefully log issue with stacktrace
+	// Catch potential panics to gracefully log issue
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)

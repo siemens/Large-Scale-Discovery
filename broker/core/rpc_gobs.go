@@ -33,7 +33,7 @@ func RegisterGobs() {
 	gob.Register(ssl.Result{})
 	gob.Register(webcrawler.Result{})
 	gob.Register(webenum.Result{})
-	gob.Register(managerdb.T_scan_settings{})
+	gob.Register(managerdb.T_scan_setting{})
 	gob.Register([]interface{}{})          // database.JsonMap might include this kind of type
 	gob.Register(map[string]interface{}{}) // database.JsonMap might include this kind of type
 }

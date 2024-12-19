@@ -37,13 +37,13 @@ var Users = func() gin.HandlerFunc {
 	}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Prepare memory for list of groups
 		var userEntries = make([]database.T_user, 0, 0) // Initialize empty slice to avoid returning nil to frontend
@@ -56,7 +56,7 @@ var Users = func() gin.HandlerFunc {
 			userEntries, errUserEntriesUnfiltered = database.GetUsers()
 			if errUserEntriesUnfiltered != nil {
 				logger.Errorf("Could not query existing users: %s", errUserEntriesUnfiltered)
-				core.RespondInternalError(context) // Return generic error information
+				core.RespondInternalError(ctx) // Return generic error information
 				return
 			}
 
@@ -67,7 +67,7 @@ var Users = func() gin.HandlerFunc {
 			userEntriesUnfiltered, errUserEntriesUnfiltered = database.GetUsers()
 			if errUserEntriesUnfiltered != nil {
 				logger.Errorf("Could not query existing users: %s", errUserEntriesUnfiltered)
-				core.RespondInternalError(context) // Return generic error information
+				core.RespondInternalError(ctx) // Return generic error information
 				return
 			}
 
@@ -86,7 +86,7 @@ var Users = func() gin.HandlerFunc {
 		}
 
 		// Return response
-		core.Respond(context, false, "Users retrieved.", body)
+		core.Respond(ctx, false, "Users retrieved.", body)
 	}
 }
 
@@ -101,6 +101,7 @@ var UserUpdate = func() gin.HandlerFunc {
 		Id      uint64  `json:"id"` // PK of the DB element to identify associated entry for update
 		Active  *bool   `json:"active"`
 		Admin   *bool   `json:"admin"`
+		Demo    *bool   `json:"demo"`
 		Name    *string `json:"name"`
 		Surname *string `json:"surname"`
 		Company *string `json:"company"`
@@ -110,17 +111,17 @@ var UserUpdate = func() gin.HandlerFunc {
 	type responseBody struct{}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Check if user has rights (is admin) to perform action
 		if !contextUser.Admin {
-			core.RespondAuthError(context)
+			core.RespondAuthError(ctx)
 			return
 		}
 
@@ -128,16 +129,16 @@ var UserUpdate = func() gin.HandlerFunc {
 		var req requestBody
 
 		// Decode JSON request into struct
-		errReq := context.BindJSON(&req)
+		errReq := ctx.BindJSON(&req)
 		if errReq != nil {
 			logger.Errorf("Could not decode request: %s", errReq)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Check if primary key is defined, otherwise gorm cannot update specific item
 		if req.Id == 0 {
-			core.Respond(context, true, "Invalid ID.", responseBody{})
+			core.Respond(ctx, true, "Invalid ID.", responseBody{})
 			return
 		}
 
@@ -145,13 +146,13 @@ var UserUpdate = func() gin.HandlerFunc {
 		userEntry, errUserEntry := database.GetUser(req.Id)
 		if errUserEntry != nil {
 			logger.Errorf("Could not query user: %s", errUserEntry)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Check if user exists
 		if userEntry == nil {
-			core.Respond(context, true, "Invalid ID.", responseBody{})
+			core.Respond(ctx, true, "Invalid ID.", responseBody{})
 			return
 		}
 
@@ -174,16 +175,19 @@ var UserUpdate = func() gin.HandlerFunc {
 
 				// Check enable/disable result
 				if errors.Is(errRpc, utils.ErrRpcConnectivity) {
-					core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+					core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 					return
 				} else if errRpc != nil {
-					core.RespondInternalError(context) // Return generic error information. Situation already logged!
+					core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 					return
 				}
 			}
 		}
 		if req.Admin != nil {
 			userEntry.Admin = *req.Admin
+		}
+		if req.Demo != nil {
+			userEntry.Demo = *req.Demo
 		}
 		if req.Name != nil {
 			userEntry.Name = *req.Name
@@ -196,10 +200,10 @@ var UserUpdate = func() gin.HandlerFunc {
 		}
 
 		// Save updated attributes
-		saved, errSave := userEntry.Save("active", "admin", "name", "surname", "company")
+		saved, errSave := userEntry.Save("active", "admin", "demo", "name", "surname", "company")
 		if errSave != nil {
 			logger.Errorf("Could not update user entry: %s", errSave)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
@@ -215,7 +219,7 @@ var UserUpdate = func() gin.HandlerFunc {
 		}
 
 		// Return response
-		core.Respond(context, reqErr, reqMsg, responseBody{})
+		core.Respond(ctx, reqErr, reqMsg, responseBody{})
 	}
 }
 
@@ -234,17 +238,17 @@ var UserDelete = func() gin.HandlerFunc {
 	type responseBody struct{}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Check if user has rights (is admin) to perform action
 		if !contextUser.Admin {
-			core.RespondAuthError(context)
+			core.RespondAuthError(ctx)
 			return
 		}
 
@@ -252,16 +256,16 @@ var UserDelete = func() gin.HandlerFunc {
 		var req requestBody
 
 		// Decode JSON request into struct
-		errReq := context.BindJSON(&req)
+		errReq := ctx.BindJSON(&req)
 		if errReq != nil {
 			logger.Errorf("Could not decode request: %s", errReq)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Check if primary key is defined, otherwise gorm cannot update specific entry
 		if req.Id == 0 {
-			core.Respond(context, true, "Invalid ID.", responseBody{})
+			core.Respond(ctx, true, "Invalid ID.", responseBody{})
 			return
 		}
 
@@ -269,13 +273,13 @@ var UserDelete = func() gin.HandlerFunc {
 		userEntry, errUserEntry := database.GetUser(req.Id)
 		if errUserEntry != nil {
 			logger.Errorf("Could not query user: %s", errUserEntry)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Check if user exists
 		if userEntry == nil {
-			core.Respond(context, true, "Invalid ID.", responseBody{})
+			core.Respond(ctx, true, "Invalid ID.", responseBody{})
 			return
 		}
 
@@ -283,13 +287,13 @@ var UserDelete = func() gin.HandlerFunc {
 		administratorEntries, errAdministratorEntries := database.GetAdministrators()
 		if errAdministratorEntries != nil {
 			logger.Errorf("Could not query administrator users: %s", errAdministratorEntries)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Check if user is the only remaining administrator
 		if userEntry.Admin && len(administratorEntries) <= 1 {
-			core.Respond(context, true, "User is the only remaining administrator.", responseBody{})
+			core.Respond(ctx, true, "User is the only remaining administrator.", responseBody{})
 			return
 		}
 
@@ -297,14 +301,14 @@ var UserDelete = func() gin.HandlerFunc {
 		groupEntries, errGroupEntries := database.GetGroupsOfUser(userEntry.Id)
 		if errGroupEntries != nil {
 			logger.Errorf("Could not query groups: %s", errGroupEntries)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Check if user is the only remaining owner of any group
 		for _, group := range groupEntries {
 			if len(group.Ownerships) == 1 {
-				core.Respond(context, true, "User is the last owner of a group.", responseBody{})
+				core.Respond(ctx, true, "User is the last owner of a group.", responseBody{})
 				return
 			}
 		}
@@ -312,10 +316,10 @@ var UserDelete = func() gin.HandlerFunc {
 		// Request views granted from manager
 		scopeViews, errScopeViews := manager.RpcGetViewsGranted(logger, core.RpcClient(), userEntry.Email)
 		if errors.Is(errScopeViews, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
 		} else if errScopeViews != nil {
-			core.RespondInternalError(context) // Return generic error information. Situation already logged!
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
@@ -325,10 +329,10 @@ var UserDelete = func() gin.HandlerFunc {
 			// Request manager to revoke view grants for given username
 			errRpc := manager.RpcRevokeGrants(logger, core.RpcClient(), view.Id, userEntry.Email)
 			if errors.Is(errRpc, utils.ErrRpcConnectivity) {
-				core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+				core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 				return
 			} else if errRpc != nil {
-				core.RespondInternalError(context) // Return generic error information. Situation already logged!
+				core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 				return
 			}
 		}
@@ -338,7 +342,7 @@ var UserDelete = func() gin.HandlerFunc {
 			errDeleteOwnership := ownership.Delete()
 			if errDeleteOwnership != nil {
 				logger.Errorf("Could not cleanup ownership entry: %s", errDeleteOwnership)
-				core.RespondInternalError(context) // Return generic error information
+				core.RespondInternalError(ctx) // Return generic error information
 				return
 			}
 		}
@@ -347,12 +351,12 @@ var UserDelete = func() gin.HandlerFunc {
 		errDelete := userEntry.Delete()
 		if errDelete != nil {
 			logger.Errorf("Could not delete entry: %s", errDelete)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Return response
-		core.Respond(context, false, "User deleted.", responseBody{})
+		core.Respond(ctx, false, "User deleted.", responseBody{})
 	}
 }
 
@@ -370,17 +374,18 @@ var UserDetails = func() gin.HandlerFunc {
 		Admin   bool      `json:"admin"`  // Whether the user has full admin rights (to control visible components, verification must be done on the backend)
 		Owner   bool      `json:"owner"`  // Whether the user has scan scope management rights (to control visible components, verification must be done on the backend)
 		Access  bool      `json:"access"` // Whether the user has at least one scope view granted (to control visible components, verification must be done on the backend)
+		Demo    bool      `json:"demo"`
 		Created time.Time `json:"created"`
 	}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Request views granted from manager
 		scopeViews, _ := manager.RpcGetViewsGranted(logger, core.RpcClient(), contextUser.Email)
@@ -395,39 +400,37 @@ var UserDetails = func() gin.HandlerFunc {
 			Admin:   contextUser.Admin,
 			Owner:   len(contextUser.Ownerships) > 0,
 			Access:  len(scopeViews) > 0,
+			Demo:    contextUser.Demo,
 			Created: contextUser.Created,
 		}
 
 		// Return response
-		core.Respond(context, false, "User profile retrieved.", body)
+		core.Respond(ctx, false, "User profile retrieved.", body)
 	}
 }
 
-// UserResetDbPassword resets the user's database password and updates it on all linked DB servers
-var UserResetDbPassword = func(
-	frontendUrl string,
-	smtpConnection *utils.Smtp,
-) gin.HandlerFunc {
+// UserResetDbPassword resets the user's database password and updates it on all linked database servers
+var UserResetDbPassword = func(smtpConnection *utils.Smtp) gin.HandlerFunc {
 
 	// Define expected response structure
 	type responseBody struct {
 	}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Generate password
 		dbPassword, errPassword := utils.GenerateToken(
 			strings.Replace(utils.AlphaNumCaseSymbol, "?", "", -1), 15) // Drop question mark from character set, as gorm has issues with them
 		if errPassword != nil {
 			logger.Errorf("Could not generate user password: %s", errPassword)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
@@ -437,17 +440,17 @@ var UserResetDbPassword = func(
 		dbPasswordHash, errDbPasswordHash := utils.HashScramSha256Postgres(dbPassword)
 		if errDbPasswordHash != nil {
 			logger.Errorf("Could not convert user password to Postgres hash: %s", errDbPasswordHash)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Request manager to update user password
-		errRpc := manager.RpcUpdateServerCredentials(logger, core.RpcClient(), contextUser.Email, dbPasswordHash)
+		errRpc := manager.RpcUpdateDatabaseCredentials(logger, core.RpcClient(), contextUser.Email, dbPasswordHash)
 		if errors.Is(errRpc, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
 		} else if errRpc != nil {
-			core.RespondInternalError(context) // Return generic error information. Situation already logged!
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
@@ -458,7 +461,7 @@ var UserResetDbPassword = func(
 		saved, errSave := contextUser.Save("db_password")
 		if errSave != nil {
 			logger.Errorf("Could not update user entry: %s", errSave)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
@@ -478,7 +481,10 @@ var UserResetDbPassword = func(
 			"   - Request a new personal and temporary database password\n"+
 			"   - Find database connection details to access scan results\n"+
 			"   - See the scan progress of a certain scan scope\n",
-			frontendUrl, contextUser.Email, dbPassword)
+			ctx.Request.Host, // Prepare dynamically, website might be accessed via different domains
+			contextUser.Email,
+			dbPassword,
+		)
 
 		// Enable encryption by setting user certificate, if available
 		var encCert [][]byte
@@ -513,7 +519,7 @@ var UserResetDbPassword = func(
 					contextUser.Email,
 					errMail,
 				)
-				core.Respond(context, true, "Could not e-mail new database credentials.", responseBody{})
+				core.Respond(ctx, true, "Could not e-mail new database credentials.", responseBody{})
 				return
 			}
 		}
@@ -522,12 +528,12 @@ var UserResetDbPassword = func(
 		errEvent := database.NewEvent(contextUser, database.EventDbPassword, "")
 		if errEvent != nil {
 			logger.Errorf("Could not create event log: %s", errEvent)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Return response
-		core.Respond(context, false, "Database password sent via E-mail.", responseBody{})
+		core.Respond(ctx, false, "Database password sent via E-mail.", responseBody{})
 	}
 }
 
@@ -545,28 +551,28 @@ var UserFeedback = func(smtpConnection *utils.Smtp) gin.HandlerFunc {
 	}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Declare expected request struct
 		var req requestBody
 
 		// Decode JSON request into struct
-		errReq := context.BindJSON(&req)
+		errReq := ctx.BindJSON(&req)
 		if errReq != nil {
 			logger.Errorf("Could not decode request: %s", errReq)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Check authentication
 		if contextUser == nil {
-			core.RespondAuthError(context)
+			core.RespondAuthError(ctx)
 			return
 		}
 
@@ -579,11 +585,11 @@ var UserFeedback = func(smtpConnection *utils.Smtp) gin.HandlerFunc {
 
 		// Abort if message is not valid
 		if len(req.Subject) == 0 {
-			core.Respond(context, true, "Invalid feedback subject.", responseBody{})
+			core.Respond(ctx, true, "Invalid feedback subject.", responseBody{})
 			return
 		}
 		if len(req.Message) == 0 {
-			core.Respond(context, true, "Invalid feedback message.", responseBody{})
+			core.Respond(ctx, true, "Invalid feedback message.", responseBody{})
 			return
 		}
 
@@ -623,11 +629,11 @@ var UserFeedback = func(smtpConnection *utils.Smtp) gin.HandlerFunc {
 				req.Subject,
 				req.Message,
 			)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Return response
-		core.Respond(context, false, "Thank you for your feedback!", responseBody{})
+		core.Respond(ctx, false, "Thank you for your feedback!", responseBody{})
 	}
 }

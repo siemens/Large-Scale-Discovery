@@ -31,7 +31,7 @@ const ScopeChangeNotifierInterval = time.Second * 1
 var scopeChangeNotifier *utils.Notifier
 var coreCtx, coreCtxCancelFunc = context.WithCancel(context.Background()) // Agent context and context cancellation function. Agent should terminate when context is closed
 var shutdownOnce sync.Once                                                // Helper variable to prevent shutdown from doing its work multiple times.
-var scopedbPrepareLock sync.Mutex                                         // A lock making sure that the scope db preparation is not interrupted by a shutdown request
+var scopeDbPrepareLock sync.Mutex                                         // A lock making sure that the scope db preparation is not interrupted by a shutdown request
 var rpcServerCrt string                                                   // Certificate used by the listening RPC server
 var rpcServerKey string                                                   // Key used by the listening RPC server
 
@@ -44,7 +44,7 @@ func Init() error {
 	// Get config
 	conf := config.GetConfig()
 
-	// Lookup agent IP
+	// Lookup manager IP
 	localIp, errIp := utils.GetLocalIp()
 	if errIp != nil {
 		return fmt.Errorf("could not read local ip: %s", errIp)
@@ -65,19 +65,21 @@ func Init() error {
 	database.SetMaxConnectionsDefault(conf.Database.Connections)
 
 	// Prepare manager key and certificate path
-	rpcServerCrt = filepath.Join("keys", "manager.crt")
-	rpcServerKey = filepath.Join("keys", "manager.key")
-	if _build.DevMode {
-		rpcServerCrt = filepath.Join("keys", "manager_dev.crt")
-		rpcServerKey = filepath.Join("keys", "manager_dev.key")
-	}
-	errCrt := scanUtils.IsValidFile(rpcServerCrt)
-	if errCrt != nil {
-		return errCrt
-	}
-	errKey := scanUtils.IsValidFile(rpcServerKey)
-	if errKey != nil {
-		return errKey
+	if conf.ListenAddressSsl {
+		rpcServerCrt = filepath.Join("keys", "manager.crt")
+		rpcServerKey = filepath.Join("keys", "manager.key")
+		if _build.DevMode {
+			rpcServerCrt = filepath.Join("keys", "manager_dev.crt")
+			rpcServerKey = filepath.Join("keys", "manager_dev.key")
+		}
+		errCrt := scanUtils.IsValidFile(rpcServerCrt)
+		if errCrt != nil {
+			return errCrt
+		}
+		errKey := scanUtils.IsValidFile(rpcServerKey)
+		if errKey != nil {
+			return errKey
+		}
 	}
 
 	// Initialize manager database
@@ -87,11 +89,11 @@ func Init() error {
 	}
 
 	// Wrap database prepare code into function to make use of local defer statement
-	if errScopedbPrepare := func() error {
+	if errScopeDbPrepare := func() error {
 
 		// Acquire DB prepare lock to prevent "Shutdown()" from interrupting
-		scopedbPrepareLock.Lock()
-		defer scopedbPrepareLock.Unlock()
+		scopeDbPrepareLock.Lock()
+		defer scopeDbPrepareLock.Unlock()
 
 		// Write development sample data to the database
 		if _build.DevMode {
@@ -111,8 +113,8 @@ func Init() error {
 
 		// Return nil as everything went fine
 		return nil
-	}(); errScopedbPrepare != nil {
-		return errScopedbPrepare
+	}(); errScopeDbPrepare != nil {
+		return errScopeDbPrepare
 	}
 
 	// Initialize scope change notifier that can be subscribed to in order to receive a signal about changed scopes
@@ -169,8 +171,8 @@ func Shutdown() {
 		logger.Infof("Shutting down.")
 
 		// Wait for scope DB preparation if currently running
-		scopedbPrepareLock.Lock()
-		defer scopedbPrepareLock.Unlock()
+		scopeDbPrepareLock.Lock()
+		defer scopeDbPrepareLock.Unlock()
 
 		// Shut down scope change notifier
 		if scopeChangeNotifier != nil {

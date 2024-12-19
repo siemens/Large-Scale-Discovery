@@ -40,13 +40,18 @@ import (
 
 var scopeModuleLock = nsync.NewNamedMutex() // Named mutex to prevent parallel changes on the same scope and module data
 
-var errorGeneric = fmt.Errorf("RPC endpoint not available") // Generic error returned to the scan agent, which may not contain sensitive details
+func agentCompatible(agentCompatibilityLevel int) bool {
+	if agentCompatibilityLevel < CompatibilityLevel {
+		return false
+	}
+	return true
+}
 
 // Broker is used to implement the broker's RPC interfaces
 type Broker struct{}
 
 // RequestScanTasks processes scan task requests received from agents
-func (s *Broker) RequestScanTasks(rpcArgs *ArgsGetScanTask, rpcReply *ReplyGetScanTask) error {
+func (b *Broker) RequestScanTasks(rpcArgs *ArgsGetScanTask, rpcReply *ReplyGetScanTask) error {
 
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
@@ -59,6 +64,18 @@ func (s *Broker) RequestScanTasks(rpcArgs *ArgsGetScanTask, rpcReply *ReplyGetSc
 	defer func() {
 		logger.Debugf("RPC call took %s.", time.Since(start))
 	}()
+
+	// Check if agent version is compatible
+	if !agentCompatible(rpcArgs.CompatibilityLevel) {
+		logger.Warningf(
+			"Invalid agent compatibility level '%d' on '%s' (%s/%s).",
+			rpcArgs.CompatibilityLevel,
+			rpcArgs.Name,
+			rpcArgs.Host,
+			rpcArgs.Ip,
+		)
+		return utils.ErrRpcCompatibility
+	}
 
 	// Get scan scope data by secret (will be taken from memory, if available).
 	scanScope, errScanScope := getScanScope(logger, rpcArgs.ScopeSecret)
@@ -81,40 +98,12 @@ func (s *Broker) RequestScanTasks(rpcArgs *ArgsGetScanTask, rpcReply *ReplyGetSc
 		scanScope.Id,
 	)
 
-	// Prepare map of scan counts
-	tasks := make(map[string]int, len(rpcArgs.ModuleData))
-
-	// Iterate scan modules and log active tasks
-	for _, agentModule := range rpcArgs.ModuleData {
-
-		// Add module task count to map of scan counts
-		tasks[agentModule.Label] = agentModule.ActiveTasks
-
-		// Get maximum instances for scan module
-		maxInstances, errInstances := scanScope.ScanSettings.MaxInstances(agentModule.Label)
-		if errInstances != nil {
-			logger.Errorf("Could not get max instances for '%s': %s", agentModule.Label, errInstances)
-			return errorGeneric // Error message returned to agent
-		}
-
-		// Log actual number
-		logger.Infof(
-			"\t%3d / %3d active '%s' tasks.",
-			agentModule.ActiveTasks,
-			maxInstances,
-			agentModule.Label,
-		)
+	// Update cached agent information. This information will be persisted and regularly updated in the managerdb
+	// where it can be loaded by the web backend to be presented to the web interface users.
+	errStore := cacheAgentDetails(logger, rpcArgs, scanScope)
+	if errStore != nil {
+		return errStore
 	}
-
-	// Update cached agent stats
-	memory.UpdateAgent(
-		rpcArgs.Name,
-		rpcArgs.Host,
-		rpcArgs.Ip,
-		scanScope.Id,
-		tasks,
-		rpcArgs.SystemData,
-	)
 
 	// Don't feed new scan tasks, while scan scope is paused
 	if !scanScope.Enabled {
@@ -130,15 +119,24 @@ func (s *Broker) RequestScanTasks(rpcArgs *ArgsGetScanTask, rpcReply *ReplyGetSc
 	// Iterate scan modules and return task for available slots
 	for _, agentModule := range rpcArgs.ModuleData {
 
-		// Get maximum instances for scan module
+		// Get max instances configured in the scan scope settings
 		maxInstances, errInstances := scanScope.ScanSettings.MaxInstances(agentModule.Label)
 		if errInstances != nil {
 			logger.Errorf("Could not get max instances for '%s': %s", agentModule.Label, errInstances)
-			return errorGeneric // Error message returned to agent
+			return utils.ErrRpcGeneric // Error message returned to agent
+		}
+
+		// Read active instances of this scan scope running on the scan agent
+		activeInstances := agentModule.ScopeInstances
+
+		// Override scan scope limits and counts by scan agent limits and counts, if scan agent has dedicated limits
+		if agentModule.MaxInstances > -1 {
+			maxInstances = agentModule.MaxInstances
+			activeInstances = agentModule.TotalInstances
 		}
 
 		// Calculate available scan slots
-		availableSlots := maxInstances - agentModule.ActiveTasks
+		availableSlots := maxInstances - activeInstances
 
 		// Skip module if no slots available
 		if availableSlots <= 0 {
@@ -149,50 +147,46 @@ func (s *Broker) RequestScanTasks(rpcArgs *ArgsGetScanTask, rpcReply *ReplyGetSc
 		if agentModule.Label == discovery.Label { // Handle request for discovery scan scan targets
 
 			// Query targets and fill RPC response with response data
-			if availableSlots > 0 {
-				errFeed := feedDiscovery(
-					logger,
-					scanScope,
-					availableSlots,
-					rpcArgs.Ip,
-					rpcArgs.Host,
-					rpcReply,
+			errFeed := feedDiscovery(
+				logger,
+				scanScope,
+				availableSlots,
+				rpcArgs.Ip,
+				rpcArgs.Host,
+				rpcReply,
+			)
+			if errFeed != nil {
+				logger.Errorf(
+					"Could not feed discovery tasks for '%s' (ID %d): %s",
+					scanScope.Name,
+					scanScope.Id,
+					errFeed,
 				)
-				if errFeed != nil {
-					logger.Errorf(
-						"Could not feed discovery tasks for '%s' (ID %d): %s",
-						scanScope.Name,
-						scanScope.Id,
-						errFeed,
-					)
-					return errorGeneric // Error message returned to agent
-				}
+				return utils.ErrRpcGeneric // Error message returned to agent
 			}
 
 		} else { // Handle request for submodule scan targets
 
 			// Query targets and fill RPC response with response data
-			if availableSlots > 0 {
-				errFeed := feedSubmodule(
-					logger,
-					scanScope,
+			errFeed := feedSubmodule(
+				logger,
+				scanScope,
+				agentModule.Label,
+				availableSlots,
+				rpcArgs.Ip,
+				rpcArgs.Host,
+				&wg,
+				rpcReply,
+			)
+			if errFeed != nil {
+				logger.Errorf(
+					"Could not feed '%s' tasks for '%s' (ID %d): %s",
 					agentModule.Label,
-					availableSlots,
-					rpcArgs.Ip,
-					rpcArgs.Host,
-					&wg,
-					rpcReply,
+					scanScope.Name,
+					scanScope.Id,
+					errFeed,
 				)
-				if errFeed != nil {
-					logger.Errorf(
-						"Could not feed '%s' tasks for '%s' (ID %d): %s",
-						agentModule.Label,
-						scanScope.Name,
-						scanScope.Id,
-						errFeed,
-					)
-					return errorGeneric // Error message returned to agent
-				}
+				return utils.ErrRpcGeneric // Error message returned to agent
 			}
 		}
 	}
@@ -205,7 +199,35 @@ func (s *Broker) RequestScanTasks(rpcArgs *ArgsGetScanTask, rpcReply *ReplyGetSc
 }
 
 // SubmitScanResult processes scan results received from agents
-func (s *Broker) SubmitScanResult(rpcArgs *ArgsSaveScanResult, rpcReply *struct{}) error {
+func (b *Broker) SubmitScanResult(rpcArgs *ArgsSaveScanResult, rpcReply *struct{}) error {
+
+	// Check if agent version is compatible
+	if !agentCompatible(rpcArgs.CompatibilityLevel) {
+
+		// Generate UUID for context
+		uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
+
+		// Get tagged logger
+		logger := log.GetLogger().Tagged(fmt.Sprintf("%s-SubmitScanResult", uuid))
+
+		// Log RPC call benchmark to be able to identify bottlenecks later on
+		start := time.Now()
+		defer func() {
+			logger.Debugf("RPC call took %s.", time.Since(start))
+		}()
+
+		// Log message
+		logger.Warningf(
+			"Invalid agent compatibility level '%d' on '%s' (%s/%s).",
+			rpcArgs.CompatibilityLevel,
+			rpcArgs.Name,
+			rpcArgs.Host,
+			rpcArgs.Ip,
+		)
+
+		// Return compatibility error
+		return utils.ErrRpcCompatibility
+	}
 
 	// Process results based on their type
 	switch rpcArgs.Result.(type) {
@@ -231,6 +253,58 @@ func lock(scanScopeId uint64, module string) {
 // unlock releases an access lock for a given scan scope and module
 func unlock(scanScopeId uint64, module string) {
 	scopeModuleLock.Unlock(strconv.FormatUint(scanScopeId, 10) + module)
+}
+
+// cacheAgentDetails updates cached agent information. This information will be persisted and regularly updated in the managerdb
+// where it can be loaded by the web backend to be presented to the web interface users.
+func cacheAgentDetails(logger scanUtils.Logger, rpcArgs *ArgsGetScanTask, scanScope *managerdb.T_scan_scope) error {
+
+	// Prepare map of scan counts
+	tasks := make(map[string]int, len(rpcArgs.ModuleData))
+
+	// Iterate scan modules and log active instances
+	for _, agentModule := range rpcArgs.ModuleData {
+
+		// Get max instances configured in the scan scope
+		maxInstances, errInstances := scanScope.ScanSettings.MaxInstances(agentModule.Label)
+		if errInstances != nil {
+			logger.Errorf("Could not get max instances for '%s': %s", agentModule.Label, errInstances)
+			return utils.ErrRpcGeneric // Error message returned to agent
+		}
+
+		// Use default instance limits configured in the scan scope, if the scan agent has no custom limits.
+		logMsg := "\t%3d / %3d active '%s' tasks."
+		if agentModule.MaxInstances > -1 {
+			maxInstances = agentModule.MaxInstances
+			logMsg = "\t%3d / %3d active '%s' tasks. (Agent-specific limit)"
+		}
+
+		// Log actual number
+		logger.Infof(
+			logMsg,
+			agentModule.ScopeInstances,
+			maxInstances,
+			agentModule.Label,
+		)
+
+		// Add module task count to map of scan counts
+		tasks[agentModule.Label] = agentModule.ScopeInstances
+	}
+
+	// Update cached agent stats
+	memory.UpdateAgent(
+		rpcArgs.Name,
+		rpcArgs.Host,
+		rpcArgs.Ip,
+		rpcArgs.Shared,
+		rpcArgs.Limits,
+		scanScope.Id,
+		tasks,
+		rpcArgs.SystemData,
+	)
+
+	// Return nil as everything went fine
+	return nil
 }
 
 // feedDiscovery queries discovery scan targets (for a given scan scope) from *database* and adds them to the RPC response
@@ -323,16 +397,15 @@ func feedDiscovery(
 	// Add new scan targets to RPC reply
 	for _, target := range newTargets {
 
-		// Prepare scan task
-		scanTask := ScanTask{
+		// Append scan task to list of tasks. ScanTask is a generic struct, the agent will pick the data
+		// required by the specific scan task.
+		rpcReply.ScanTasks = append(rpcReply.ScanTasks, ScanTask{
+			Secret:       scanScope.Secret,
 			Label:        discovery.Label,
 			Id:           target.Id,
 			Target:       target.Input,
 			ScanSettings: scanScope.ScanSettings,
-		}
-
-		// Append scan task to list of tasks
-		rpcReply.ScanTasks = append(rpcReply.ScanTasks, scanTask)
+		})
 	}
 
 	// Return nil as everything went fine
@@ -417,9 +490,10 @@ func feedSubmodule(
 	// Add new scan targets to RPC reply
 	for _, target := range newTargets {
 
-		// Append scan task to list of tasks. ScanTask is a generic struct, the agent will pick the data required by
-		// the specific scan task.
+		// Append scan task to list of tasks. ScanTask is a generic struct, the agent will pick the data
+		// required by the specific scan task.
 		rpcReply.ScanTasks = append(rpcReply.ScanTasks, ScanTask{
+			Secret:         scanScope.Secret,
 			Label:          label,
 			Id:             target.Id, // Send the id/pk from brokerdb, it will be returned back with the result
 			Target:         target.Address,
@@ -799,10 +873,9 @@ func saveSubResult(rpcArgs *ArgsSaveScanResult) {
 
 	default: // Unknown data type
 		logger.Errorf(
-			"Unknown result type '%s' for '%s' (ID %d). Dropping result.",
+			"Unknown result type for '%s' (ID %d). Dropping result.",
 			scanScope.Name,
 			scanScope.Id,
-			rpcArgs,
 		)
 		return
 	}

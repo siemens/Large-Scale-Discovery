@@ -241,7 +241,7 @@ func AddScopeTargets(logger scanUtils.Logger, scanScope *managerdb.T_scan_scope,
 	errTx := brokerDb.Transaction(func(txBroker *gorm.DB) error {
 
 		// Use a new gorm session and force a limit on how many Entries can be batched, as we otherwise might
-		// exceed PostgreSQLs limit of 65535 parameters
+		// exceed the database's limit of 65535 parameters
 		errDb := brokerDb.
 			Session(&gorm.Session{CreateBatchSize: MaxBatchSizeSubInput}).
 			Create(&submoduleTargets).Error
@@ -280,7 +280,7 @@ func CleanScopeTargets(remainingScopeIds []uint64) error {
 func generateSubmoduleInputs(
 	logger scanUtils.Logger,
 	subTarget *T_sub_input,
-	scanSettings *managerdb.T_scan_settings,
+	scanSettings *managerdb.T_scan_setting,
 	addressesWithPort445 map[string]struct{}, // List of addresses that have port 445 open, they shouldn't be SMB crawled on 139 too!
 ) []T_sub_input {
 

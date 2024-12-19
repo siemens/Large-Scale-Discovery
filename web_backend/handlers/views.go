@@ -40,13 +40,13 @@ var Views = func() gin.HandlerFunc {
 	}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Prepare memory for list of views
 		var scopeViews []managerdb.T_scope_view
@@ -72,10 +72,10 @@ var Views = func() gin.HandlerFunc {
 
 		// Check for errors occurred while querying groups
 		if errors.Is(errScopeViews, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
 		} else if errScopeViews != nil {
-			core.RespondInternalError(context) // Return generic error information. Situation already logged!
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
@@ -83,7 +83,7 @@ var Views = func() gin.HandlerFunc {
 		userEntries, errUserEntries := database.GetUsers()
 		if errUserEntries != nil {
 			logger.Errorf("Could not query users: %s", errUserEntries)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
@@ -91,7 +91,7 @@ var Views = func() gin.HandlerFunc {
 		groupEntries, errGroupEntries := database.GetGroups()
 		if errGroupEntries != nil {
 			logger.Errorf("Could not query groups: %s", errGroupEntries)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
@@ -139,7 +139,7 @@ var Views = func() gin.HandlerFunc {
 					userEntry, errUserEntry := database.GetUserByMail(grantEntry.Username)
 					if errUserEntry != nil {
 						logger.Errorf("Could not query user: %s", errUserEntry)
-						core.RespondInternalError(context) // Return generic error information
+						core.RespondInternalError(ctx) // Return generic error information
 						return
 					}
 
@@ -198,7 +198,7 @@ var Views = func() gin.HandlerFunc {
 		}
 
 		// Return response
-		core.Respond(context, false, "Views retrieved.", body)
+		core.Respond(ctx, false, "Views retrieved.", body)
 	}
 }
 
@@ -211,21 +211,21 @@ var ViewsGranted = func() gin.HandlerFunc {
 	}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Request views granted from manager
 		scopeViews, errScopeViews := manager.RpcGetViewsGranted(logger, core.RpcClient(), contextUser.Email)
 		if errors.Is(errScopeViews, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
 		} else if errScopeViews != nil {
-			core.RespondInternalError(context) // Return generic error information. Situation already logged!
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
@@ -233,7 +233,7 @@ var ViewsGranted = func() gin.HandlerFunc {
 		groupEntries, errGroupEntries := database.GetGroups()
 		if errGroupEntries != nil {
 			logger.Errorf("Could not query groups: %s", errGroupEntries)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
@@ -288,7 +288,7 @@ var ViewsGranted = func() gin.HandlerFunc {
 		}
 
 		// Return response
-		core.Respond(context, false, "Views retrieved.", body)
+		core.Respond(ctx, false, "Views retrieved.", body)
 	}
 }
 
@@ -316,51 +316,51 @@ var ViewCreate = func() gin.HandlerFunc {
 	type responseBody struct{}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Declare expected request struct
 		var req requestBody
 
 		// Decode JSON request into struct
-		errReq := context.BindJSON(&req)
+		errReq := ctx.BindJSON(&req)
 		if errReq != nil {
 			logger.Errorf("Could not decode request: %s", errReq)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Request scope details from manager
 		scanScope, errScanScope := manager.RpcGetScope(logger, core.RpcClient(), req.ScopeId)
 		if errors.Is(errScanScope, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
 		} else if errScanScope != nil {
-			core.RespondInternalError(context) // Return generic error information. Situation already logged!
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
 		// Check ID to make sure it existed in the DB
 		if scanScope.Id == 0 {
-			core.Respond(context, true, "Invalid ID.", responseBody{})
+			core.Respond(ctx, true, "Invalid ID.", responseBody{})
 			return
 		}
 
 		// Check if user has rights to create view
 		if !core.OwnerOrAdmin(scanScope.IdTGroup, contextUser) {
-			core.RespondAuthError(context)
+			core.RespondAuthError(ctx)
 			return
 		}
 
 		// Check if view name is already existing on same scope
 		for _, scopeView := range scanScope.ScopeViews {
 			if scopeView.Name == req.ViewName {
-				core.Respond(context, true, "Duplicate view name on scan scope.", responseBody{})
+				core.Respond(ctx, true, "Duplicate view name on scan scope.", responseBody{})
 				return
 			}
 		}
@@ -369,7 +369,7 @@ var ViewCreate = func() gin.HandlerFunc {
 		groupEntry, errGroupEntry := database.GetGroup(scanScope.IdTGroup)
 		if errGroupEntry != nil {
 			logger.Errorf("Could not query group: %s", errGroupEntry)
-			core.RespondInternalError(context)
+			core.RespondInternalError(ctx)
 			return
 		}
 
@@ -381,7 +381,7 @@ var ViewCreate = func() gin.HandlerFunc {
 				scanScope.Name,
 				scanScope.DbName,
 			)
-			core.RespondInternalError(context)
+			core.RespondInternalError(ctx)
 			return
 		}
 
@@ -389,7 +389,7 @@ var ViewCreate = func() gin.HandlerFunc {
 		scopes, errScopes := manager.RpcGetScopesOf(logger, core.RpcClient(), []uint64{groupEntry.Id})
 		if errScopes != nil {
 			logger.Errorf("Could not query scopes of group '%d': %s", groupEntry.Id, errScopes)
-			core.RespondTemporaryError(context)
+			core.RespondTemporaryError(ctx)
 			return
 		}
 
@@ -401,7 +401,7 @@ var ViewCreate = func() gin.HandlerFunc {
 
 		// Check whether limits are exceeded
 		if groupEntry.MaxViews >= 0 && cntViews >= groupEntry.MaxViews {
-			core.Respond(context, true, "View limit reached.", responseBody{})
+			core.Respond(ctx, true, "View limit reached.", responseBody{})
 			return
 		}
 
@@ -409,7 +409,7 @@ var ViewCreate = func() gin.HandlerFunc {
 		reg, errRegex := regexp.Compile("[^a-zA-Z0-9-_./ ]+")
 		if errRegex != nil {
 			logger.Errorf("Could not compile regex to check view filters: %s", errRegex)
-			core.RespondInternalError(context) // Return generic error information.
+			core.RespondInternalError(ctx) // Return generic error information.
 			return
 		}
 
@@ -514,22 +514,22 @@ var ViewCreate = func() gin.HandlerFunc {
 
 		// Abort with error message
 		if errSanitize != nil {
-			core.Respond(context, true, fmt.Sprintf("Illegal filter value '%s'.", errSanitize), responseBody{})
+			core.Respond(ctx, true, fmt.Sprintf("Illegal filter value '%s'.", errSanitize), responseBody{})
 			return
 		}
 
 		// Request view creation from manager
 		errRpc := manager.RpcCreateView(logger, core.RpcClient(), scanScope.Id, req.ViewName, contextUser.Email, filters)
 		if errors.Is(errRpc, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
 		} else if errRpc != nil {
-			core.RespondInternalError(context) // Return generic error information. Situation already logged!
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
 		// Return response
-		core.Respond(context, false, "View created.", responseBody{})
+		core.Respond(ctx, false, "View created.", responseBody{})
 	}
 }
 
@@ -545,59 +545,59 @@ var ViewDelete = func() gin.HandlerFunc {
 	type responseBody struct{}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Declare expected request struct
 		var req requestBody
 
 		// Decode JSON request into struct
-		errReq := context.BindJSON(&req)
+		errReq := ctx.BindJSON(&req)
 		if errReq != nil {
 			logger.Errorf("Could not decode request: %s", errReq)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Request scope view from manager
 		scopeView, errScopeView := manager.RpcGetView(logger, core.RpcClient(), req.ViewId)
 		if errors.Is(errScopeView, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
 		} else if errScopeView != nil {
-			core.RespondInternalError(context) // Return generic error information. Situation already logged!
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
 		// Check ID to make sure it existed in the DB
 		if scopeView.Id == 0 {
-			core.Respond(context, true, "Invalid ID.", responseBody{})
+			core.Respond(ctx, true, "Invalid ID.", responseBody{})
 			return
 		}
 
 		// Check if user has rights to delete view
 		if !core.OwnerOrAdmin(scopeView.ScanScope.IdTGroup, contextUser) {
-			core.RespondAuthError(context)
+			core.RespondAuthError(ctx)
 			return
 		}
 
 		// Request view deletion from manager
 		errRpc := manager.RpcDeleteView(logger, core.RpcClient(), scopeView.Id)
 		if errors.Is(errRpc, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
 		} else if errRpc != nil {
-			core.RespondInternalError(context) // Return generic error information. Situation already logged!
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
 		// Return response
-		core.Respond(context, false, "View deleted.", responseBody{})
+		core.Respond(ctx, false, "View deleted.", responseBody{})
 	}
 }
 
@@ -617,50 +617,50 @@ var ViewUpdate = func() gin.HandlerFunc {
 	type responseBody struct{}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Declare expected request struct
 		var req requestBody
 
 		// Decode JSON request into struct
-		errReq := context.BindJSON(&req)
+		errReq := ctx.BindJSON(&req)
 		if errReq != nil {
 			logger.Errorf("Could not decode request: %s", errReq)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Check if primary key is defined, otherwise gorm cannot update specific item
 		if req.Id == 0 {
-			core.Respond(context, true, "Invalid ID.", responseBody{})
+			core.Respond(ctx, true, "Invalid ID.", responseBody{})
 			return
 		}
 
 		/// Request scope view from manager
 		scopeView, errScopeView := manager.RpcGetView(logger, core.RpcClient(), req.Id)
 		if errors.Is(errScopeView, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
 		} else if errScopeView != nil {
-			core.RespondInternalError(context) // Return generic error information. Situation already logged!
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
 		// Check ID to make sure it existed in the DB
 		if scopeView.Id == 0 {
-			core.Respond(context, true, "Invalid ID.", responseBody{})
+			core.Respond(ctx, true, "Invalid ID.", responseBody{})
 			return
 		}
 
 		// Check if user has rights to update scope
 		if !core.OwnerOrAdmin(scopeView.ScanScope.IdTGroup, contextUser) {
-			core.RespondAuthError(context)
+			core.RespondAuthError(ctx)
 			return
 		}
 
@@ -673,14 +673,14 @@ var ViewUpdate = func() gin.HandlerFunc {
 		// Execute update on manager via RPC
 		errRpc := manager.RpcUpdateView(logger, core.RpcClient(), req.Id, name)
 		if errors.Is(errRpc, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
 		} else if errRpc != nil {
-			core.RespondInternalError(context) // Return generic error information. Situation already logged!
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
 		// Return response
-		core.Respond(context, false, "View updated.", responseBody{})
+		core.Respond(ctx, false, "View updated.", responseBody{})
 	}
 }

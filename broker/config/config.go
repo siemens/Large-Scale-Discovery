@@ -136,7 +136,9 @@ func defaultBrokerConfigFactory() BrokerConfig {
 	// Prepare default broker config
 	conf := BrokerConfig{
 		ListenAddress:          "localhost:3333",
+		ListenAddressSsl:       true, // Encrypted endpoint be used, unless within a secure network or with a TLS load balancer is in front.
 		ManagerAddress:         "localhost:2222",
+		ManagerAddressSsl:      true, // Encrypted endpoint be used, unless within a secure network or with a TLS load balancer is in front.
 		ManagerPrivilegeSecret: privilegeSecret,
 		DbConnections:          30,
 		Logging:                logging,
@@ -153,7 +155,9 @@ func defaultBrokerConfigFactory() BrokerConfig {
 type BrokerConfig struct {
 	// The root configuration object tying all configuration segments together.
 	ListenAddress          string       `json:"listen_address"`
+	ListenAddressSsl       bool         `json:"listen_address_ssl"` // Encrypted endpoint be used, unless within a secure network or with a TLS load balancer is in front.
 	ManagerAddress         string       `json:"manager_address"`
+	ManagerAddressSsl      bool         `json:"manager_address_ssl"`      // Encrypted endpoint be used, unless within a secure network or with a TLS load balancer is in front.
 	ManagerPrivilegeSecret string       `json:"manager_privilege_secret"` // Token granting the privilege to query full scope details, including scope secret and the scope's database credentials
 	DbConnections          int          `json:"db_connections"`
 	Logging                log.Settings `json:"logging"`

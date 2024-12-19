@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/sanyokbig/pqinterval"
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/Large-Scale-Discovery/manager/database"
 	"github.com/siemens/Large-Scale-Discovery/utils"
@@ -131,19 +132,71 @@ func RpcSubscribeNotification(
 	return chNotification, chNotificationReconnect
 }
 
-// RpcNewCycle updates a certain scope and its scan settings in the manager's db
-func RpcNewCycle(
+// RpcGetDatabases requests all database servers from the scope manager via RPC
+func RpcGetDatabases(logger scanUtils.Logger, rpc *utils.Client) ([]database.T_db_server, error) {
+
+	// Prepare RPC request
+	rpcEndpoint := "Manager.GetDatabases"
+	rpcReply := ReplyDatabases{}
+	rpcArgs := struct{}{} // Does not require arguments
+
+	// Send RPC request
+	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	if errRpc != nil {
+		return nil, errRpc
+	}
+
+	// Return scan scopes
+	return rpcReply.Databases, nil
+}
+
+// RpcAddUpdateDatabase creates a new or updates an existing database server in the manager's db
+func RpcAddUpdateDatabase(
 	logger scanUtils.Logger,
 	rpc *utils.Client,
-	scopeId uint64,
+	dbServerId uint64,
+	name string,
+	dialect string,
+	host string,
+	hostPublic string,
+	port int,
+	admin string,
+	password string,
+	args string,
 ) error {
 
 	// Prepare RPC request
-	rpcEndpoint := "Manager.NewCycle"
+	rpcEndpoint := "Manager.AddUpdateDatabase"
 	rpcReply := struct{}{} // Does not return values
-	rpcArgs := ArgsScopeId{
-		ScopeId: scopeId,
+	rpcArgs := ArgsDatabaseDetails{
+		DbServerId: dbServerId,
+		Name:       name,
+		Dialect:    dialect,
+		Host:       host,
+		HostPublic: hostPublic,
+		Port:       port,
+		Admin:      admin,
+		Password:   password,
+		Args:       args,
 	}
+
+	// Send RPC request
+	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	if errRpc != nil {
+		return errRpc
+	}
+
+	// Return nil as everything went fine
+	return nil
+}
+
+// RpcRemoveDatabase requests the deletion of a database server from the scope manager via RPC
+func RpcRemoveDatabase(logger scanUtils.Logger, rpc *utils.Client, dbServerId uint64) error {
+
+	// Prepare RPC request
+	rpcEndpoint := "Manager.RemoveDatabase"
+	rpcReply := struct{}{} // Does not return values
+	rpcArgs := ArgsDbServerId{DbServerId: dbServerId}
 
 	// Send RPC request
 	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
@@ -226,7 +279,7 @@ func RpcCreateScope(
 
 	// Prepare RPC request
 	rpcEndpoint := "Manager.CreateScope"
-	rpcReply := ReplyScopeId{} // Does not return values
+	rpcReply := ReplyScopeId{}
 	rpcArgs := ArgsScopeDetails{
 		DbServerId:      dbServerId,
 		Name:            name,
@@ -271,7 +324,7 @@ func RpcGetScopeTargets(logger scanUtils.Logger, rpc *utils.Client, scopeId uint
 
 	// Prepare RPC request
 	rpcEndpoint := "Manager.GetScopeTargets"
-	rpcReply := ReplyScopeTargets{} // Does not return values
+	rpcReply := ReplyScopeTargets{}
 	rpcArgs := ArgsScopeId{ScopeId: scopeId}
 
 	// Send RPC request
@@ -302,7 +355,7 @@ func RpcToggleScope(logger scanUtils.Logger, rpc *utils.Client, scopeId uint64) 
 	return nil
 }
 
-// RpcUpdateScope updates a certain scope and its scan settings in the manager's db
+// RpcUpdateScope updates a certain scope in the manager's db
 func RpcUpdateScope(
 	logger scanUtils.Logger,
 	rpc *utils.Client,
@@ -373,7 +426,7 @@ func RpcUpdateSettings(
 	logger scanUtils.Logger,
 	rpc *utils.Client,
 	scopeId uint64,
-	scanSettings database.T_scan_settings,
+	scanSettings database.T_scan_setting,
 ) error {
 
 	// Prepare RPC request
@@ -394,18 +447,42 @@ func RpcUpdateSettings(
 	return nil
 }
 
-// RpcUpdateAgents updates scan agent stats of a certain scope in the manager's db.
-func RpcUpdateAgents(
+// RpcResetFailed resets failed scan targets to that they will be rescheduled for scanning within the current scan cycle
+func RpcResetFailed(
 	logger scanUtils.Logger,
 	rpc *utils.Client,
-	agentStatsByScope map[uint64][]database.T_scan_agent,
+	scopeId uint64,
 ) error {
 
 	// Prepare RPC request
-	rpcEndpoint := "Manager.UpdateAgents"
+	rpcEndpoint := "Manager.ResetFailed"
 	rpcReply := struct{}{} // Does not return values
-	rpcArgs := ArgsStatsUpdate{
-		ScanAgents: agentStatsByScope,
+	rpcArgs := ArgsScopeId{
+		ScopeId: scopeId,
+	}
+
+	// Send RPC request
+	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	if errRpc != nil {
+		return errRpc
+	}
+
+	// Return scan scopes
+	return nil
+}
+
+// RpcNewCycle initializes a completely new scan cycle
+func RpcNewCycle(
+	logger scanUtils.Logger,
+	rpc *utils.Client,
+	scopeId uint64,
+) error {
+
+	// Prepare RPC request
+	rpcEndpoint := "Manager.NewCycle"
+	rpcReply := struct{}{} // Does not return values
+	rpcArgs := ArgsScopeId{
+		ScopeId: scopeId,
 	}
 
 	// Send RPC request
@@ -452,6 +529,30 @@ func RpcResetSecret(logger scanUtils.Logger, rpc *utils.Client, scopeId uint64) 
 
 	// Return scan scopes
 	return rpcReply.ScopeSecret, nil
+}
+
+// RpcUpdateAgents updates scan agent stats of a certain scope in the manager's db.
+func RpcUpdateAgents(
+	logger scanUtils.Logger,
+	rpc *utils.Client,
+	agentStatsByScope map[uint64][]database.T_scan_agent,
+) error {
+
+	// Prepare RPC request
+	rpcEndpoint := "Manager.UpdateAgents"
+	rpcReply := struct{}{} // Does not return values
+	rpcArgs := ArgsStatsUpdate{
+		ScanAgents: agentStatsByScope,
+	}
+
+	// Send RPC request
+	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	if errRpc != nil {
+		return errRpc
+	}
+
+	// Return scan scopes
+	return nil
 }
 
 // RpcGetViews requests all views from the scope manager via RPC
@@ -672,11 +773,11 @@ func RpcRevokeGrants(logger scanUtils.Logger, rpc *utils.Client, viewId uint64, 
 	return nil
 }
 
-// RpcUpdateServerCredentials requests the update of the user's password on all DB servers via RPC
-func RpcUpdateServerCredentials(logger scanUtils.Logger, rpc *utils.Client, username string, password string) error {
+// RpcUpdateDatabaseCredentials requests the update of the user's password on all database servers via RPC
+func RpcUpdateDatabaseCredentials(logger scanUtils.Logger, rpc *utils.Client, username string, password string) error {
 
 	// Prepare RPC request
-	rpcEndpoint := "Manager.UpdateServerCredentials"
+	rpcEndpoint := "Manager.UpdateDatabaseCredentials"
 	rpcReply := struct{}{} // Does not return values
 	rpcArgs := ArgsCredentials{
 		Username: username,
@@ -693,7 +794,7 @@ func RpcUpdateServerCredentials(logger scanUtils.Logger, rpc *utils.Client, user
 	return nil
 }
 
-// RpcDisableDbUser requests to disable a user on all DB servers via RPC
+// RpcDisableDbUser requests to disable a user on all database servers via RPC
 func RpcDisableDbUser(logger scanUtils.Logger, rpc *utils.Client, username string) error {
 
 	// Prepare RPC request
@@ -713,7 +814,7 @@ func RpcDisableDbUser(logger scanUtils.Logger, rpc *utils.Client, username strin
 	return nil
 }
 
-// RpcEnableDbUser requests to disable a user on all DB servers via RPC
+// RpcEnableDbUser requests to disable a user on all database servers via RPC
 func RpcEnableDbUser(logger scanUtils.Logger, rpc *utils.Client, username string) error {
 
 	// Prepare RPC request
@@ -767,4 +868,68 @@ func RpcDeleteAgent(logger scanUtils.Logger, rpc *utils.Client, agentId uint64) 
 
 	// Return scan scopes
 	return nil
+}
+
+func RpcCreateSqlLogs(
+	logger scanUtils.Logger,
+	rpc *utils.Client,
+	dbName string,
+	dbUser string,
+	dbTable string,
+	query string,
+	queryResults int,
+	queryTimestamp time.Time,
+	queryDuration time.Duration,
+	totalDuration time.Duration,
+	clientName string,
+) error {
+
+	// Prepare RPC request
+	rpcEndpoint := "Manager.CreateSqlLog"
+	rpcReply := struct{}{}
+	rpcArgs := ArgsSqlLogCreate{
+		DbName:         dbName,
+		DbUser:         dbUser,
+		DbTable:        dbTable,
+		Query:          query,
+		QueryResults:   queryResults,
+		QueryTimestamp: queryTimestamp,
+		QueryDuration:  pqinterval.Duration(queryDuration),
+		TotalDuration:  pqinterval.Duration(totalDuration),
+		ClientName:     clientName,
+	}
+
+	// Send RPC request
+	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	if errRpc != nil {
+		return errRpc
+	}
+
+	// Return scan scopes
+	return nil
+}
+
+func RpcGetSqlLogs(
+	logger scanUtils.Logger,
+	rpc *utils.Client,
+	dbName string,
+	since time.Time,
+) ([]database.T_sql_log, error) {
+
+	// Prepare RPC request
+	rpcEndpoint := "Manager.GetSqlLogs"
+	rpcReply := ReplySqlLogs{}
+	rpcArgs := ArgsSqlLogsFilter{
+		DbName: dbName,
+		Since:  since,
+	}
+
+	// Send RPC request
+	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	if errRpc != nil {
+		return []database.T_sql_log{}, errRpc
+	}
+
+	// Return scan scopes
+	return rpcReply.Logs, nil
 }

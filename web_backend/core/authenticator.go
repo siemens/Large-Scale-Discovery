@@ -151,21 +151,37 @@ func authenticatorAllowed(userEmail string, authenticator Authenticator) error {
 // user struct.
 // Returns userError, if something is wrong with the user.
 // Returns internalError, if something else went wrong.
-func doLogin(logger scanUtils.Logger, user *database.T_user) (errUser, errInternal error) {
-
+func doLogin(
+	logger scanUtils.Logger,
+	user *database.T_user,
+	allowedDepartments []string,
+	vhost string,
+) (errUser, errInternal error) {
 	// Do some plausibility check
 	if user == nil || user.Email == "" || user.Id == 0 || user.Company == "" || user.Created.IsZero() {
-		return nil, fmt.Errorf("broken user struct")
+		return nil, fmt.Errorf("invalid user struct")
 	}
 
 	// Update attributes
 	user.LastLogin = time.Now()
 
+	// Check if user is member of an allowed company department
+	if len(allowedDepartments) > 0 {
+		user.Demo = true
+		for _, dep := range allowedDepartments {
+			dep = strings.ToUpper(dep)
+			depUser := strings.ToUpper(user.Department)
+			if depUser == dep || strings.HasPrefix(depUser, dep+" ") {
+				user.Demo = false
+			}
+		}
+	}
+
 	// Save updated attributes. Additional attributes outside of this function may have been updated by a loader
 	// plugin, so save should update all user attributes, except the sensitive/internal ones (ID, e-mail, password,
 	// admin, db password). A loader may also have set a user to inactive.
 	_, errSave := user.Save(
-		"ssoid", "company", "department", "last_login", "active", "name", "surname", "gender", "certificate")
+		"ssoid", "company", "department", "last_login", "active", "name", "surname", "gender", "demo", "certificate")
 	if errSave != nil {
 		return nil, errSave
 	}
@@ -184,7 +200,7 @@ func doLogin(logger scanUtils.Logger, user *database.T_user) (errUser, errIntern
 	}
 
 	// Log event
-	errEvent := database.NewEvent(user, database.EventLogin, "")
+	errEvent := database.NewEvent(user, database.EventLogin, vhost)
 	if errEvent != nil {
 		logger.Errorf("Could not create event log: %s", errEvent)
 		return nil, errEvent

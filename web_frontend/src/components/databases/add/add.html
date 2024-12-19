@@ -1,0 +1,71 @@
+<div id="divDatabasesAdd" style="display: none; margin-bottom: 56px;">
+    <h2 class="ui dividing header">
+        Add Database
+    </h2>
+    <form class="ui form" data-bind="submit: submitDatabase">
+        <div class="fields">
+
+            <div class="required five wide field">
+                <label for="inputName">Name</label>
+                <input id="inputName" type="text" placeholder="Database Name" data-bind="textInput: databaseName">
+            </div>
+            <div class="required five wide field">
+                <label for="inputDialect">Dialect</label>
+                <input id="inputDialect" type="text" placeholder="postgres" data-bind="textInput: databaseDialect">
+            </div>
+            <div class="required five wide field">
+                <label for="inputAdmin">Admin User</label>
+                <input id="inputAdmin" type="text" placeholder="postgres" data-bind="textInput: databaseAdmin">
+            </div>
+            <div class="five wide field">
+                <label for="inputPassword">
+                    Password
+                    <span
+                            data-html="A password is required. Leave the password empty, if you do not want to update it"
+                            data-position="right center" data-variation="tiny">
+                        <i class="question circle outline icon"></i>
+                    </span>
+                </label>
+                <input id="inputPassword" type="password" placeholder="**********"
+                       data-bind="textInput: databasePassword">
+            </div>
+
+
+        </div>
+
+
+        <div class="fields">
+
+            <div class="required five wide field">
+                <label for="inputHost">Host</label>
+                <input id="inputHost" type="text" placeholder="Database Host" data-bind="textInput: databaseHost">
+            </div>
+            <div class="required five wide field">
+                <label for="inputHostPublic">Host Public</label>
+                <input id="inputHostPublic" type="text" placeholder="Database Host Public"
+                       data-bind="textInput: databaseHostPublic">
+            </div>
+            <div class="required five wide field">
+                <label for="inputPort">Port</label>
+                <input id="inputPort" type="text" placeholder="Database Port" data-bind="textInput: databasePort">
+            </div>
+            <div class="required five wide field">
+                <label for="inputArgs">Connection Args</label>
+                <input id="inputArgs" type="text" placeholder="sslmode&equals;verify-ca"
+                       data-bind="textInput: databaseArgs">
+            </div>
+        </div>
+
+        <div class="ui middle aligned grid">
+
+            <div class="sixteen wide column">
+                <div class="ui right floated buttons">
+                    <button class="ui button" type="button" data-bind="click: dispose">Cancel</button>
+                    <div class="or"></div>
+                    <button class="ui teal button" type="button" data-bind="click: submitDatabase">Create</button>
+                </div>
+            </div>
+        </div>
+
+    </form>
+</div>

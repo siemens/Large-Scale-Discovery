@@ -153,7 +153,7 @@ func SaveDiscoveryResult(
 			logger.Infof("Discovery target '%d' does not exist anymore. Dropping result.", idTDiscovery)
 			return nil
 		} else if errDb != nil {
-			return fmt.Errorf("could not query meta data from scope db: %s", errDb)
+			return fmt.Errorf("could not query metadata from scope db: %s", errDb)
 		}
 
 		// Drop scan result if the scan input entry was reset (e.g. to initiate a fresh scan)
@@ -374,7 +374,7 @@ func SaveDiscoveryResult(
 		if len(hostEntries) > 0 {
 
 			// Use a new gorm session and force a limit on how many Entries can be batched, as we otherwise might
-			// exceed PostgreSQLs limit of 65535 parameters
+			// exceed the database's limit of 65535 parameters
 			errDb2 := txScopeDb.
 				Session(&gorm.Session{CreateBatchSize: managerdb.MaxBatchSizeDiscoveryHost}).
 				Create(&hostEntries).Error
@@ -390,7 +390,7 @@ func SaveDiscoveryResult(
 		if len(serviceEntries) > 0 {
 
 			// Use a new gorm session and force a limit on how many Entries can be batched, as we otherwise might
-			// exceed PostgreSQLs limit of 65535 parameters
+			// exceed the database's limit of 65535 parameters
 			errDb3 := txScopeDb.
 				Session(&gorm.Session{CreateBatchSize: managerdb.MaxBatchSizeDiscoveryService}).
 				Create(&serviceEntries).Error
@@ -406,7 +406,7 @@ func SaveDiscoveryResult(
 		if len(scriptEntries) > 0 {
 
 			// Use a new gorm session and force a limit on how many Entries can be batched, as we otherwise might
-			// exceed PostgreSQLs limit of 65535 parameters
+			// exceed the database's limit of 65535 parameters
 			errDb4 := txScopeDb.
 				Session(&gorm.Session{CreateBatchSize: managerdb.MaxBatchSizeDiscoveryScript}).
 				Create(&scriptEntries).Error

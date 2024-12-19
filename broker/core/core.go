@@ -73,19 +73,21 @@ func Init() error {
 	managerdb.SetMaxConnectionsDefault(conf.DbConnections)
 
 	// Prepare broker key and certificate path
-	rpcServerCrt = filepath.Join("keys", "broker.crt")
-	rpcServerKey = filepath.Join("keys", "broker.key")
-	if _build.DevMode {
-		rpcServerCrt = filepath.Join("keys", "broker_dev.crt")
-		rpcServerKey = filepath.Join("keys", "broker_dev.key")
-	}
-	errServerCrt := scanUtils.IsValidFile(rpcServerCrt)
-	if errServerCrt != nil {
-		return errServerCrt
-	}
-	errServerKey := scanUtils.IsValidFile(rpcServerKey)
-	if errServerKey != nil {
-		return errServerKey
+	if conf.ListenAddressSsl {
+		rpcServerCrt = filepath.Join("keys", "broker.crt")
+		rpcServerKey = filepath.Join("keys", "broker.key")
+		if _build.DevMode {
+			rpcServerCrt = filepath.Join("keys", "broker_dev.crt")
+			rpcServerKey = filepath.Join("keys", "broker_dev.key")
+		}
+		errServerCrt := scanUtils.IsValidFile(rpcServerCrt)
+		if errServerCrt != nil {
+			return errServerCrt
+		}
+		errServerKey := scanUtils.IsValidFile(rpcServerKey)
+		if errServerKey != nil {
+			return errServerKey
+		}
 	}
 
 	// Prepare RPC certificate path
@@ -111,7 +113,7 @@ func Init() error {
 	}
 
 	// Initialize RPC client manager facing
-	rpcClient = utils.NewRpcClient(conf.ManagerAddress, rpcRemoteCrt)
+	rpcClient = utils.NewRpcClient(conf.ManagerAddress, conf.ManagerAddressSsl, rpcRemoteCrt)
 
 	// Connect to manager and wait for successful connection. Abort on shutdown request.
 	success := rpcClient.Connect(logger, true)

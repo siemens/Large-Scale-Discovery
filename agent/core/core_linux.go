@@ -22,15 +22,17 @@ import (
 	broker "github.com/siemens/Large-Scale-Discovery/broker/core"
 )
 
-// osInitModules sets the scan modules that can be run under the current OS and depending on the configuration
-func osInitModules() {
-	moduleInstances.Set(discovery.Label, 0)
-	moduleInstances.Set(banner.Label, 0)
-	moduleInstances.Set(nfs.Label, 0)
-	moduleInstances.Set(ssh.Label, 0)
-	moduleInstances.Set(ssl.Label, 0)
-	moduleInstances.Set(webcrawler.Label, 0)
-	moduleInstances.Set(webenum.Label, 0)
+// initModules sets the scan modules that can be run under the current OS and depending on the configuration
+func initModules(scanScopeSecrets []string) {
+	InitScopeCounters(scanScopeSecrets, []string{
+		discovery.Label,
+		banner.Label,
+		nfs.Label,
+		ssh.Label,
+		ssl.Label,
+		webcrawler.Label,
+		webenum.Label,
+	})
 }
 
 // launch crates a task for a given scan module if there is an implementation for this OS
@@ -53,7 +55,7 @@ func launch(logger scanUtils.Logger, chOut chan broker.ArgsSaveScanResult, scanT
 	case webenum.Label:
 		go launchWebenum(chOut, scanTask)
 	default:
-		logger.Warningf("Invalid scan module '%s' (ID %d).", scanTask.Label)
-		decreaseUsageModule(scanTask.Label)
+		logger.Warningf("Invalid scan module '%s'.", scanTask.Label)
+		DecrementModuleCount(scanTask.Secret, scanTask.Label)
 	} // Switch End
 }

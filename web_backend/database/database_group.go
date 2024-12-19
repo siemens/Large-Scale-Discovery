@@ -27,6 +27,7 @@ type T_group struct {
 	Name       string    `gorm:"column:name;not null" json:"name"`
 	Created    time.Time `gorm:"column:created;not null;default:CURRENT_TIMESTAMP" json:"created"`
 	CreatedBy  string    `gorm:"column:created_by;not null" json:"created_by"`
+	DbServerId uint64    `gorm:"column:db_server_id;not null;default:1" json:"db_server_id"`
 	MaxScopes  int       `gorm:"column:max_scopes;not null" json:"max_scopes"`
 	MaxViews   int       `gorm:"column:max_views;not null" json:"max_views"`
 	MaxTargets int       `gorm:"column:max_targets;not null" json:"max_targets"`

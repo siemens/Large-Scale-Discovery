@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -23,7 +23,9 @@ define(["knockout", "text!./list.html", "postbox", "jquery", "jquery-tablesort",
             "snic": "scopes-add-networks",
         }
 
+        /////////////////////////
         // VIEWMODEL CONSTRUCTION
+        /////////////////////////
         function ViewModel(params) {
 
             // Keep reference to PARENT view model context
@@ -184,6 +186,39 @@ define(["knockout", "text!./list.html", "postbox", "jquery", "jquery-tablesort",
                     );
                 },
                 data.name
+            );
+        };
+
+        // VIEWMODEL ACTION
+        ViewModel.prototype.rescanFailedTargets = function (data, event) {
+
+            // Keep reference THIS view model context
+            var ctx = this;
+
+            // Request approval and only proceed if action is approved
+            confirmOverlay(
+                "recycle",
+                "Rescan Failed Targets",
+                "This will reset all failed scan targets within the current scan cycle. They will be scanned again starting with a full discovery port scan.<br />Are you sure you want to rescan all failed scan targets of <span class=\"ui red text\">'" + data.name + "'</span>?",
+                function () {
+
+                    // Handle request success
+                    const callbackSuccess = function (response, textStatus, jqXHR) {
+
+                        // Show toast message for user
+                        toast(response.message, "success");
+                    };
+
+                    // Send request
+                    apiCall(
+                        "POST",
+                        "/api/v1/scope/rescan",
+                        {},
+                        {"id": data.id},
+                        callbackSuccess,
+                        null
+                    );
+                }
             );
         };
 
