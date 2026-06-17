@@ -12,25 +12,27 @@ package core
 
 import (
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/siemens/GoScans/banner"
 	"github.com/siemens/GoScans/discovery"
 	"github.com/siemens/GoScans/filecrawler"
 	"github.com/siemens/GoScans/nfs"
+	"github.com/siemens/GoScans/nuclei"
 	"github.com/siemens/GoScans/ssh"
 	"github.com/siemens/GoScans/ssl"
-	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/GoScans/webcrawler"
 	"github.com/siemens/GoScans/webenum"
 	"github.com/siemens/Large-Scale-Discovery/agent/config"
 	broker "github.com/siemens/Large-Scale-Discovery/broker/core"
 	"github.com/siemens/Large-Scale-Discovery/log"
 	"github.com/siemens/Large-Scale-Discovery/utils"
-	"strings"
-	"time"
 )
 
-const SslOsTruststoreFile = "./data/os_truststore.pem"
-const WebenumProbesFile = "./data/webenum_probes.txt"
+const pathNucleiTemplatesFolder = "./data/nuclei_templates/"
+const pathSslOsTruststoreFile = "./data/os_truststore.pem"
+const pathWebenumProbesFile = "./data/webenum_probes.txt"
 
 func launchBanner(
 	chResults chan broker.ArgsSaveScanResult,
@@ -43,7 +45,7 @@ func launchBanner(
 	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-%d", label, scanTask.Id))
 	logger.Debugf("Initializing scan.")
 
-	// Catch potential panics to gracefully log issue with stacktrace
+	// Catch potential panics to gracefully log issue
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -53,16 +55,12 @@ func launchBanner(
 	}()
 
 	// Decrease the module usage counter
-	defer decreaseUsageModule(label)
+	defer DecrementModuleCount(scanTask.Secret, label)
 
 	// Prepare result template that can be returned to the broker
 	rpcArgs := broker.ArgsSaveScanResult{
-		AgentInfo: broker.AgentInfo{
-			Name: instanceName,
-			Host: instanceHostname,
-			Ip:   instanceIp,
-		},
-		ScopeSecret: scopeSecret,
+		AgentInfo:   instanceInfo,
+		ScopeSecret: scanTask.Secret,
 		Id:          scanTask.Id,
 	}
 
@@ -79,12 +77,21 @@ func launchBanner(
 		networkTimeout,
 	)
 	if errScan != nil {
-		logger.Warningf("%s scan initialization failed: %s", label, errScan)
+
+		// Log issue
+		logger.Errorf("%s scan initialization failed: %s", label, errScan)
+
+		// Forward issue to broker
 		rpcArgs.Result = &banner.Result{
 			Exception: true,
 			Status:    fmt.Sprintf("%s scan initialization failed: %s", label, errScan.Error()),
 		}
 		chResults <- rpcArgs
+
+		// Shutdown agent as this is a critical issue
+		Shutdown()
+
+		// Return
 		return
 	}
 
@@ -109,7 +116,7 @@ func launchDiscovery(
 	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-%d", label, scanTask.Id))
 	logger.Debugf("Initializing scan.")
 
-	// Catch potential panics to gracefully log issue with stacktrace
+	// Catch potential panics to gracefully log issue
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -119,113 +126,52 @@ func launchDiscovery(
 	}()
 
 	// Decrease the module usage counter
-	defer decreaseUsageModule(label)
+	defer DecrementModuleCount(scanTask.Secret, label)
 
 	// Get config
 	conf := config.GetConfig()
 
 	// Prepare result template that can be returned to the broker
-	rpcArgs := broker.ArgsSaveScanResult{
-		AgentInfo: broker.AgentInfo{
-			Name: instanceName,
-			Host: instanceHostname,
-			Ip:   instanceIp,
-		},
-		ScopeSecret: scopeSecret,
+	rpcResult := broker.ArgsSaveScanResult{
+		AgentInfo:   instanceInfo,
+		ScopeSecret: scanTask.Secret,
 		Id:          scanTask.Id,
 	}
 
-	// Prepare variables
+	// Prepare pre-scan Nmap arguments
+	var nmapArgs = strings.Split(scanTask.ScanSettings.DiscoveryNmapArgs, " ") // Nmap's arguments for the main port scan
 	var nmapArgsPreScan []string
-	var excludeDomains []string
-	networkTimeout := time.Second * time.Duration(scanTask.ScanSettings.NetworkTimeoutSeconds)
-	nmapArgs := strings.Split(scanTask.ScanSettings.DiscoveryNmapArgs, " ") // Nmap arguments for the main port scan scan
-	if len(scanTask.ScanSettings.DiscoveryNmapArgsPrescan) > 0 {
-		nmapArgsPreScan = strings.Split(scanTask.ScanSettings.DiscoveryNmapArgsPrescan, " ") // Nmap arguments for a smaller pre-scan intended to discover some scan results before an IDS might block
+	if len(scanTask.ScanSettings.DiscoveryNmapArgsPrescan) > 0 { // Prepare Nmap arguments for a smaller pre-scan intended to discover some scan results before an IDS might block
+		nmapArgsPreScan = strings.Split(scanTask.ScanSettings.DiscoveryNmapArgsPrescan, " ")
 	}
+
+	// Inject sensitive ports into existing Nmap args
+	nmapArgs = nmapArgsAddSensitivePorts(nmapArgs, scanTask.ScanSettings.SensitivePorts)
+	nmapArgsPreScan = nmapArgsAddSensitivePorts(nmapArgsPreScan, scanTask.ScanSettings.SensitivePorts)
+
+	// Prepare network timeout
+	networkTimeout := time.Second * time.Duration(scanTask.ScanSettings.NetworkTimeoutSeconds)
+
+	// Prepare exclude domains
+	var excludeDomains []string
 	if len(scanTask.ScanSettings.DiscoveryExcludeDomains) > 0 {
 		excludeDomains = strings.Split(strings.Replace(scanTask.ScanSettings.DiscoveryExcludeDomains, " ", "", -1), ",")
 	}
 
-	// Classify whether target is reachable via IPv4 and/or IPv6
-	hasV4Ips, hasV6Ips := classifyInput(scanTask.Target)
+	// Decide whether to launch an OT scan or a normal nmap scan without special OT discovery
+	if scanTask.ScanSettings.Ot {
 
-	// Skip scan if to scan target could be resolved
-	if !hasV4Ips && !hasV6Ips {
-		logger.Debugf("Target could not be resolved.")
-		rpcArgs.Result = &discovery.Result{
-			Data:      nil,
-			Status:    scanUtils.StatusNotReachable,
-			Exception: false,
-		}
-		chResults <- rpcArgs
-		return
+		// When the scope has OT discovery set to true the agent always auto-detects its own subnet(s) and
+		// runs Nmap + OT discovery protocols there, ignoring scanTask.Target. The Target field on later
+		// cycles holds the previously detected CIDR (filled by the broker for display purposes), but the
+		// agent still auto-detects from its interfaces every cycle.
+		rpcResult = launchDiscoveryOt(logger, label, nmapArgs, networkTimeout, excludeDomains, conf, rpcResult)
+	} else {
+		rpcResult = launchDiscoveryIt(logger, label, scanTask.Target, nmapArgs, nmapArgsPreScan, networkTimeout, excludeDomains, conf, rpcResult)
 	}
-
-	// Prepare scan input classified by IPv4/v6
-	targetV4 := make([]string, 0, 1)
-	targetV6 := make([]string, 0, 1)
-	if hasV4Ips {
-		targetV4 = append(targetV4, scanTask.Target)
-	}
-	if hasV6Ips {
-		targetV6 = append(targetV6, scanTask.Target)
-	}
-
-	// Execute pre-scan with minimum settings trying to discover some likely data where bigger scans might fail (e.g.
-	// due to IPS systems going on or unexpected timeouts), in order to register some more hosts that might remain
-	// undiscovered otherwise.
-	var resultPreScan *discovery.Result
-	if len(nmapArgsPreScan) > 0 {
-		logger.Debugf("Executing pre-scan.")
-		var errPreScan error
-		resultPreScan, errPreScan = executeDiscoveryScan(logger, label, targetV4, targetV6, conf, networkTimeout, nmapArgsPreScan, excludeDomains)
-		if resultPreScan == nil {
-			return
-		}
-		if errPreScan != nil {
-			rpcArgs.Result = resultPreScan
-			chResults <- rpcArgs
-			return
-		}
-	}
-
-	// Execute actual scan of the target
-	logger.Debugf("Executing main scan.")
-	result, errScan := executeDiscoveryScan(logger, label, targetV4, targetV6, conf, networkTimeout, nmapArgs, excludeDomains)
-	if result == nil {
-		return
-	}
-	if errScan != nil {
-		rpcArgs.Result = result
-		chResults <- rpcArgs
-		return
-	}
-
-	// Prepare map of IPs where the actual port scan succeeded (delivered something)
-	hostsDiscovered := make(map[string]struct{})
-	for _, host := range result.Data {
-		hostsDiscovered[host.Ip] = struct{}{}
-	}
-
-	// Find hosts where the actual scan didn't deliver results, but the pre-scan did. Add those pre-scan results to
-	// the actual scan results.
-	// ATTENTION: If the actual scan ran into its deadline it didn't scan any results at all. Pre-scan results will be
-	// 			  injected as fallback.
-	if resultPreScan != nil {
-		for _, hostPreScan := range resultPreScan.Data {
-			if _, hostDiscovered := hostsDiscovered[hostPreScan.Ip]; !hostDiscovered {
-				logger.Infof("Injecting pre-scan result of '%s'.", hostPreScan.Ip)
-				result.Data = append(result.Data, hostPreScan)
-			}
-		}
-	}
-
-	// Update result template with actual results
-	rpcArgs.Result = result
 
 	// Forward the result
-	chResults <- rpcArgs
+	chResults <- rpcResult
 }
 
 func launchNfs(
@@ -239,7 +185,7 @@ func launchNfs(
 	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-%d", label, scanTask.Id))
 	logger.Debugf("Initializing scan.")
 
-	// Catch potential panics to gracefully log issue with stacktrace
+	// Catch potential panics to gracefully log issue
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -249,25 +195,21 @@ func launchNfs(
 	}()
 
 	// Decrease the module usage counter
-	defer decreaseUsageModule(label)
+	defer DecrementModuleCount(scanTask.Secret, label)
 
 	// Prepare result template that can be returned to the broker
 	rpcArgs := broker.ArgsSaveScanResult{
-		AgentInfo: broker.AgentInfo{
-			Name: instanceName,
-			Host: instanceHostname,
-			Ip:   instanceIp,
-		},
-		ScopeSecret: scopeSecret,
+		AgentInfo:   instanceInfo,
+		ScopeSecret: scanTask.Secret,
 		Id:          scanTask.Id,
 	}
 
 	// Prepare variables
 	scanTimeout := time.Minute * time.Duration(scanTask.ScanSettings.NfsScanTimeoutMinutes)
 	networkTimeout := time.Second * time.Duration(scanTask.ScanSettings.NetworkTimeoutSeconds)
-	excludedShares := utils.ToSlice(scanTask.ScanSettings.NfsExcludeShares, ",")
-	excludedFolders := utils.ToSlice(scanTask.ScanSettings.NfsExcludeFolders, ",")
-	excludedExtensions := utils.ToSlice(scanTask.ScanSettings.NfsExcludeExtensions, ",")
+	excludedShares := utils.SanitizeToSlice(scanTask.ScanSettings.NfsExcludeShares, ",")
+	excludedFolders := utils.SanitizeToSlice(scanTask.ScanSettings.NfsExcludeFolders, ",")
+	excludedExtensions := utils.SanitizeToSlice(scanTask.ScanSettings.NfsExcludeExtensions, ",")
 
 	// Initiate scanner
 	scan, errScan := nfs.NewScanner(
@@ -284,7 +226,11 @@ func launchNfs(
 		networkTimeout,
 	)
 	if errScan != nil {
-		logger.Warningf("%s scan initialization failed: %s", label, errScan)
+
+		// Log issue
+		logger.Errorf("%s scan initialization failed: %s", label, errScan)
+
+		// Forward issue to broker
 		rpcArgs.Result = &nfs.Result{
 			Result: filecrawler.Result{
 				Exception: true,
@@ -292,6 +238,108 @@ func launchNfs(
 			},
 		}
 		chResults <- rpcArgs
+
+		// Shutdown agent as this is a critical issue
+		Shutdown()
+
+		// Return
+		return
+	}
+
+	// Execute the scan
+	result := scan.Run(scanTimeout)
+
+	// Update result template with actual results
+	rpcArgs.Result = result
+
+	// Forward the result
+	chResults <- rpcArgs
+}
+
+func launchNuclei(
+	chResults chan broker.ArgsSaveScanResult,
+	scanTask *broker.ScanTask,
+) {
+
+	label := nuclei.Label
+
+	// Get tagged logger
+	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-%d", label, scanTask.Id))
+	logger.Debugf("Initializing scan.")
+
+	// Catch potential panics to gracefully log issue with stacktrace
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("Panic: %s", r)
+			Shutdown() // Shutdown the agent for safety reasons. It should neither end in a stuck state, nor suck all
+			// scan targets from the broker transforming them into crashed tasks. This panic might be a severe issue!
+		}
+	}()
+
+	// Decrease the module usage counter
+	defer DecrementModuleCount(scanTask.Secret, label)
+
+	// Get config
+	conf := config.GetConfig()
+
+	// Prepare result template that can be returned to the broker
+	rpcArgs := broker.ArgsSaveScanResult{
+		AgentInfo:   instanceInfo,
+		ScopeSecret: scanTask.Secret,
+		Id:          scanTask.Id,
+	}
+
+	// Prepare variables
+	scanTimeout := time.Minute * time.Duration(scanTask.ScanSettings.NucleiScanTimeoutMinutes)
+
+	// Pass nil for host based scans
+	scanPort := func(p int) *int {
+		if p == -1 {
+			return nil
+		}
+		return &p
+	}(scanTask.Port)
+
+	// Append correct scheme for http(s) services
+	target := scanTask.Target
+	if scanTask.Service == "http" || scanTask.Service == "https" {
+		target = scanTask.Service + "://" + target
+	}
+
+	// Initiate scanner
+	scan, errScan := nuclei.NewScanner(
+		logger,
+		target,
+		scanPort,
+		pathNucleiTemplatesFolder,
+		scanTask.ScanSettings.NucleiIncludeSeverities,
+		scanTask.ScanSettings.NucleiExcludeSeverities,
+		utils.SanitizeToSlice(scanTask.ScanSettings.NucleiIncludeTags, ","),
+		utils.SanitizeToSlice(scanTask.ScanSettings.NucleiExcludeTags, ","),
+		utils.SanitizeToSlice(scanTask.ScanSettings.NucleiIncludeIds, ","),
+		utils.SanitizeToSlice(scanTask.ScanSettings.NucleiExcludeIds, ","),
+		scanTask.ScanSettings.NucleiIncludeProtocols,
+		scanTask.ScanSettings.NucleiExcludeProtocols,
+		conf.Authentication.Nuclei.User,
+		conf.Authentication.Nuclei.Password,
+		"",
+	)
+	if errScan != nil {
+
+		// Log issue
+		logger.Errorf("%s scan initialization failed: %s", label, errScan)
+
+		// Forward issue to broker
+		rpcArgs.Result = &nuclei.Result{
+			Exception: true,
+			Status:    fmt.Sprintf("%s scan initialization failed: %s", label, errScan.Error()),
+		}
+		chResults <- rpcArgs
+
+		// Shutdown agent as this is a critical issue
+		Shutdown()
+
+		// Return
 		return
 	}
 
@@ -316,7 +364,7 @@ func launchSsh(
 	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-%d", label, scanTask.Id))
 	logger.Debugf("Initializing scan.")
 
-	// Catch potential panics to gracefully log issue with stacktrace
+	// Catch potential panics to gracefully log issue
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -326,16 +374,12 @@ func launchSsh(
 	}()
 
 	// Decrease the module usage counter
-	defer decreaseUsageModule(label)
+	defer DecrementModuleCount(scanTask.Secret, label)
 
 	// Prepare result template that can be returned to the broker
 	rpcArgs := broker.ArgsSaveScanResult{
-		AgentInfo: broker.AgentInfo{
-			Name: instanceName,
-			Host: instanceHostname,
-			Ip:   instanceIp,
-		},
-		ScopeSecret: scopeSecret,
+		AgentInfo:   instanceInfo,
+		ScopeSecret: scanTask.Secret,
 		Id:          scanTask.Id,
 	}
 
@@ -351,12 +395,21 @@ func launchSsh(
 		networkTimeout,
 	)
 	if errScan != nil {
-		logger.Warningf("%s scan initialization failed: %s", label, errScan)
+
+		// Log issue
+		logger.Errorf("%s scan initialization failed: %s", label, errScan)
+
+		// Forward issue to broker
 		rpcArgs.Result = &ssh.Result{
 			Exception: true,
 			Status:    fmt.Sprintf("%s scan initialization failed: %s", label, errScan.Error()),
 		}
 		chResults <- rpcArgs
+
+		// Shutdown agent as this is a critical issue
+		Shutdown()
+
+		// Return
 		return
 	}
 
@@ -381,7 +434,7 @@ func launchSsl(
 	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-%d", label, scanTask.Id))
 	logger.Debugf("Initializing scan.")
 
-	// Catch potential panics to gracefully log issue with stacktrace
+	// Catch potential panics to gracefully log issue
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -391,19 +444,15 @@ func launchSsl(
 	}()
 
 	// Decrease the module usage counter
-	defer decreaseUsageModule(label)
+	defer DecrementModuleCount(scanTask.Secret, label)
 
 	// Get config
 	conf := config.GetConfig()
 
 	// Prepare result template that can be returned to the broker
 	rpcArgs := broker.ArgsSaveScanResult{
-		AgentInfo: broker.AgentInfo{
-			Name: instanceName,
-			Host: instanceHostname,
-			Ip:   instanceIp,
-		},
-		ScopeSecret: scopeSecret,
+		AgentInfo:   instanceInfo,
+		ScopeSecret: scanTask.Secret,
 		Id:          scanTask.Id,
 	}
 
@@ -413,7 +462,7 @@ func launchSsl(
 	// Decide trust store file to use (OS-generated or custom one)
 	var sslyzeAdditionalTruststore string
 	if len(conf.Modules.Ssl.CustomTruststoreFile) == 0 {
-		sslyzeAdditionalTruststore = SslOsTruststoreFile
+		sslyzeAdditionalTruststore = pathSslOsTruststoreFile
 	} else {
 		sslyzeAdditionalTruststore = conf.Modules.Ssl.CustomTruststoreFile
 	}
@@ -428,13 +477,34 @@ func launchSsl(
 		conf,
 	)
 	if errScan != nil {
-		logger.Warningf("%s scan initialization failed: %s", label, errScan)
-		rpcArgs.Result = &ssl.Result{
-			Exception: true,
-			Status:    fmt.Sprintf("%s scan initialization failed: %s", label, errScan.Error()),
+
+		// Return suitable error or pass through original exit status
+		switch {
+		case strings.Contains(errScan.Error(), "exit status 0xc000013a"): // Exit code for ctrl+c on Windows
+			logger.Debugf("%s scan initialization interrupted.", label)
+			return
+		case strings.Contains(errScan.Error(), "exit status 130"): // Exit code for ctrl+c on Linux
+			logger.Debugf("%s scan initialization interrupted.", label)
+			return
+		// TODO: Add clauses for other known exit codes we might want to define closer.
+		default:
+
+			// Log issue
+			logger.Errorf("%s scan initialization failed: %s", label, errScan)
+
+			// Forward issue to broker
+			rpcArgs.Result = &ssl.Result{
+				Exception: true,
+				Status:    fmt.Sprintf("%s scan initialization failed: %s", label, errScan.Error()),
+			}
+			chResults <- rpcArgs
+
+			// Shutdown agent as this is a critical issue
+			Shutdown()
+
+			// Return
+			return
 		}
-		chResults <- rpcArgs
-		return
 	}
 
 	// Execute the scan
@@ -458,7 +528,7 @@ func launchWebcrawler(
 	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-%d", label, scanTask.Id))
 	logger.Debugf("Initializing scan.")
 
-	// Catch potential panics to gracefully log issue with stacktrace
+	// Catch potential panics to gracefully log issue
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -468,19 +538,15 @@ func launchWebcrawler(
 	}()
 
 	// Decrease the module usage counter
-	defer decreaseUsageModule(label)
+	defer DecrementModuleCount(scanTask.Secret, label)
 
 	// Get config
 	conf := config.GetConfig()
 
 	// Prepare result template that can be returned to the broker
 	rpcArgs := broker.ArgsSaveScanResult{
-		AgentInfo: broker.AgentInfo{
-			Name: instanceName,
-			Host: instanceHostname,
-			Ip:   instanceIp,
-		},
-		ScopeSecret: scopeSecret,
+		AgentInfo:   instanceInfo,
+		ScopeSecret: scanTask.Secret,
 		Id:          scanTask.Id,
 	}
 
@@ -516,12 +582,21 @@ func launchWebcrawler(
 		networkTimeout,
 	)
 	if errScan != nil {
-		logger.Warningf("%s scan initialization failed: %s", label, errScan)
+
+		// Log issue
+		logger.Errorf("%s scan initialization failed: %s", label, errScan)
+
+		// Forward issue to broker
 		rpcArgs.Result = &webcrawler.Result{
 			Exception: true,
 			Status:    fmt.Sprintf("%s scan initialization failed: %s", label, errScan.Error()),
 		}
 		chResults <- rpcArgs
+
+		// Shutdown agent as this is a critical issue
+		Shutdown()
+
+		// Return
 		return
 	}
 
@@ -558,7 +633,7 @@ func launchWebenum(
 	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-%d", label, scanTask.Id))
 	logger.Debugf("Initializing scan.")
 
-	// Catch potential panics to gracefully log issue with stacktrace
+	// Catch potential panics to gracefully log issue
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -568,19 +643,15 @@ func launchWebenum(
 	}()
 
 	// Decrease the module usage counter
-	defer decreaseUsageModule(label)
+	defer DecrementModuleCount(scanTask.Secret, label)
 
 	// Get config
 	conf := config.GetConfig()
 
 	// Prepare result template that can be returned to the broker
 	rpcArgs := broker.ArgsSaveScanResult{
-		AgentInfo: broker.AgentInfo{
-			Name: instanceName,
-			Host: instanceHostname,
-			Ip:   instanceIp,
-		},
-		ScopeSecret: scopeSecret,
+		AgentInfo:   instanceInfo,
+		ScopeSecret: scanTask.Secret,
 		Id:          scanTask.Id,
 	}
 
@@ -604,19 +675,28 @@ func launchWebenum(
 		conf.Authentication.Webenum.Domain,
 		conf.Authentication.Webenum.User,
 		conf.Authentication.Webenum.Password,
-		WebenumProbesFile,
+		pathWebenumProbesFile,
 		scanTask.ScanSettings.WebenumProbeRobots,
 		scanTask.ScanSettings.HttpUserAgent,
 		"",
 		networkTimeout,
 	)
 	if errScan != nil {
-		logger.Warningf("%s scan initialization failed: %s", label, errScan)
+
+		// Log issue
+		logger.Errorf("%s scan initialization failed: %s", label, errScan)
+
+		// Forward issue to broker
 		rpcArgs.Result = &webenum.Result{
 			Exception: true,
 			Status:    fmt.Sprintf("%s scan initialization failed: %s", label, errScan.Error()),
 		}
 		chResults <- rpcArgs
+
+		// Shutdown agent as this is a critical issue
+		Shutdown()
+
+		// Return
 		return
 	}
 

@@ -14,7 +14,7 @@ import (
 	"testing"
 )
 
-func TestCreatePassword(t *testing.T) {
+func TestCheckPasswordHash(t *testing.T) {
 
 	// Prepare and run test cases
 	type args struct {
@@ -23,15 +23,15 @@ func TestCreatePassword(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		wantErr error
+		wantErr bool
 	}{
-		{"match", args{"password"}, nil},
+		{"match", args{"password"}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			hash, _ := CreatePasswordHash(tt.args.pwd)
-			if got := CheckPasswordHash(hash, tt.args.pwd); got != tt.wantErr {
-				t.Errorf("CreatePasswordHash(): %v, want = '%v'", got, tt.wantErr)
+			if got := CheckPasswordHash(hash, tt.args.pwd); (got != nil) != tt.wantErr {
+				t.Errorf("CheckPasswordHash() = '%v', wantErr = '%v'", got, tt.wantErr)
 			}
 		})
 	}

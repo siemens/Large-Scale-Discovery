@@ -19,17 +19,19 @@
         <canvas id="canvasAccess"></canvas>
         <div class="ui aligned grid">
             <div class="right aligned column" style="padding-top: 0; padding-right: 29px">
+                <!-- Toggle order button -->
                 <span data-bind="attr: {'data-tooltip': datasetOrder() === 'count' ? 'Order by company' : 'Order by amount'}"
                       data-position="top center"
                       data-variation="tiny">
                     <i class="tiny grey icon"
                        data-bind="click: toggleOrder, class: datasetOrder() === 'count' ? 'circle' : 'circle outline'"></i>
                 </span>
-                <span data-bind="attr: {'data-tooltip': datasetAggregate() ? 'Don\'t aggregate' : 'Aggregate'}"
+                <!-- Toggle accumulate button -->
+                <span data-bind="attr: {'data-tooltip': datasetAccumulate() ? 'Don\'t accumulate' : 'Accumulate'}"
                       data-position="top center"
                       data-variation="tiny">
                     <i class="tiny grey icon"
-                       data-bind="click: toggleAggregate, class: datasetAggregate() ? 'circle' : 'circle outline'"></i>
+                       data-bind="click: toggleAccumulate, class: datasetAccumulate() ? 'circle' : 'circle outline'"></i>
                 </span>
             </div>
         </div>

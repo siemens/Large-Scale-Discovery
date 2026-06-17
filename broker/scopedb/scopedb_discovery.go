@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2024.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -14,14 +14,16 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/siemens/GoScans/discovery"
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/Large-Scale-Discovery/broker/brokerdb"
+	manager "github.com/siemens/Large-Scale-Discovery/manager/core"
 	managerdb "github.com/siemens/Large-Scale-Discovery/manager/database"
 	"github.com/siemens/Large-Scale-Discovery/utils"
 	"gorm.io/gorm"
-	"strings"
-	"time"
 )
 
 // GetBlockDiscoveryTargets queries the database for new discovery scan targets and blocks them
@@ -29,13 +31,13 @@ func GetBlockDiscoveryTargets(
 	logger scanUtils.Logger,
 	scanScope *managerdb.T_scan_scope,
 	amount int,
-	timezonesRanges [][]int, // List of timezone ranges currently relevant (within working hours)
+	timezonesActive []int, // List of timezone currently relevant (within configured working hours)
 	scanIp string,
 	scanHostname string,
 ) ([]managerdb.T_discovery, error) {
 
 	// Return if no timezones suite the current configuration
-	if len(timezonesRanges) < 1 {
+	if len(timezonesActive) == 0 {
 		logger.Infof("No timezones within the configured working hours.")
 		return []managerdb.T_discovery{}, nil
 	}
@@ -46,7 +48,7 @@ func GetBlockDiscoveryTargets(
 		return nil, fmt.Errorf("could not open scope database: %s", errHandle)
 	}
 
-	// Prepare query result
+	// Prepare memory for result
 	var targets []managerdb.T_discovery
 
 	// Start transaction on the scoped db. The new Transaction function will commit if the provided function
@@ -59,18 +61,7 @@ func GetBlockDiscoveryTargets(
 			Where("enabled IS TRUE")       // Enabled elements only
 
 		// Attach timezone condition
-		if len(timezonesRanges) > 0 {
-			clause := make([]string, 0, len(timezonesRanges))
-			clauseValues := make([]interface{}, 0, len(timezonesRanges)*2)
-			for _, r := range timezonesRanges {
-				clause = append(clause, "timezone BETWEEN ? AND ?")
-				clauseValues = append(clauseValues, r[0], r[1])
-			}
-			query = query.Where(
-				strings.Join(clause, " OR "),
-				clauseValues...,
-			)
-		}
+		query = query.Where("timezone IN (?)", timezonesActive)
 
 		// Attach constraints
 		query = query.
@@ -112,9 +103,12 @@ func GetBlockDiscoveryTargets(
 // to indicate a completed process.
 func SaveDiscoveryResult(
 	logger scanUtils.Logger,
+	rpcClient *utils.Client,
 	scanScope *managerdb.T_scan_scope,
 	idTDiscovery uint64, // T_discovery ID (not T_discovery_services!!), this result belongs to
 	result *discovery.Result,
+	resultSubnets []string, // During OT discovery scanning, scan targets are selected by the scan agent and taken from the local network interfaces. The data is then fed back to the broker for display.
+
 ) error {
 
 	// Log action
@@ -142,7 +136,7 @@ func SaveDiscoveryResult(
 		// Log database request
 		logger.Debugf("Querying discovery target data.")
 
-		// Prepare query result
+		// Prepare memory for result
 		var inputTarget = managerdb.T_discovery{}
 
 		// Get data from t_discovery which needs to replicated into t_discovery_hosts/t_discovery_services/t_discovery_scripts
@@ -150,16 +144,57 @@ func SaveDiscoveryResult(
 			Where("id = ?", idTDiscovery).
 			First(&inputTarget).Error
 		if errors.Is(errDb, gorm.ErrRecordNotFound) { // Check if entry didn't exist
-			logger.Infof("Discovery target '%d' does not exist anymore. Dropping result.", idTDiscovery)
+			logger.Infof("Discovery target %d does not exist anymore. Dropping result.", idTDiscovery)
 			return nil
 		} else if errDb != nil {
-			return fmt.Errorf("could not query meta data from scope db: %s", errDb)
+			return fmt.Errorf("could not query metadata from scope db: %s", errDb)
 		}
 
 		// Drop scan result if the scan input entry was reset (e.g. to initiate a fresh scan)
-		if inputTarget.ScanStarted.Valid == false {
-			logger.Infof("Discovery target '%d' was reset. Dropping result.", idTDiscovery)
+		if !inputTarget.ScanStarted.Valid {
+			logger.Infof("Discovery target %d was reset. Dropping result.", idTDiscovery)
 			return nil
+		}
+
+		// OT discovery scans do not have a preset scan target. The target depend on the agent's local
+		// network interfaces and is selected by the scan agent. However, a single generic target entry
+		// is generated for OT discovery scans, so that users can enter target attributes, such as
+		// location information, etc.
+		// The input column in t_discovery and the scan scope entry in t_scan_scopes now needs to be
+		// back-filled with data fed back by the agent.
+		if scanScope.ScanSettings.Ot {
+
+			// Log action
+			logger.Debugf("Back-filling OT input data.")
+
+			// Calculate input size
+			size := uint(0)
+			for _, resultSubnet := range resultSubnets {
+				subnetSize, errSubnetSize := utils.CountIpsInInput(resultSubnet)
+				if errSubnetSize != nil {
+					logger.Warningf("Could not calculate subnet size of '%s' to back-fill OT input data.", resultSubnet)
+				}
+				size += subnetSize
+			}
+
+			// Set input and input size based on scan results. This values also need to be updated in this
+			// struct for later use, when they are copied into scan result columns.
+			inputTarget.Input = strings.Join(resultSubnets, ",")
+			inputTarget.InputSize = size
+
+			// Update scan scope details in t_discovery (scopedb) and t_scan_scopes (managerdb) via the manager.
+			errRpc := manager.RpcUpdateScopeTargetOt(
+				logger,
+				rpcClient,
+				scanScope.Id,
+				inputTarget.Input,
+				inputTarget.InputSize,
+			)
+			if errors.Is(errRpc, utils.ErrRpcConnectivity) {
+				logger.Warningf("Could not back-fill OT input data into scan scope '%s' (ID %d), manager not reachable.", scanScope.Name, scanScope.Id)
+			} else if errRpc != nil {
+				logger.Errorf("Could not back-fill OT input data into scan scope '%s' (ID %d): %s", scanScope.Name, scanScope.Id, errRpc)
+			}
 		}
 
 		// Prepare scan finished timestamp
@@ -202,6 +237,7 @@ func SaveDiscoveryResult(
 				OtherNames: utils.ValidUtf8String(strings.Join(hostResult.OtherNames, DbValueSeparator)),
 				OtherIps:   utils.ValidUtf8String(strings.Join(hostResult.OtherIps, DbValueSeparator)),
 				Critical:   critical,
+				MacAddress: utils.ValidUtf8String(hostResult.MacAddress),
 				Hops:       utils.ValidUtf8String(strings.Join(hostResult.Hops, DbValueSeparator)),
 				ScanCycle:  scanScope.Cycle,
 			}
@@ -374,7 +410,7 @@ func SaveDiscoveryResult(
 		if len(hostEntries) > 0 {
 
 			// Use a new gorm session and force a limit on how many Entries can be batched, as we otherwise might
-			// exceed PostgreSQLs limit of 65535 parameters
+			// exceed the database's limit of 65535 parameters
 			errDb2 := txScopeDb.
 				Session(&gorm.Session{CreateBatchSize: managerdb.MaxBatchSizeDiscoveryHost}).
 				Create(&hostEntries).Error
@@ -390,7 +426,7 @@ func SaveDiscoveryResult(
 		if len(serviceEntries) > 0 {
 
 			// Use a new gorm session and force a limit on how many Entries can be batched, as we otherwise might
-			// exceed PostgreSQLs limit of 65535 parameters
+			// exceed the database's limit of 65535 parameters
 			errDb3 := txScopeDb.
 				Session(&gorm.Session{CreateBatchSize: managerdb.MaxBatchSizeDiscoveryService}).
 				Create(&serviceEntries).Error
@@ -406,7 +442,7 @@ func SaveDiscoveryResult(
 		if len(scriptEntries) > 0 {
 
 			// Use a new gorm session and force a limit on how many Entries can be batched, as we otherwise might
-			// exceed PostgreSQLs limit of 65535 parameters
+			// exceed the database's limit of 65535 parameters
 			errDb4 := txScopeDb.
 				Session(&gorm.Session{CreateBatchSize: managerdb.MaxBatchSizeDiscoveryScript}).
 				Create(&scriptEntries).Error
@@ -425,13 +461,14 @@ func SaveDiscoveryResult(
 		}
 
 		// Assemble the potential sub-targets, as the services now have valid IDs
-		// Attention: The sub targets can only be committed/created after the scope db transaction got committed, to
+		// Attention: The sub-targets can only be committed/created after the scope db transaction got committed, to
 		// avoid race conditions, where submodule targets are started before parent entries are available in scope db.
 		for _, service := range serviceEntries {
 
 			// Create generic submodule target, which might be added to the cache for multiple submodules
 			potentialSubTargets = append(potentialSubTargets, &brokerdb.T_sub_input{
 				IdTDiscoveryService: service.Id,
+				Timezone:            service.Timezone,
 				Address:             service.Address,
 				Ip:                  service.Ip,
 				DnsName:             service.DnsName,

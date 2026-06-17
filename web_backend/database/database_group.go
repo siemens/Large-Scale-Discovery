@@ -13,9 +13,10 @@ package database
 import (
 	"errors"
 	"fmt"
+	"time"
+
 	"github.com/microcosm-cc/bluemonday"
 	"gorm.io/gorm"
-	"time"
 )
 
 type T_group struct {
@@ -27,6 +28,7 @@ type T_group struct {
 	Name       string    `gorm:"column:name;not null" json:"name"`
 	Created    time.Time `gorm:"column:created;not null;default:CURRENT_TIMESTAMP" json:"created"`
 	CreatedBy  string    `gorm:"column:created_by;not null" json:"created_by"`
+	DbServerId uint64    `gorm:"column:db_server_id;not null;default:1" json:"db_server_id"`
 	MaxScopes  int       `gorm:"column:max_scopes;not null" json:"max_scopes"`
 	MaxViews   int       `gorm:"column:max_views;not null" json:"max_views"`
 	MaxTargets int       `gorm:"column:max_targets;not null" json:"max_targets"`
@@ -36,7 +38,7 @@ type T_group struct {
 	AllowNetwork bool `gorm:"column:allow_network;not null;default:false" json:"allow_network"`
 	AllowAsset   bool `gorm:"column:allow_asset;not null;default:false" json:"allow_asset"`
 
-	Ownerships []T_ownership `gorm:"foreignKey:IdTGroup" json:"ownerships"`
+	Ownerships []T_ownership `gorm:"foreignKey:IdTGroup;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"ownerships"`
 }
 
 // BeforeSave is a GORM hook that's executed every time the user object is written to the DB. This should be used to
@@ -200,7 +202,7 @@ func (group *T_group) AddOwner(user *T_user) error {
 // GetGroups gets all groups from the db
 func GetGroups() ([]T_group, error) {
 
-	// Declare query results
+	// Prepare memory for result
 	var entries = make([]T_group, 0, 3) // Initialize empty slice to avoid returning nil to frontend
 
 	// Execute query
@@ -218,7 +220,7 @@ func GetGroups() ([]T_group, error) {
 
 func GetGroupsOfUser(userId uint64) ([]T_group, error) {
 
-	// Declare query results
+	// Prepare memory for result
 	var entries = make([]T_group, 0, 3) // Initialize empty slice to avoid returning nil to frontend
 
 	// Execute query
@@ -236,28 +238,25 @@ func GetGroupsOfUser(userId uint64) ([]T_group, error) {
 	return entries, nil
 }
 
-// GetGroup searches a group by ID and returns a pointer to the found group. If no group is found, a nil pointer but no
-// error will be returned.
+// GetGroup searches a group by ID and returns a pointer to the found group.
+// If no entry is found, a nil pointer is returned, make sure to check it!
 func GetGroup(id uint64) (*T_group, error) {
 
-	// Declare query results
-	entries := make([]T_group, 0, 1)
+	// Prepare memory for result
+	var entry T_group
 
 	// Execute query
 	errDb := backendDb.
 		Preload("Ownerships").
 		Preload("Ownerships.User").
 		Where("id = ?", id).
-		Find(&entries).Error
-	if errDb != nil {
+		First(&entry).Error
+	if errors.Is(errDb, gorm.ErrRecordNotFound) {
+		return nil, nil
+	} else if errDb != nil {
 		return nil, errDb
 	}
 
-	// Return nil if no entries were found
-	if len(entries) < 1 {
-		return nil, nil
-	}
-
-	// Return entries
-	return &entries[0], nil
+	// Return result
+	return &entry, nil
 }

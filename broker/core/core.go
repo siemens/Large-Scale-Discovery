@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2024.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -14,6 +14,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/rpc"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
 	"github.com/siemens/GoScans/discovery"
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/Large-Scale-Discovery/_build"
@@ -25,15 +31,11 @@ import (
 	managerdb "github.com/siemens/Large-Scale-Discovery/manager/database"
 	"github.com/siemens/Large-Scale-Discovery/utils"
 	"github.com/vburenin/nsync"
-	"net/rpc"
-	"os"
-	"path/filepath"
-	"sync"
-	"time"
 )
 
 var coreCtx, coreCtxCancelFunc = context.WithCancel(context.Background()) // Agent context and context cancellation function. Agent should terminate when context is closed
 var shutdownOnce sync.Once                                                // Helper variable to prevent shutdown from doing its work multiple times.
+var rpcInflight sync.WaitGroup                                            // Tracks in-flight RPC handlers to allow graceful shutdown
 var startupTime time.Time                                                 // Time when the broker launched
 var rpcServerCrt string                                                   // Certificate used by the listening RPC server
 var rpcServerKey string                                                   // Key used by the listening RPC server
@@ -73,19 +75,21 @@ func Init() error {
 	managerdb.SetMaxConnectionsDefault(conf.DbConnections)
 
 	// Prepare broker key and certificate path
-	rpcServerCrt = filepath.Join("keys", "broker.crt")
-	rpcServerKey = filepath.Join("keys", "broker.key")
-	if _build.DevMode {
-		rpcServerCrt = filepath.Join("keys", "broker_dev.crt")
-		rpcServerKey = filepath.Join("keys", "broker_dev.key")
-	}
-	errServerCrt := scanUtils.IsValidFile(rpcServerCrt)
-	if errServerCrt != nil {
-		return errServerCrt
-	}
-	errServerKey := scanUtils.IsValidFile(rpcServerKey)
-	if errServerKey != nil {
-		return errServerKey
+	if conf.ListenSsl {
+		rpcServerCrt = filepath.Join("keys", "broker.crt")
+		rpcServerKey = filepath.Join("keys", "broker.key")
+		if _build.DevMode {
+			rpcServerCrt = filepath.Join("keys", "broker_dev.crt")
+			rpcServerKey = filepath.Join("keys", "broker_dev.key")
+		}
+		errServerCrt := scanUtils.IsValidFile(rpcServerCrt)
+		if errServerCrt != nil {
+			return errServerCrt
+		}
+		errServerKey := scanUtils.IsValidFile(rpcServerKey)
+		if errServerKey != nil {
+			return errServerKey
+		}
 	}
 
 	// Prepare RPC certificate path
@@ -110,8 +114,9 @@ func Init() error {
 		return fmt.Errorf("could not migrate broker db: %s", errMigrate)
 	}
 
-	// Initialize RPC client manager facing
-	rpcClient = utils.NewRpcClient(conf.ManagerAddress, rpcRemoteCrt)
+	// Initialize RPC client manager facing.
+	// The manager requires a shared secret to authorize the RPC connection.
+	rpcClient = utils.NewRpcClient(conf.ManagerAddress, conf.ManagerSsl, rpcRemoteCrt, conf.ManagerSecret)
 
 	// Connect to manager and wait for successful connection. Abort on shutdown request.
 	success := rpcClient.Connect(logger, true)
@@ -161,7 +166,9 @@ func Run() error {
 	// Get config
 	conf := config.GetConfig()
 
-	// Start serving RPC connections
+	// Start serving RPC connections. No connection handshake here: scan agents authenticate per scope at the
+	// application layer (scope secret), so connection-level authentication is disabled. This also keeps older agents
+	// that do not send a handshake compatible.
 	return utils.ServeRpc(
 		logger,
 		coreCtx,
@@ -169,6 +176,7 @@ func Run() error {
 		rpcServerCrt,
 		rpcServerKey,
 		conf.ListenAddress,
+		nil, // No shared secret required, and no handshake is read from the connection
 	)
 }
 
@@ -183,6 +191,9 @@ func Shutdown() {
 		// Close agent context. Waiting goroutines will abort if it is closed.
 		coreCtxCancelFunc()
 
+		// Wait for in-flight RPC handlers to finish before tearing down resources
+		rpcInflight.Wait()
+
 		// Disconnect from manager
 		if rpcClient != nil {
 			rpcClient.Disconnect()
@@ -191,13 +202,13 @@ func Shutdown() {
 		// Close the scope db connections
 		errs := managerdb.CloseScopeDbs()
 		for _, err := range errs {
-			logger.Errorf("Could not close scope db connection: %s", err)
+			logger.Errorf("Could not close scope DB connection: %s", err)
 		}
 
 		// Make sure broker db gets closed on exit
 		errBroker := brokerdb.Close()
 		if errBroker != nil {
-			logger.Errorf("Could not close broker db connection: '%s'", errBroker)
+			logger.Errorf("Could not close broker DB connection: '%s'", errBroker)
 		}
 	})
 }
@@ -263,7 +274,7 @@ func getScanScope(logger scanUtils.Logger, scopeSecret string) (*managerdb.T_sca
 	for {
 
 		// Request scope with full details from manager
-		scanScope, errRpc = manager.RpcGetScopeFull(logger, rpcClient, conf.ManagerPrivilegeSecret, scopeSecret)
+		scanScope, errRpc = manager.RpcGetScopeFull(logger, rpcClient, conf.ManagerSecretPrivilege, scopeSecret)
 		if errors.Is(errRpc, utils.ErrRpcConnectivity) {
 
 			// Wait for RPC re-connection and retry
@@ -292,6 +303,13 @@ func getScanScope(logger scanUtils.Logger, scopeSecret string) (*managerdb.T_sca
 		logger.Debugf("Loaded scan scope '%s' (ID %d).", scanScope.Name, scanScope.Id)
 		memory.AddScope(scopeSecret, scanScope)
 
+		// Clean queued targets for modules that are disabled in the freshly loaded settings
+		errClean := brokerdb.CleanScopeTargetsDisabled(logger, &scanScope)
+		if errClean != nil {
+			logger.Warningf("Could not clean disabled sub module targets from scan scope '%s' (ID %d): %s",
+				scanScope.Name, scanScope.Id, errClean)
+		}
+
 		// Return scan scope as retrieved from the manager
 		return &scanScope, nil
 	}
@@ -316,15 +334,16 @@ func checkCycle(logger scanUtils.Logger, scanScope *managerdb.T_scan_scope) (ini
 	// Check if there is anything in this scope yet
 	var contentCount int64
 	errDb := scopeDb.Model(&managerdb.T_discovery{}).
+		Where("enabled = ?", true).
 		Limit(1). // Fastest way to find out if there is something in the table
 		Count(&contentCount).Error
 	if errDb != nil {
-		return false, fmt.Errorf("could not count total targets in scope db: %s", errDb)
+		return false, fmt.Errorf("could not count enabled targets in scope db: %s", errDb)
 	}
 
 	// Skip initialization if there is nothing to initialize
 	if contentCount == 0 {
-		logger.Debugf("Current scan cycle has no '%s' scan targets yet.", discovery.Label)
+		logger.Debugf("Current scan cycle has no enabled '%s' scan targets yet.", discovery.Label)
 		return false, nil
 	}
 

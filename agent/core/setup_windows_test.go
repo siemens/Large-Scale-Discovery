@@ -15,7 +15,7 @@ import (
 	"testing"
 )
 
-func Test_windowsExportTrustStore(t *testing.T) {
+func TestWindowsExportTrustStore(t *testing.T) {
 
 	// Prepare and run test cases
 	type args struct {
@@ -25,16 +25,20 @@ func Test_windowsExportTrustStore(t *testing.T) {
 		store      string
 	}
 	tests := []struct {
-		name string
-		args args
-		want error
+		name    string
+		args    args
+		wantErr bool
 	}{
-		{"generate store test", args{"customtest.pem", false, "gentest", "CA"}, nil},
+		{
+			name:    "generate-store",
+			args:    args{outputFile: "customtest.pem", appendFile: false, version: "gentest", store: "CA"},
+			wantErr: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := windowsExportTrustStore(tt.args.outputFile, tt.args.appendFile, tt.args.version, tt.args.store); got != tt.want {
-				t.Errorf("windowsExportTrustStore() = '%v', want = '%v'", got, tt.want)
+			if got := windowsExportTrustStore(tt.args.outputFile, tt.args.appendFile, tt.args.version, tt.args.store); (got != nil) != tt.wantErr {
+				t.Errorf("windowsExportTrustStore() = '%v', wantErr = '%v'", got, tt.wantErr)
 			}
 			_ = os.Remove(tt.args.outputFile)
 		})

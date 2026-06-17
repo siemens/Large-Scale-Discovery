@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2024.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -13,17 +13,18 @@ package core
 import (
 	"context"
 	"fmt"
+	"net/rpc"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/Large-Scale-Discovery/_build"
 	"github.com/siemens/Large-Scale-Discovery/log"
 	"github.com/siemens/Large-Scale-Discovery/manager/config"
 	"github.com/siemens/Large-Scale-Discovery/manager/database"
 	"github.com/siemens/Large-Scale-Discovery/utils"
-	"net/rpc"
-	"os"
-	"path/filepath"
-	"sync"
-	"time"
 )
 
 const ScopeChangeNotifierInterval = time.Second * 1
@@ -31,7 +32,8 @@ const ScopeChangeNotifierInterval = time.Second * 1
 var scopeChangeNotifier *utils.Notifier
 var coreCtx, coreCtxCancelFunc = context.WithCancel(context.Background()) // Agent context and context cancellation function. Agent should terminate when context is closed
 var shutdownOnce sync.Once                                                // Helper variable to prevent shutdown from doing its work multiple times.
-var scopedbPrepareLock sync.Mutex                                         // A lock making sure that the scope db preparation is not interrupted by a shutdown request
+var rpcInflight sync.WaitGroup                                            // Tracks in-flight RPC handlers to allow graceful shutdown
+var scopeDbPrepareLock sync.Mutex                                         // A lock making sure that the scope db preparation is not interrupted by a shutdown request
 var rpcServerCrt string                                                   // Certificate used by the listening RPC server
 var rpcServerKey string                                                   // Key used by the listening RPC server
 
@@ -44,7 +46,7 @@ func Init() error {
 	// Get config
 	conf := config.GetConfig()
 
-	// Lookup agent IP
+	// Lookup manager IP
 	localIp, errIp := utils.GetLocalIp()
 	if errIp != nil {
 		return fmt.Errorf("could not read local ip: %s", errIp)
@@ -65,19 +67,21 @@ func Init() error {
 	database.SetMaxConnectionsDefault(conf.Database.Connections)
 
 	// Prepare manager key and certificate path
-	rpcServerCrt = filepath.Join("keys", "manager.crt")
-	rpcServerKey = filepath.Join("keys", "manager.key")
-	if _build.DevMode {
-		rpcServerCrt = filepath.Join("keys", "manager_dev.crt")
-		rpcServerKey = filepath.Join("keys", "manager_dev.key")
-	}
-	errCrt := scanUtils.IsValidFile(rpcServerCrt)
-	if errCrt != nil {
-		return errCrt
-	}
-	errKey := scanUtils.IsValidFile(rpcServerKey)
-	if errKey != nil {
-		return errKey
+	if conf.ListenSsl {
+		rpcServerCrt = filepath.Join("keys", "manager.crt")
+		rpcServerKey = filepath.Join("keys", "manager.key")
+		if _build.DevMode {
+			rpcServerCrt = filepath.Join("keys", "manager_dev.crt")
+			rpcServerKey = filepath.Join("keys", "manager_dev.key")
+		}
+		errCrt := scanUtils.IsValidFile(rpcServerCrt)
+		if errCrt != nil {
+			return errCrt
+		}
+		errKey := scanUtils.IsValidFile(rpcServerKey)
+		if errKey != nil {
+			return errKey
+		}
 	}
 
 	// Initialize manager database
@@ -87,11 +91,11 @@ func Init() error {
 	}
 
 	// Wrap database prepare code into function to make use of local defer statement
-	if errScopedbPrepare := func() error {
+	if errScopeDbPrepare := func() error {
 
 		// Acquire DB prepare lock to prevent "Shutdown()" from interrupting
-		scopedbPrepareLock.Lock()
-		defer scopedbPrepareLock.Unlock()
+		scopeDbPrepareLock.Lock()
+		defer scopeDbPrepareLock.Unlock()
 
 		// Write development sample data to the database
 		if _build.DevMode {
@@ -111,8 +115,8 @@ func Init() error {
 
 		// Return nil as everything went fine
 		return nil
-	}(); errScopedbPrepare != nil {
-		return errScopedbPrepare
+	}(); errScopeDbPrepare != nil {
+		return errScopeDbPrepare
 	}
 
 	// Initialize scope change notifier that can be subscribed to in order to receive a signal about changed scopes
@@ -149,7 +153,8 @@ func Run() error {
 	// Get config
 	conf := config.GetConfig()
 
-	// Start serving RPC connections
+	// Start serving RPC connections. Each connection must present a valid shared secret before it is served, closing
+	// the unauthenticated-RPC trust boundary.
 	return utils.ServeRpc(
 		logger,
 		coreCtx,
@@ -157,6 +162,7 @@ func Run() error {
 		rpcServerCrt,
 		rpcServerKey,
 		conf.ListenAddress,
+		conf.ListenSecrets,
 	)
 }
 
@@ -169,8 +175,8 @@ func Shutdown() {
 		logger.Infof("Shutting down.")
 
 		// Wait for scope DB preparation if currently running
-		scopedbPrepareLock.Lock()
-		defer scopedbPrepareLock.Unlock()
+		scopeDbPrepareLock.Lock()
+		defer scopeDbPrepareLock.Unlock()
 
 		// Shut down scope change notifier
 		if scopeChangeNotifier != nil {
@@ -180,16 +186,19 @@ func Shutdown() {
 		// Close agent context. Waiting goroutines will abort if it is closed.
 		coreCtxCancelFunc()
 
+		// Wait for in-flight RPC handlers to complete before closing resources
+		rpcInflight.Wait()
+
 		// Close the scope db connections.
 		errsScope := database.CloseScopeDbs()
 		for _, err := range errsScope {
-			logger.Errorf("Could not close scope db connection: '%s'", err)
+			logger.Errorf("Could not close scope DB connection: '%s'", err)
 		}
 
 		// Make sure db gets closed on exit
 		errManager := database.CloseManagerDb()
 		if errManager != nil {
-			logger.Errorf("Could not close manager db connection: '%s'", errManager)
+			logger.Errorf("Could not close manager DB connection: '%s'", errManager)
 		}
 	})
 }

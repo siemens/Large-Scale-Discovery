@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -10,7 +10,9 @@
 
 define(["knockout", "text!./networks.html", "postbox", "jquery", "semantic-ui-popup", "semantic-ui-dropdown", "semantic-ui-transition"], function (ko, template, postbox, $) {
 
+    /////////////////////////
     // VIEWMODEL CONSTRUCTION
+    /////////////////////////
     function ViewModel(params) {
 
         // Keep reference to PARENT view model context
@@ -36,7 +38,7 @@ define(["knockout", "text!./networks.html", "postbox", "jquery", "semantic-ui-po
         // Initialize scope type specific observables
         this.scopeSync = ko.observable(false);
         this.scopeAssetCompanies = ko.observableArray([]);
-        this.scopeAssetCompaniesPossible = ko.observableArray(["Siemens", "Atos", "Non Siemens"]);
+        this.scopeAssetCompaniesPossible = ko.observableArray(["Internal", "External"]);
         this.scopeAssetDepartments = ko.observableArray([]);
         this.scopeAssetDepartmentsPossible = ko.observableArray([]); // For update mode
         this.scopeAssetRoutingDomains = ko.observableArray([]);
@@ -142,20 +144,26 @@ define(["knockout", "text!./networks.html", "postbox", "jquery", "semantic-ui-po
         // Initialize form, depending on whether update mode is desired or not
         if (this.updateMode()) {
 
-            // Initialize form validators
+            // Initialize form with validators. keyboardShortcuts is disabled because
+            // Semantic UI's Enter handler would submit the form a second time alongside
+            // the browser's native submit that Knockout's submit binding already handles.
             this.$domForm.form({
                 fields: {
                     inputName: ['minLength[3]'],
                 },
+                keyboardShortcuts: false, // Prevent FomanticUI's own submit action handler from submitting again
             });
         } else {
 
-            // Initialize form validators
+            // Initialize form with validators. keyboardShortcuts is disabled because
+            // Semantic UI's Enter handler would submit the form a second time alongside
+            // the browser's native submit that Knockout's submit binding already handles.
             this.$domForm.form({
                 fields: {
                     inputName: ['minLength[3]'],
-                    selectGroup: ['empty'],
+                    selectGroup: ['notEmpty'],
                 },
+                keyboardShortcuts: false, // Prevent FomanticUI's own submit action handler from submitting again
             });
 
             // Load and set initial data
@@ -175,17 +183,17 @@ define(["knockout", "text!./networks.html", "postbox", "jquery", "semantic-ui-po
     ViewModel.prototype.loadData = function (data, event) {
 
         // Keep reference THIS view model context
-        var parent = this;
+        var ctx = this;
 
         // Handle request success
         const callbackSuccess = function (response, textStatus, jqXHR) {
 
             // Init array of groups
-            parent.groupsAvailable(response.body["groups"]);
+            ctx.groupsAvailable(response.body["groups"]);
 
             // Set scope group, if there is only one
             if (response.body["groups"].length === 1) {
-                parent.groupSelected(response.body["groups"][0].id);
+                ctx.groupSelected(response.body["groups"][0].id);
             }
         };
 

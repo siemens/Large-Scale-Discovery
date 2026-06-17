@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -11,13 +11,89 @@
 define(["knockout", "text!./users.html", "postbox", "jquery", "tabulator-tables", "moment", "utils-tabulator", "semantic-ui-popup"],
     function (ko, template, postbox, $, Tabulator) {
 
+        // Tabulator callback sending row changes to the backend
+        function tabulatorSave(cell) {
+
+            // Handle request error
+            const callbackError = function (response, textStatus, jqXHR) {
+                cell.restoreOldValue();
+            };
+
+            // Prepare request body
+            var reqData = cell.getData();
+
+            // Send request
+            apiCall(
+                "POST",
+                "/api/v1/admin/user/update",
+                {},
+                reqData,
+                null,
+                callbackError
+            );
+        }
+
+        // Tabulator formatter function creating a clickable delete button in a given cell
+        function fnDeleteButton(cell, formatterParams, onRendered) {
+
+            // Get entry ID
+            var row = cell.getRow();
+
+            // Create icon button
+            var button = document.createElement("i");
+            button.classList.add("trash");
+            button.classList.add("alternate");
+            button.classList.add("outline");
+            button.classList.add("icon");
+
+            // Attach click event
+            button.addEventListener("click", function (e) {
+
+                // Request approval and only proceed if action is approved
+                confirmOverlay(
+                    "trash alternate outline",
+                    "Delete User",
+                    "This will remove all access rights and privileges. <br />Are you sure you want to delete the user <span class=\"ui red text\">'" + row.getData().email + "'</span>?",
+                    function () {
+
+                        // Handle request success
+                        const callbackSuccess = function (response, textStatus, jqXHR) {
+
+                            // Show toast message for user
+                            toast(response.message, "success");
+
+                            // Delete row from table
+                            row.delete();
+                        };
+
+                        // Send request
+                        apiCall(
+                            "POST",
+                            "/api/v1/admin/user/delete",
+                            {},
+                            {id: row.getIndex()},
+                            callbackSuccess,
+                            null
+                        );
+                    }
+                );
+            });
+
+            // Set button as content
+            return button;
+        }
+
+        /////////////////////////
         // VIEWMODEL CONSTRUCTION
+        /////////////////////////
         function ViewModel(params) {
 
             // Initialize observables
             this.sideNavItems = ko.observableArray([
                 new NavItem("Users", "#admin/users", ""),
                 new NavItem("Groups", "#admin/groups", ""),
+                new NavItem("Databases", "#admin/databases", ""),
+                new NavItem("Query Logs", "#admin/logs", ""),
             ]);
 
             // Check authentication and redirect to login if necessary
@@ -75,6 +151,16 @@ define(["knockout", "text!./users.html", "postbox", "jquery", "tabulator-tables"
                     {
                         field: 'admin',
                         title: 'Admin',
+                        headerFilter: "tickCross",
+                        headerFilterParams: {"tristate": true},
+                        formatter: "tickCross",
+                        align: "center",
+                        width: 60,
+                        editor: "tickCross",
+                    },
+                    {
+                        field: 'demo',
+                        title: 'Demo',
                         headerFilter: "tickCross",
                         headerFilterParams: {"tristate": true},
                         formatter: "tickCross",
@@ -181,78 +267,6 @@ define(["knockout", "text!./users.html", "postbox", "jquery", "tabulator-tables"
                 callbackError
             );
         };
-
-        // Tabulator callback sending row changes to the backend
-        function tabulatorSave(cell) {
-
-            // Handle request error
-            const callbackError = function (response, textStatus, jqXHR) {
-                cell.restoreOldValue();
-            };
-
-            // Prepare request body
-            var reqData = cell.getData();
-
-            // Send request
-            apiCall(
-                "POST",
-                "/api/v1/admin/user/update",
-                {},
-                reqData,
-                null,
-                callbackError
-            );
-        }
-
-        // Tabulator formatter function creating a clickable delete button in a given cell
-        function fnDeleteButton(cell, formatterParams, onRendered) {
-
-            // Get entry ID
-            var row = cell.getRow();
-
-            // Create icon button
-            var button = document.createElement("i");
-            button.classList.add("trash");
-            button.classList.add("alternate");
-            button.classList.add("outline");
-            button.classList.add("icon");
-
-            // Attach click event
-            button.addEventListener("click", function (e) {
-
-                // Request approval and only proceed if action is approved
-                confirmOverlay(
-                    "trash alternate outline",
-                    "Delete User",
-                    "This will remove all access rights and privileges. <br />Are you sure you want to delete the user <span class=\"ui red text\">'" + row.getData().email + "'</span>?",
-                    function () {
-
-                        // Handle request success
-                        const callbackSuccess = function (response, textStatus, jqXHR) {
-
-                            // Show toast message for user
-                            toast(response.message, "success");
-
-                            // Delete row from table
-                            row.delete();
-                        };
-
-                        // Send request
-                        apiCall(
-                            "POST",
-                            "/api/v1/admin/user/delete",
-                            {},
-                            {id: row.getIndex()},
-                            callbackSuccess,
-                            null
-                        );
-                    }
-                );
-            });
-
-            // Set button as content
-            return button;
-        }
 
         // VIEWMODEL DECONSTRUCTION
         ViewModel.prototype.dispose = function (data, event) {

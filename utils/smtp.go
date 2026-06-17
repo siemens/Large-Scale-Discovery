@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2024.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -13,10 +13,11 @@ package utils
 import (
 	"encoding/json"
 	"fmt"
-	scanUtils "github.com/siemens/GoScans/utils"
 	"net/mail"
 	"os"
 	"regexp"
+
+	scanUtils "github.com/siemens/GoScans/utils"
 )
 
 type Smtp struct {
@@ -44,11 +45,11 @@ type Smtp struct {
 // UnmarshalJSON reads a JSON file, validates values and populates the configuration struct
 func (s *Smtp) UnmarshalJSON(b []byte) error {
 
-	// Prepare temporary auxiliary data structure to load raw Json data
+	// Prepare temporary auxiliary data structure to load raw JSON data
 	type aux Smtp
 	var raw aux
 
-	// Unmarshal serialized Json into temporary auxiliary structure
+	// Unmarshal serialized JSON into temporary auxiliary structure
 	err := json.Unmarshal(b, &raw)
 	if err != nil {
 		return err
@@ -90,7 +91,7 @@ func (s *Smtp) UnmarshalJSON(b []byte) error {
 		}
 	}
 
-	// Copy loaded Json values to actual
+	// Copy loaded JSON values to actual
 	*s = Smtp(raw)
 
 	// Load signature certificate from file
@@ -98,7 +99,7 @@ func (s *Smtp) UnmarshalJSON(b []byte) error {
 		var errCert error
 		s.SignatureCert, errCert = os.ReadFile(s.SignatureCertPath)
 		if errCert != nil {
-			return fmt.Errorf("unable to load sender certificate: %s", errCert)
+			return fmt.Errorf("could not load sender certificate: %s", errCert)
 		}
 	}
 
@@ -107,7 +108,7 @@ func (s *Smtp) UnmarshalJSON(b []byte) error {
 		var errKey error
 		s.SignatureKey, errKey = os.ReadFile(s.SignatureKeyPath)
 		if errKey != nil {
-			return fmt.Errorf("unable to load sender key: %s", errKey)
+			return fmt.Errorf("could not load sender key: %s", errKey)
 		}
 	}
 
@@ -116,7 +117,7 @@ func (s *Smtp) UnmarshalJSON(b []byte) error {
 	for _, p := range s.EncryptionCertPaths {
 		cert, errEncCert := os.ReadFile(p)
 		if errEncCert != nil {
-			return fmt.Errorf("unable to load recipient certificate: %s", errEncCert)
+			return fmt.Errorf("could not load recipient certificate: %s", errEncCert)
 		}
 		s.EncryptionCerts = append(s.EncryptionCerts, cert)
 	}
@@ -128,8 +129,5 @@ func (s *Smtp) UnmarshalJSON(b []byte) error {
 // IsPlausibleEmail validates whether a given string is a plausible e-mail address
 func IsPlausibleEmail(mail string) bool {
 	re := regexp.MustCompile("^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$")
-	if !re.MatchString(mail) {
-		return false
-	}
-	return true
+	return re.MatchString(mail)
 }

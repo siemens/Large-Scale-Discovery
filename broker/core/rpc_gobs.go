@@ -12,9 +12,11 @@ package core
 
 import (
 	"encoding/gob"
+
 	"github.com/siemens/GoScans/banner"
 	"github.com/siemens/GoScans/discovery"
 	"github.com/siemens/GoScans/nfs"
+	"github.com/siemens/GoScans/nuclei"
 	"github.com/siemens/GoScans/smb"
 	"github.com/siemens/GoScans/ssh"
 	"github.com/siemens/GoScans/ssl"
@@ -28,12 +30,13 @@ func RegisterGobs() {
 	gob.Register(banner.Result{})
 	gob.Register(discovery.Result{})
 	gob.Register(nfs.Result{})
+	gob.Register(nuclei.Result{})
 	gob.Register(smb.Result{})
 	gob.Register(ssh.Result{})
 	gob.Register(ssl.Result{})
 	gob.Register(webcrawler.Result{})
 	gob.Register(webenum.Result{})
-	gob.Register(managerdb.T_scan_settings{})
+	gob.Register(managerdb.T_scan_setting{})
 	gob.Register([]interface{}{})          // database.JsonMap might include this kind of type
 	gob.Register(map[string]interface{}{}) // database.JsonMap might include this kind of type
 }

@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2024.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -14,15 +14,16 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/jackc/pgconn"
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/GoScans/webcrawler"
 	managerdb "github.com/siemens/Large-Scale-Discovery/manager/database"
 	"github.com/siemens/Large-Scale-Discovery/utils"
 	"gorm.io/gorm"
-	"strings"
-	"sync"
-	"time"
 )
 
 // PrepareWebcrawlerResult creates an info entry in the database to indicate an active process.
@@ -81,22 +82,33 @@ func PrepareWebcrawlerResult(
 	}
 
 	// Create info entries, if not yet existing. It might exist from a previous scan attempt (if the scan crashed).
-	// This check which is applied here is specific to postgres. Use a new gorm session and force a limit on how
-	// many Entries can be batched, as we otherwise might exceed PostgreSQLs limit of 65535 parameters
+	// This check which is applied here is specific to postgres.
+	// Use a new gorm session and force a limit on how many Entries can be batched, as we otherwise might
+	// exceed the database's limit of 65535 parameters
 	errDb := scopeDb.
 		Session(&gorm.Session{CreateBatchSize: managerdb.MaxBatchSizeWebcrawler}).
 		Create(&infoEntries).Error
-	var errCreate *pgconn.PgError
-	if errors.As(errDb, &errCreate) && errCreate.Code == "23505" { // Code for unique constraint violation
+
+	// Extract Postgres error if existing
+	var errPg *pgconn.PgError
+	errors.As(errDb, &errPg)
+
+	// Handle database errors
+	if errPg != nil && errPg.Code == "23505" { // Code for Postgres' unique constraint violation
 
 		// Fall back to inserting the entries one by one to ensure as many entries as possible being added to the db
 		for _, entry := range infoEntries {
 			errDb2 := scopeDb.Create(&entry).Error
-			var errCreate2 *pgconn.PgError
-			if errors.As(errDb2, &errCreate2) && errCreate2.Code == "23505" { // Code for unique constraint violation
-				logger.Debugf("Webcrawler info entry '%d' already existing.", entry.IdTDiscoveryService)
+
+			// Extract Postgres error if existing
+			var errPg2 *pgconn.PgError
+			errors.As(errDb2, &errPg2)
+
+			// Handle database errors
+			if errPg2 != nil && errPg2.Code == "23505" { // Code for Postgres' unique constraint violation
+				logger.Debugf("Webcrawler info entry %d already existing.", entry.IdTDiscoveryService)
 			} else if errDb2 != nil {
-				logger.Errorf("Webcrawler info entry '%d' could not be created: %s", entry.IdTDiscoveryService, errDb2)
+				logger.Errorf("Webcrawler info entry %d could not be created: %s", entry.IdTDiscoveryService, errDb2)
 			}
 		}
 	} else if errDb != nil {
@@ -137,7 +149,7 @@ func SaveWebcrawlerResult(
 		// 			=> Discard results (to prevent later manipulation by client), but update scan_finished timestamp (to
 		// 			   allow users proper investigations in case of IDS alerts).
 
-		// Prepare query result
+		// Prepare memory for result
 		var infoEntry = managerdb.T_webcrawler{}
 		var infoEntryCount int64
 
@@ -156,7 +168,7 @@ func SaveWebcrawlerResult(
 		}
 
 		// Add scan results, if this is the first result delivered (scan_finished not yet set)
-		if infoEntry.ScanFinished.Valid == false {
+		if !infoEntry.ScanFinished.Valid {
 
 			// Add scan results
 			joinedStates, errAdd := addWebcrawlerResults(logger, txScopeDb, infoEntry.Id, idTDiscoveryService, result)
@@ -295,7 +307,7 @@ func addWebcrawlerResults(
 	if len(vhostEntries) > 0 {
 
 		// Use a new gorm session and force a limit on how many Entries can be batched, as we otherwise might
-		// exceed PostgreSQLs limit of 65535 parameters
+		// exceed the database's' limit of 65535 parameters
 		errDb := txScopeDb.
 			Session(&gorm.Session{CreateBatchSize: managerdb.MaxBatchSizeWebcrawlerVhost}).
 			Create(&vhostEntries).Error
@@ -309,7 +321,7 @@ func addWebcrawlerResults(
 	if len(pageEntries) > 0 {
 
 		// Use a new gorm session and force a limit on how many Entries can be batched, as we otherwise might
-		// exceed PostgreSQLs limit of 65535 parameters
+		// exceed the database's limit of 65535 parameters
 		errDb := txScopeDb.
 			Session(&gorm.Session{CreateBatchSize: managerdb.MaxBatchSizeWebcrawlerPage}).
 			Create(&pageEntries).Error

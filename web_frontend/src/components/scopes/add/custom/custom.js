@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -66,7 +66,9 @@ define(["knockout", "text!./custom.html", "postbox", "jquery", "tabulator-tables
             }
         }
 
+        /////////////////////////
         // VIEWMODEL CONSTRUCTION
+        /////////////////////////
         function ViewModel(params) {
 
             // Keep reference to PARENT view model context
@@ -89,7 +91,15 @@ define(["knockout", "text!./custom.html", "postbox", "jquery", "tabulator-tables
             // Initialize scope type independent observables
             this.scopeName = ko.observable("");
             this.scopeCycles = ko.observable(false);
+            this.scopeOt = ko.observable(false);
             this.scopeRetention = ko.observable("All");
+
+            // Coordinate Tabulator initialization with the fade-in transition. Initializing the grid
+            // while the container is still being animated leads to Tabulator's adjustTableSize/redraw
+            // infinite recursion. fadeComplete is set by the transition's onComplete callback below,
+            // pendingGridInit holds a deferred init function if the grid was ready before the animation.
+            this.fadeComplete = false;
+            this.pendingGridInit = null;
 
             // Initialize update mode, if scope details are passed
             if (this.updateMode()) {
@@ -101,6 +111,7 @@ define(["knockout", "text!./custom.html", "postbox", "jquery", "tabulator-tables
                 // Set scope type independent values
                 this.scopeName(params.args.name);
                 this.scopeCycles(params.args.cycles);
+                this.scopeOt(params.args.scan_settings.ot);
                 if (params.args.cycles_retention > 0) {
                     this.scopeRetention(params.args.cycles_retention);
                 }
@@ -116,13 +127,14 @@ define(["knockout", "text!./custom.html", "postbox", "jquery", "tabulator-tables
             // Initialize tooltips
             this.$domComponent.find('[data-html]').popup();
 
+            // Keep reference THIS view model context
+            var ctx = this;
 
             // Workaround hack to focus datatable before CTRL+V paste is triggered by 'tabulator'
             // data tables. This is for usability because users would need to know that the focus
             // needs to be on the datatable in order to receive the pasted data.
             // ATTENTION: This keydown event has to be removed again when the view is closed, otherwise
             //            it would be registered multiple times, when the view is opened again.
-            var ctx = this;
             var ctrlDown = false, ctrlKey = 17, cmdKey = 91, vKey = 86
             $(document).keydown(function (e) {
                 if (e.keyCode === ctrlKey || e.keyCode === cmdKey) ctrlDown = true;
@@ -152,37 +164,91 @@ define(["knockout", "text!./custom.html", "postbox", "jquery", "tabulator-tables
             // Initialize form, depending on whether update mode is desired or not
             if (this.updateMode()) {
 
-                // Initialize form validators
+                // Initialize form with validators. keyboardShortcuts is disabled because
+                // Semantic UI's Enter handler would submit the form a second time alongside
+                // the browser's native submit that Knockout's submit binding already handles.
                 this.$domForm.form({
                     fields: {
                         inputName: ['minLength[3]'],
                     },
+                    keyboardShortcuts: false, // Prevent FomanticUI's own submit action handler from submitting again
                 });
 
                 // Load and set current scope targets
                 this.loadData();
             } else {
 
-                // Initialize tabulator grid for scan targets
-                this.grid = new Tabulator(
-                    "#divDataGridTargets",
-                    targetsTableConfig([{enabled: true}],)
-                );
+                // Defer Tabulator initialization until the fade-down transition has completed,
+                // otherwise Tabulator measures a still-animating container and falls into a
+                // adjustTableSize/redraw infinite recursion.
+                var initGrid = function () {
+                    if (!document.getElementById("divDataGridTargets")) {
+                        return; // Component disposed in the meantime
+                    }
 
-                // Initialize form validators
+                    // Initialize tabulator grid for scan targets
+                    ctx.grid = new Tabulator(
+                        "#divDataGridTargets",
+                        targetsTableConfig(
+                            [{enabled: true}],
+                            undefined,
+                            undefined,
+                            undefined,
+                            function () {
+                                return ctx.scopeOt();
+                            }
+                        )
+                    );
+
+                    // Redraw grid when OT toggle changes so scan input column re-renders and collapse
+                    // to a single row (preserving the first row's attributes) when OT is enabled.
+                    ctx.scopeOtSubscription = ctx.scopeOt.subscribe(function (enabled) {
+                        if (ctx.grid) {
+                            if (enabled) {
+                                var data = ctx.grid.getData();
+                                var row = data.length > 0 ? data[0] : {};
+                                row.input = "";
+                                row.enabled = true;
+                                ctx.grid.replaceData([row]);
+                            }
+                            ctx.grid.redraw(true);
+                        }
+                    });
+                };
+                if (this.fadeComplete) {
+                    initGrid();
+                } else {
+                    this.pendingGridInit = initGrid;
+                }
+
+                // Initialize form with validators. keyboardShortcuts is disabled because
+                // Semantic UI's Enter handler would submit the form a second time alongside
+                // the browser's native submit that Knockout's submit binding already handles.
                 this.$domForm.form({
                     fields: {
                         inputName: ['minLength[3]'],
-                        selectGroup: ['empty'],
+                        selectGroup: ['notEmpty'],
                     },
+                    keyboardShortcuts: false, // Prevent FomanticUI's own submit action handler from submitting again
                 });
 
                 // Load and set associated groups
                 this.loadGroups();
             }
 
-            // Fade in
-            this.$domComponent.transition('fade down');
+            // Fade in. Use the verbose form so we get an onComplete callback to coordinate with grid init.
+            var ctxFade = this;
+            this.$domComponent.transition({
+                animation: 'fade down',
+                onComplete: function () {
+                    ctxFade.fadeComplete = true;
+                    if (ctxFade.pendingGridInit) {
+                        var fn = ctxFade.pendingGridInit;
+                        ctxFade.pendingGridInit = null;
+                        fn();
+                    }
+                }
+            });
 
             // Scroll to form (might be outside of visible area if there are long lists)
             $([document.documentElement, document.body]).animate({
@@ -210,22 +276,53 @@ define(["knockout", "text!./custom.html", "postbox", "jquery", "tabulator-tables
                     if (response.body.targets !== null) {
                         data = response.body.targets
                     }
-                    data.push({enabled: true})
 
-                    // Initialize tabulator grid for scan targets
-                    ctx.grid = new Tabulator(
-                        "#divDataGridTargets",
-                        targetsTableConfig(
-                            data,
-                            function (data) {
-                                ctx.editing(!ctx.editing())
-                            },
-                            function (data) {
-                                ctx.edited(true)
-                            },
-                            tabulatorResetInput(ctx.scopeId())
-                        )
-                    );
+                    // Add additional line for users to add items, if OT discovery is not enabled
+                    if (!ctx.scopeOt()) {
+                        data.push({enabled: true})
+                    }
+
+                    // Defer Tabulator initialization until the fade-down transition has completed,
+                    // otherwise Tabulator measures a still-animating container and falls into a
+                    // adjustTableSize/redraw infinite recursion.
+                    var initGrid = function () {
+                        if (!document.getElementById("divDataGridTargets")) {
+                            return; // Component disposed in the meantime
+                        }
+
+                        // Initialize tabulator grid for scan targets
+                        ctx.grid = new Tabulator(
+                            "#divDataGridTargets",
+                            targetsTableConfig(
+                                data,
+                                function (data) {
+                                    ctx.editing(!ctx.editing())
+                                },
+                                function (data) {
+                                    ctx.edited(true)
+                                },
+                                tabulatorResetInput(ctx.scopeId()),
+                                function () {
+                                    return ctx.scopeOt();
+                                }
+                            )
+                        );
+
+                        // Redraw grid when OT toggle changes so Scan Input column re-renders
+                        if (ctx.scopeOtSubscription) {
+                            ctx.scopeOtSubscription.dispose();
+                        }
+                        ctx.scopeOtSubscription = ctx.scopeOt.subscribe(function () {
+                            if (ctx.grid) {
+                                ctx.grid.redraw(true);
+                            }
+                        });
+                    };
+                    if (ctx.fadeComplete) {
+                        initGrid();
+                    } else {
+                        ctx.pendingGridInit = initGrid;
+                    }
                 }
             };
 
@@ -316,9 +413,16 @@ define(["knockout", "text!./custom.html", "postbox", "jquery", "tabulator-tables
                     // Show toast message for user (but only after parent has reloaded)
                     toast(response.message, "success");
 
+                    // Show toast messages for warnings
+                    if (response.body !== null && response.body.warnings !== null && response.body.warnings.length > 0) {
+                        response.body.warnings.forEach(function (item, index) {
+                            toast(item, "warning", false, 6000);
+                        })
+                    }
+
                     // Let user know that scan input population is continued in the background
                     if (ctx.edited() === true) {
-                        toast("Target synchronization may take some time.", "info");
+                        toast("Target synchronization may take some time.", "teal");
                     }
 
                     // Unlink component
@@ -336,37 +440,57 @@ define(["knockout", "text!./custom.html", "postbox", "jquery", "tabulator-tables
             var reqData = {
                 name: this.scopeName(),
                 cycles: this.scopeCycles(),
+                ot: this.scopeOt(),
                 cycles_retention: retention,
             }
 
-            // Append target data if changed
-            if (this.updateMode() === false || this.edited() === true) {
+            // Helper variable for more natural understanding
+            var create = !this.updateMode()
 
-                // Get inserted targets
-                var targets = this.grid.getData();
-                var sanitizationResult = sanitizeTargets(targets);
-                targets = sanitizationResult[0];
-                var errorMsg = sanitizationResult[1];
-                if (errorMsg !== "") {
-                    toast(errorMsg, "error");
-                    this.$domForm.form("add prompt", "textareaTargets", errorMsg);
-                    this.$domForm.each(shake);
-                    return
+            // Prepare list of targets depending on scan scope mode (OT vs normal)
+            if (this.scopeOt()) { // OT scanning (create & update)
+
+                // OT scopes always send exactly one target row
+                var otRow = this.grid.getData()[0] || {enabled: true};
+                otRow.input = otRow.input || "";
+
+                // Sanitize data columns of target
+                sanitizeTarget(otRow);
+
+                // Add updated target to request data
+                reqData["targets"] = [otRow];
+
+            } else { // Normal scanning
+
+                // Append target data if changed
+                if (create || this.edited() === true) {
+
+                    // Sanitize data columns of targets
+                    var targets = sanitizeTargets(this.grid.getData());
+
+                    // Validate input column of targets
+                    var errorMsg = validateInputs(targets);
+                    if (errorMsg !== "") {
+                        toast(errorMsg, "error");
+                        this.$domForm.form("add prompt", "textareaTargets", errorMsg);
+                        this.$domForm.each(shake);
+                        return
+                    }
+
+                    // Add updated targets to request data
+                    reqData["targets"] = targets
                 }
-
-                // Add updated targets to request data
-                reqData["targets"] = targets
             }
 
             // Send create / update request
-            if (this.updateMode()) {
-
-                // Set scope ID to indicate scope update
-                reqData["scope_id"] = this.scopeId() // Required to update associated scope
-            } else {
+            if (create) {
 
                 // Set group ID to indicate new scope
                 reqData["group_id"] = this.groupSelected() // Required to create new scope within
+            } else {
+
+                // Set scope ID to indicate scope update
+                reqData["scope_id"] = this.scopeId() // Required to update associated scope
             }
 
             // Send request
@@ -386,6 +510,12 @@ define(["knockout", "text!./custom.html", "postbox", "jquery", "tabulator-tables
             // Remove keydown listener, otherwise it would be registered multiple times
             // next time when this view is opened
             $(document).off("keydown");
+
+            // Dispose OT-toggle subscription that triggers grid redraw
+            if (this.scopeOtSubscription) {
+                this.scopeOtSubscription.dispose();
+                this.scopeOtSubscription = null;
+            }
 
             // Hide form
             this.$domComponent.transition('fade up');

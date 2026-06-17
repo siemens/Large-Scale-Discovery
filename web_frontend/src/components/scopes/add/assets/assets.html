@@ -18,7 +18,7 @@
                 <label for="selectGroup">Group</label>
                 <select id="selectGroup" class="ui search dropdown"
                         data-bind="options: groupsAvailable, optionsText: 'name', optionsValue: 'id', optionsCaption:'Please Select', value: groupSelected">
-                    <!--<option value="">Please select</option>-->
+                    <option value="">Please select</option>
                 </select>
             </div>
             <!-- /ko -->
@@ -174,7 +174,7 @@
                 <div class="ui right floated buttons">
                     <button class="ui button" type="button" data-bind="click: dispose">Cancel</button>
                     <div class="or"></div>
-                    <button class="ui teal button" type="button" data-bind="click: submitAssets">
+                    <button class="ui teal button" type="submit">
                         <!-- ko if: !updateMode() -->
                         Create
                         <!-- /ko -->

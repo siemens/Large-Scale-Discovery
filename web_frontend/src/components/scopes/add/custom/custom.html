@@ -14,7 +14,7 @@
                 <label for="selectGroup">Group</label>
                 <select id="selectGroup" class="ui search dropdown"
                         data-bind="options: groupsAvailable, optionsText: 'name', optionsValue: 'id', optionsCaption:'Please Select', value: groupSelected">
-                    <!--<option value="">Please select</option>-->
+                    <option value="">Please select</option>
                 </select>
             </div>
             <!-- /ko -->
@@ -50,7 +50,7 @@
         <div class="required field">
             <label for="textareaTargets">
                 Scan Targets
-                <span data-html="Insert scan targets and optional meta data. You can also copy the columns to Excel or paste them from Excel."
+                <span data-html="Insert scan targets and optional metadata. You can also copy the columns to Excel or paste them from Excel."
                       data-position="right center" data-variation="tiny wide"><i
                         class="question circle outline icon"></i></span>
             </label>
@@ -77,7 +77,7 @@
             <!-- /ko -->
             <!-- ko if: synchronizationOngoing() === true -->
             <div class="ui small visible warning message" style="text-align: center;">
-                <b>Previous scope synchronization still ongoing.</b>
+                <b>Another scope synchronization still ongoing.</b>
             </div>
             <!-- /ko -->
             <!-- ko if: synchronizationOngoing() === false || updateMode() === false -->
@@ -106,17 +106,27 @@
                     </div>
                 </div>
             </div>
-            <div class="four wide column">
-                &nbsp;
+            <div class="five wide column">
+                <div class="field" data-bind="css: updateMode() ? 'disabled' : ''">
+                    <div class="ui toggle checkbox">
+                        <input id="inputOt" type="checkbox" data-bind="checked: scopeOt">
+                        <label for="inputOt">
+                            Enable OT discovery (L2)
+                            <i class="question circle outline icon"
+                               data-html="Enable OT device discovery mode on OSI layer 2, applying softer scan timings and untilizing prodocols such as PROFINET DCP, EtherCAT, LLDP, IPv6 NDP and mDNS. IP port scanning techniques within the subnet of the L2 can be applied additionaly but are not the main focus. The scan agent can only target the directly attached L2 network segments and will pick its scan target accordingly."
+                               data-position="right center" data-variation="tiny wide"></i>
+                        </label>
+                    </div>
+                </div>
             </div>
             <div class="four wide column">
                 &nbsp;
             </div>
-            <div class="four wide column">
+            <div class="three wide column">
                 <div class="ui right floated buttons">
                     <button class="ui button" type="button" data-bind="click: dispose">Cancel</button>
                     <div class="or"></div>
-                    <button class="ui teal button" type="button" data-bind="click: submitCustom">
+                    <button class="ui teal button" type="submit">
                         <!-- ko if: !updateMode() -->
                         Create
                         <!-- /ko -->

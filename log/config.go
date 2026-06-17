@@ -13,10 +13,12 @@ package log
 import (
 	"encoding/json"
 	"fmt"
+	"net/mail"
+	"path/filepath"
+	"time"
+
 	"github.com/siemens/Large-Scale-Discovery/utils"
 	"go.uber.org/zap/zapcore"
-	"net/mail"
-	"time"
 )
 
 func DefaultLogSettingsFactory() Settings {
@@ -29,7 +31,7 @@ func DefaultLogSettingsFactory() Settings {
 		File: &FileHandler{
 			Enabled: true,
 			Level:   zapcore.DebugLevel,
-			Path:    "./logs/application.log",
+			Path:    filepath.Join("logs", "application.log"),
 			SizeMb:  100,
 			History: 10,
 		},
@@ -71,11 +73,11 @@ type ConsoleHandler struct {
 // UnmarshalJSON reads a JSON file, validates values and populates the configuration struct
 func (h *ConsoleHandler) UnmarshalJSON(b []byte) error {
 
-	// Prepare temporary auxiliary data structure to load raw Json data
+	// Prepare temporary auxiliary data structure to load raw JSON data
 	type aux ConsoleHandler
 	var raw aux
 
-	// Unmarshal serialized Json into temporary auxiliary structure
+	// Unmarshal serialized JSON into temporary auxiliary structure
 	err := json.Unmarshal(b, &raw)
 	if err != nil {
 		return err
@@ -86,7 +88,7 @@ func (h *ConsoleHandler) UnmarshalJSON(b []byte) error {
 		return fmt.Errorf("invalid log level (-1=debug, 0=info, 1=warn, 2=error only)")
 	}
 
-	// Copy loaded Json values to actual
+	// Copy loaded JSON values to actual
 	*h = ConsoleHandler(raw)
 
 	// Return nil as everything is valid
@@ -105,11 +107,11 @@ type FileHandler struct {
 // UnmarshalJSON reads a JSON file, validates values and populates the configuration struct
 func (h *FileHandler) UnmarshalJSON(b []byte) error {
 
-	// Prepare temporary auxiliary data structure to load raw Json data
+	// Prepare temporary auxiliary data structure to load raw JSON data
 	type aux FileHandler
 	var raw aux
 
-	// Unmarshal serialized Json into temporary auxiliary structure
+	// Unmarshal serialized JSON into temporary auxiliary structure
 	err := json.Unmarshal(b, &raw)
 	if err != nil {
 		return err
@@ -126,7 +128,7 @@ func (h *FileHandler) UnmarshalJSON(b []byte) error {
 		return fmt.Errorf("invalid file history")
 	}
 
-	// Copy loaded Json values to actual
+	// Copy loaded JSON values to actual
 	*h = FileHandler(raw)
 
 	// Return nil as everything is valid
@@ -149,11 +151,11 @@ type SmtpHandler struct {
 
 func (h *SmtpHandler) UnmarshalJSON(b []byte) error {
 
-	// Prepare temporary auxiliary data structure to load raw Json data
+	// Prepare temporary auxiliary data structure to load raw JSON data
 	type aux SmtpHandler
 	var raw aux
 
-	// Unmarshal serialized Json into temporary auxiliary structure
+	// Unmarshal serialized JSON into temporary auxiliary structure
 	err := json.Unmarshal(b, &raw)
 	if err != nil {
 		return err
@@ -170,16 +172,16 @@ func (h *SmtpHandler) UnmarshalJSON(b []byte) error {
 		return fmt.Errorf("priority log level may not be less than log level")
 	}
 	if raw.DelayMinutes <= 0 {
-		return fmt.Errorf("invalid smtp delay")
+		return fmt.Errorf("invalid SMTP delay")
 	}
 	if raw.DelayPriorityMinutes <= 0 {
-		return fmt.Errorf("invalid smtp priority delay")
+		return fmt.Errorf("invalid SMTP priority delay")
 	}
 	if raw.DelayMinutes < raw.DelayPriorityMinutes {
 		return fmt.Errorf("delay may not be less than priority delay")
 	}
 
-	// Copy loaded Json values to actual config
+	// Copy loaded JSON values to actual config
 	*h = SmtpHandler(raw)
 
 	// Set unserializable values
@@ -201,11 +203,11 @@ type Settings struct {
 // UnmarshalJSON reads a JSON file, validates values and populates the configuration struct
 func (s *Settings) UnmarshalJSON(b []byte) error {
 
-	// Prepare temporary auxiliary data structure to load raw Json data
+	// Prepare temporary auxiliary data structure to load raw JSON data
 	type aux Settings
 	var raw aux
 
-	// Unmarshal serialized Json into temporary auxiliary structure
+	// Unmarshal serialized JSON into temporary auxiliary structure
 	err := json.Unmarshal(b, &raw)
 	if err != nil {
 		return err
@@ -216,7 +218,7 @@ func (s *Settings) UnmarshalJSON(b []byte) error {
 		return fmt.Errorf("logger configuration invalid")
 	}
 
-	// Copy loaded Json values to actual
+	// Copy loaded JSON values to actual
 	*s = Settings(raw)
 
 	// Return nil as everything is valid

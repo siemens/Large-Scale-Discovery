@@ -19,6 +19,10 @@ type ReplyNotification struct {
 	RemainingScopeIds []uint64 // The scope IDs that are still existing on the manager (all other can be cleaned)
 }
 
+type ReplyDatabases struct {
+	Databases []database.T_db_server
+}
+
 type ReplyScopeId struct {
 	ScopeId uint64
 }
@@ -66,4 +70,8 @@ type ReplyCredentials struct {
 
 type ReplyScanAgents struct {
 	ScanAgents []database.T_scan_agent
+}
+
+type ReplySqlLogs struct {
+	Logs []database.T_sql_log
 }

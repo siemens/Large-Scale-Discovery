@@ -11,10 +11,11 @@
 package core
 
 import (
-	"github.com/gin-gonic/gin"
-	"github.com/siemens/Large-Scale-Discovery/web_backend/config"
 	"net/http"
 	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/siemens/Large-Scale-Discovery/web_backend/config"
 )
 
 type Token struct {
@@ -31,10 +32,13 @@ type BaseResponse struct {
 
 // Respond responds with 200 OK, the base response data and optional given response body data. The client might always
 // look out for error flag and message.
-func Respond(context *gin.Context, error bool, message string, body interface{}) {
+func Respond(ctx *gin.Context, error bool, message string, body interface{}) {
+
+	// Get logger for current request context
+	logger := GetContextLogger(ctx)
 
 	// Get user from context storage
-	user := GetContextUser(context)
+	user := GetContextUser(ctx)
 
 	// Get config
 	conf := config.GetConfig()
@@ -46,8 +50,9 @@ func Respond(context *gin.Context, error bool, message string, body interface{})
 		Body:    body,
 	}
 
-	// Attach fresh JWT token to response if possible
-	if user != nil {
+	// Attach fresh JWT token to response if possible. Skipped for long-lived API tokens, they must
+	// not be silently rotated on each request, that would break API clients storing them statically.
+	if user != nil && GetContextJwtKind(ctx) != JwtKindApi {
 
 		// Generate fresh JWT token if hard limit wasn't reached yet
 		threshold := time.Now().Add(-conf.Jwt.Refresh)
@@ -62,28 +67,45 @@ func Respond(context *gin.Context, error bool, message string, body interface{})
 		}
 	}
 
+	// Log result
+	if error {
+		// A request error is not automatically a critical error, it's just an informational
+		// indicator for the web frontend and doesn't need to be logged with error level.
+		logger.Debugf("Request failed: %s", message)
+	} else if message != "" {
+		logger.Debugf("Request successful: %s", message)
+	} else {
+		logger.Debugf("Request successful.")
+	}
+
 	// Send JSON response
-	context.JSON(http.StatusOK, resp)
+	ctx.JSON(http.StatusOK, resp)
 }
 
 // RespondAuthError returns a 401 UNAUTHORIZED http error code and should be used whenever there is an
 // authentication or authorization issue. Additionally, the response body will contain an error flag and a generic
 // error message, which may be used by the client. Don't forget to abort further processing after calling this!
-func RespondAuthError(context *gin.Context) {
-	respondError(context, http.StatusUnauthorized, "Unauthorized")
+func RespondAuthError(ctx *gin.Context) {
+	respondError(ctx, http.StatusUnauthorized, http.StatusText(http.StatusUnauthorized))
 }
 
 // RespondInternalError returns a 400 BAD REQUEST http error code and should be used whenever there is an internal
 // issue. Additionally, the response body will contain an error flag and a generic error message, which may be used
-// by the client. Don't forget to issue a critical log message first and abort further processing afterwards!
-func RespondInternalError(context *gin.Context) {
-	respondError(context, http.StatusBadRequest, "Bad Request")
+// by the client. Don't forget to issue a critical log message first and abort further processing afterward!
+func RespondInternalError(ctx *gin.Context) {
+	respondError(ctx, http.StatusBadRequest, http.StatusText(http.StatusBadRequest))
 }
 
 // RespondTemporaryError returns a 200 OK status code but an error flag together with an error message. This return
 // code must be used if there is a temporary issue, e.g. some component is down.
-func RespondTemporaryError(context *gin.Context) {
-	respondError(context, http.StatusServiceUnavailable, "Temporarily Unavailable")
+func RespondTemporaryError(ctx *gin.Context) {
+	respondError(ctx, http.StatusServiceUnavailable, "Temporarily Unavailable")
+}
+
+// RespondRateLimit returns a 429 Too Many Requests status code but an error flag together with an error message.
+// This return code must be used if the allowed rate limit is exceeded.
+func RespondRateLimit(ctx *gin.Context) {
+	respondError(ctx, http.StatusTooManyRequests, http.StatusText(http.StatusTooManyRequests))
 }
 
 //
@@ -94,7 +116,13 @@ func RespondTemporaryError(context *gin.Context) {
 
 // respondError returns a custom http error code. Additionally, the response body will contain an error flag and a
 // generic error message, which may be used by the client.
-func respondError(context *gin.Context, errorCode int, errorMessage string) {
+func respondError(ctx *gin.Context, errorCode int, errorMessage string) {
+
+	// Get logger for current request context
+	logger := GetContextLogger(ctx)
+
+	// Log error
+	logger.Debugf("Request failed: %d %s", errorCode, errorMessage)
 
 	// Prepare error message
 	resp := BaseResponse{
@@ -103,8 +131,8 @@ func respondError(context *gin.Context, errorCode int, errorMessage string) {
 	}
 
 	// Build and return error
-	context.JSON(errorCode, resp)
+	ctx.JSON(errorCode, resp)
 
 	// Response built, abort further handling
-	context.Abort()
+	ctx.Abort()
 }

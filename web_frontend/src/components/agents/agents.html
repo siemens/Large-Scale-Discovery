@@ -27,6 +27,11 @@
             vertical-align: top;
             border-radius: 4px;
         }
+
+        /* Make all items align to the top */
+        .ui.horizontal.list > .item {
+            vertical-align: top !important;
+        }
     </style>
 
     <!-- ko if: agentStats() !== null && agentStats().length > 0 -->
@@ -36,13 +41,24 @@
             <!-- ko foreach: {data: agentStats} -->
             <!-- ko foreach: {data: agents, afterRender: $parent.initAgentEntry} -->
             <div class="item"
-                 style="padding-top: 3px; padding-bottom: 3px; margin-top: 5px; margin-bottom: 5px; margin-right: 11px;"
+                 style="min-width: 208px; width: 19%; padding-top: 3px; padding-bottom: 3px; margin-top: 5px; margin-bottom: 5px; margin-right: 11px;"
                  data-bind="class: $index() === 0 ? 'first' : '', style: {'padding-left': $index() === 0 ? '8px' : '10px' }">
-                <div style="max-width: 0; overflow: visible; white-space: nowrap; margin-bottom: 5px;"
+                <div style="display: block; width: 100%; margin-bottom: 5px;"
                      data-bind="class: presentationClass()">
-                    <h3 class="ui header">
+                    <h3 class="ui header" style="height: 23px">
                         <!-- ko if: $index() === 0 -->
-                        <span style="color: rgba(0, 0, 0, 0.3);" data-bind="text: $parent.scope_name"></span>
+                        <!-- ko if: $parent.agents.length > 1 -->
+                        <span data-bind="attr: {'data-tooltip': $parent.scope_db, 'data-position': 'right center', 'data-variation': 'tiny'}">
+                            <span style="color: rgba(0, 0, 0, 0.3);display: block; width: 100%; white-space: nowrap; text-overflow: ellipsis"
+                                  data-bind="text: $parent.scope_name"></span>
+                        </span>
+                        <!-- /ko -->
+                        <!-- ko if: $parent.agents.length <= 1 -->
+                        <span data-bind="attr: {'data-tooltip': $parent.scope_db, 'data-position': 'right center', 'data-variation': 'tiny'}">
+                            <span style="color: rgba(0, 0, 0, 0.3);display: block; width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis"
+                                  data-bind="text: $parent.scope_name"></span>
+                        </span>
+                        <!-- /ko -->
                         <!-- /ko -->
                         <!-- ko if: $index() !== 0 -->
                         &nbsp;
@@ -50,27 +66,37 @@
                     </h3>
                 </div>
                 <div class="ui image" style="width: 38px; padding-right: 0;"
-                     data-bind="style: { filter: last_seen_text === 'weeks ago' ? 'grayscale(100%)' : '' }"></div>
+                     data-bind="style: { filter: last_seen_text === 'weeks ago' ? 'grayscale(100%)' : '' }">
+                    <div class="avatar"></div>
+                    <!-- ko if: $data.shared -->
+                    <div class="bottom floating ui mini circular label"
+                         style="background-color: rgba(255,255,255,0.7);right: 0.6em;bottom: -0.8em;"
+                         data-tooltip="Shared" data-position="bottom center" data-variation="tiny">
+                        <i class="teal fitted project diagram icon"></i>
+                    </div>
+                    <!-- /ko -->
+                </div>
                 <div class="ui content" style="width: 157px"
                      data-bind="style: {color: last_seen_text === 'weeks ago' ? last_seen_color : ''}">
-                    <div style="max-width: 100%;overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                        <b data-bind="attr: {title: name, 'data-html': '<b>' + host + '</b> ' + ip + '', 'data-position': 'top center', 'data-variation': 'tiny'}">
-                            <span style="text-transform: capitalize;" data-bind="text: name"></span>
+                    <div style="max-width: 100%;overflow: hidden; white-space: nowrap; text-overflow: ellipsis">
+                        <b data-bind="attr: {title: name, 'data-html': '<b>' + escapeHtml(host) + '</b> ' + escapeHtml(ip), 'data-position': 'top center', 'data-variation': 'tiny'}">
+                                <span style="text-transform: capitalize;"
+                                      data-bind="text: name != '' ? name : '&nbsp;'"></span>
                         </b>
                     </div>
                     <div>
-                            <span data-bind="style: {color: cpu_rate > 90 && last_seen_text !== 'weeks ago' ? '#db2828' : ''}"><i
+                        <span data-bind="style: {color: cpu_rate > 90 && last_seen_text !== 'weeks ago' ? '#db2828' : ''}, attr: {'data-tooltip': cpu_tooltip, 'data-position': 'top center', 'data-variation': 'tiny'}"><i
                                     class="microchip icon"
                                     data-bind="style: {color: last_seen_text === 'weeks ago' ? last_seen_color : 'gray'}"></i><span
                                     data-bind="floatFloor: cpu_rate, decimalPlaces: 0"></span>%&nbsp;&nbsp;
                             </span>
-                        <span data-bind="style: {color: memory_rate > 90 && last_seen_text !== 'weeks ago' ? '#db2828' : ''}"><i
+                        <span data-bind="style: {color: memory_rate > 90 && last_seen_text !== 'weeks ago' ? '#db2828' : ''}, attr: {'data-tooltip': memory_tooltip, 'data-position': 'top center', 'data-variation': 'tiny'}"><i
                                 class="memory icon"
                                 data-bind="style: {color: last_seen_text === 'weeks ago' ? last_seen_color : 'gray'}"></i><span
                                 data-bind="floatFloor: memory_rate, decimalPlaces: 0"></span>%&nbsp;
                             </span>
                         <!-- ko if: platform !== '' -->
-                        <span data-bind="attr: {'data-html': ['<b>' + platform + '</b>', platform_family, platform_version].join('<br/>'), 'data-position': 'right center', 'data-variation': 'tiny wide'}"><i
+                        <span data-bind="attr: {'data-html': ['<b>' + escapeHtml(platform) + '</b>', escapeHtml(platform_family) + ' ' + escapeHtml(platform_version)].join('<br/>'), 'data-position': 'right center', 'data-variation': 'tiny wide'}"><i
                                 class="icon"
                                 data-bind="class: platform.toLowerCase().includes('windows') ? 'windows' : platform.toLowerCase().includes('ubuntu') ? 'ubuntu' : platform.toLowerCase().includes('centos') ? 'centos' : platform.toLowerCase().includes('fedora') ? 'fedora' : platform.toLowerCase().includes('redhat') ? 'redhat' : platform.toLowerCase().includes('suse') ? 'suse' : 'linux', style: {color: last_seen_text === 'weeks ago' ? last_seen_color : 'gray'}"></i>
                             </span>
@@ -81,8 +107,9 @@
                                 Last seen <b><span
                                     data-bind="text: last_seen_text, style: {color: last_seen_color}"></span></b>
                             </span>
-                        <!-- ko if: show_delete -->
-                        <a data-bind="click: function(data, event){$parents[1].deleteAgent(data, event, $parent.scope_id, $parent.scope_name)}, attr: {'data-tooltip': 'Dispossess', 'data-position': 'bottom center', 'data-variation': 'tiny'}"><i
+                        <!-- ko if: show_delete && (userAdmin() || userOwner()) -->
+                        <a data-bind="click: function(data, event){$parents[1].deleteAgent(data, event, $parent.scope_id, $parent.scope_name)}, attr: {'data-tooltip': 'Remove', 'data-position': 'bottom center', 'data-variation': 'tiny'}"><i
+                                style="margin: 0;"
                                 class="small grey eraser icon"></i></a>
                         <!-- /ko -->
                     </div>
@@ -120,24 +147,31 @@
                             </td>
                             <td style="padding-left: 0;" data-bind="style: { color: !tasks.Nfs ? 'gray' : ''}">NFS</td>
                             <td style="padding-left: 4px; padding-right: 4px;" class="right aligned"
+                                data-bind="style: { color: !tasks.Nuclei ? 'gray' : ''}"><span
+                                    data-bind="text: tasks.Nuclei || 0"></span>x
+                            </td>
+                            <td style="padding-left: 0;" data-bind="style: { color: !tasks.Nuclei ? 'gray' : ''}">
+                                Nuclei
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding-left: 4px; padding-right: 4px;" class="right aligned"
                                 data-bind="style: { color: !tasks.Smb ? 'gray' : ''}"><span
                                     data-bind="text: tasks.Smb || 0"></span>x
                             </td>
                             <td style="padding-left: 0;" data-bind="style: { color: !tasks.Smb ? 'gray' : ''}">SMB</td>
-                        </tr>
-                        <tr>
                             <td style="padding-left: 4px; padding-right: 4px;" class="right aligned"
                                 data-bind="style: { color: !tasks.Ssh ? 'gray' : ''}"><span
                                     data-bind="text: tasks.Ssh || 0"></span>x
                             </td>
                             <td style="padding-left: 0;" data-bind="style: { color: !tasks.Ssh ? 'gray' : ''}">SSH</td>
+                        </tr>
+                        <tr>
                             <td style="padding-left: 4px; padding-right: 4px;" class="right aligned"
                                 data-bind="style: { color: !tasks.Ssl ? 'gray' : ''}"><span
                                     data-bind="text: tasks.Ssl || 0"></span>x
                             </td>
                             <td style="padding-left: 0;" data-bind="style: { color: !tasks.Ssl ? 'gray' : ''}">SSL</td>
-                        </tr>
-                        <tr>
                             <td style="padding-left: 4px; padding-right: 4px;" class="right aligned"
                                 data-bind="style: { color: !tasks.Webcrawler ? 'gray' : ''}"><span
                                     data-bind="text: tasks.Webcrawler || 0"></span>x
@@ -145,6 +179,8 @@
                             <td style="padding-left: 0;" data-bind="style: { color: !tasks.Webcrawler ? 'gray' : ''}">
                                 Webcrawler
                             </td>
+                        </tr>
+                        <tr>
                             <td style="padding-left: 4px; padding-right: 4px;" class="right aligned"
                                 data-bind="style: { color: !tasks.Webenum ? 'gray' : ''}"><span
                                     data-bind="text: tasks.Webenum || 0"></span>x
@@ -152,7 +188,41 @@
                             <td style="padding-left: 0;" data-bind="style: { color: !tasks.Webenum ? 'gray' : ''}">
                                 Webenum
                             </td>
+                            <td></td>
+                            <td></td>
                         </tr>
+                        <!-- ko if: build_timestamp !== '' -->
+                        <tr>
+                            <td colspan="4" style="color: #bbbbbb">
+                                <div class="ui small text center aligned">
+                                    <span class="ui small text center aligned">
+                                        <b>Commit</b> <span data-bind="text: build_commit.substring(0, 8)"></span>
+                                        <b>API</b> <span data-bind="text: api_version"></span>
+                                        <br/>
+                                        <b>Build</b> <span
+                                            data-bind="text: moment(build_timestamp, datetimeFormatGolang).format(datetimeFormat)"></span>
+                                    </span>
+                                </div>
+                            </td>
+                        </tr>
+                        <!-- /ko -->
+                        <!-- ko if: has_tool_versions -->
+                        <tr>
+                            <td colspan="4" style="color: #bbbbbb">
+                                <div class="ui small text center aligned">
+                                    <span class="ui small text center aligned">
+                                        <b>Tools</b><br/>
+                                        Nmap <span data-bind="text: version_nmap || '–'"></span>
+                                        <!-- ko if: version_npcap || platform.toLowerCase().includes('windows') -->
+                                        &nbsp;npcap <span data-bind="text: version_npcap || '–'"></span>
+                                        <!-- /ko -->
+                                        <br/>
+                                        Sslyze <span data-bind="text: version_sslyze || '–'"></span>
+                                    </span>
+                                </div>
+                            </td>
+                        </tr>
+                        <!-- /ko -->
                         </tbody>
                     </table>
                 </div>

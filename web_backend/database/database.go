@@ -12,11 +12,13 @@ package database
 
 import (
 	"fmt"
+	"time"
+
 	"github.com/glebarez/sqlite"
 	"github.com/siemens/Large-Scale-Discovery/_build"
+	"github.com/siemens/Large-Scale-Discovery/utils"
 	"gorm.io/gorm"
 	gormlog "gorm.io/gorm/logger"
-	"time"
 )
 
 var backendDb *gorm.DB // If desired public, code is most likely in the wrong package!
@@ -24,11 +26,18 @@ var backendDb *gorm.DB // If desired public, code is most likely in the wrong pa
 // Open opens the backendDb from disk
 func Open() error {
 
-	// Open database
-	// with busy timeout to avoid DB locks: https://github.com/mattn/go-sqlite3/issues/274
-	// Busy timeout in milliseconds
+	// Prepare sqlite connection
+	// Gorm might open additional connections, so it's important that
+	// attributes are set in the DSN, rather than a subsequent PRAGMA query.
+	// Attributes definition according to https://github.com/glebarez/go-sqlite.
+	dsn := "file:backend.sqlite?" +
+		"_pragma=journal_mode(WAL)&" + // WAL journal mode for better concurrency
+		"_pragma=busy_timeout(60000)&" + // busy timeout to avoid instant database locked errors
+		"_pragma=foreign_keys(1)" // with enforced foreign key constraints, otherwise the SQLITE database might ignore them
+
+	// Open sqlite database
 	var errOpen error
-	backendDb, errOpen = gorm.Open(sqlite.Open("backend.sqlite?_busy_timeout=10000"), &gorm.Config{
+	backendDb, errOpen = gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		Logger: gormlog.Default.LogMode(gormlog.Warn),
 	})
 	if errOpen != nil {
@@ -40,11 +49,15 @@ func Open() error {
 		backendDb.Logger = backendDb.Logger.LogMode(gormlog.Info) // Apply log mode to database
 	}
 
-	// Enable WAL mode for better concurrency
-	backendDb.Exec("PRAGMA journal_mode = WAL")
-
-	// Enable foreign key support in SQLITE3 databases, where it is disabled by default -.-
-	backendDb.Exec("PRAGMA foreign_keys = ON;") // Required by SQLITE3 to enforce foreign key relations!!
+	// Check if pragmas were set correctly
+	errPragmas := utils.CheckPragmas(backendDb, map[string]interface{}{
+		"journal_mode": "wal", // string
+		"busy_timeout": 60000, // int (ms)
+		"foreign_keys": 1,     // int
+	})
+	if errPragmas != nil {
+		return fmt.Errorf("could not set PRAGMAs in manager db: %s", errPragmas)
+	}
 
 	// Return nil as everything went fine
 	return nil
@@ -57,10 +70,16 @@ func Close() error {
 		// Check for potential query optimizations and install them (to be done before closing connection)
 		backendDb.Exec("PRAGMA optimize") // https://www.sqlite.org/pragma.html#pragma_module_list
 
-		// Retrieve and close sql db connection
+		// Cleanup database to shrink file size
+		errVacuum := backendDb.Exec("VACUUM").Error
+		if errVacuum != nil {
+			return fmt.Errorf("could not vacuum DB: %s", errVacuum)
+		}
+
+		// Retrieve and close sql DB connection
 		sqlDb, errDb := backendDb.DB()
 		if errDb != nil {
-			return fmt.Errorf("could not retrieve underlying db connection: %s", errDb)
+			return fmt.Errorf("could not retrieve underlying DB connection: %s", errDb)
 		}
 		errClose := sqlDb.Close()
 		if errClose != nil {
@@ -94,8 +113,8 @@ func DeploySampleData() error {
 	var sampleUser2 *T_user
 
 	// Create sample user 1 if not existing
-	user, _ := GetUserByMail(sampleMail1)
-	if user == nil {
+	userEntry, _ := GetUserByMail(sampleMail1)
+	if userEntry == nil {
 
 		// Prepare sample user
 		sampleUser1 = NewUser(
@@ -174,7 +193,7 @@ func DeploySampleData() error {
 		backendDb.Create(&T_event{IdTUser: sampleUser6.Id, Email: sampleUser6.Email, Timestamp: time.Now().Add(-time.Hour * 24 * 60), Event: EventDbPassword})
 		backendDb.Create(&T_event{IdTUser: sampleUser6.Id, Email: sampleUser6.Email, Timestamp: time.Now().Add(-time.Hour * 24 * 61), Event: EventDbPassword})
 	} else {
-		sampleUser1 = user
+		sampleUser1 = userEntry
 	}
 
 	// Create sample group
@@ -186,6 +205,7 @@ func DeploySampleData() error {
 			Name:         "Dev Group",
 			Created:      time.Now(),
 			CreatedBy:    sampleUser1.Email,
+			DbServerId:   1,
 			MaxScopes:    10,
 			MaxViews:     10,
 			MaxTargets:   20000000,

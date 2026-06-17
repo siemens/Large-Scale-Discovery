@@ -2,87 +2,14 @@
     <h2 class="ui dividing header">Scope Scan Settings</h2>
     <form class="ui form" data-bind="submit: submitEdit">
 
-        <div class="two fields">
-            <div class="disabled field">
+        <div class="fields">
+            <div class="disabled four wide field">
                 <label for="inputGroup">Group</label>
                 <input id="inputGroup" type="text" data-bind="textInput: args().group_name">
             </div>
-            <div class="disabled field">
+            <div class="disabled four wide field">
                 <label for="inputName">Scope Name</label>
                 <input id="inputName" type="text" placeholder="Scope Name" data-bind="textInput: args().name">
-            </div>
-        </div>
-
-        <div class="fields" style="margin-bottom: 0;">
-            <div class="four wide field">
-                <div class="field">
-                    <label>
-                        Scan Days
-                        <span data-html="Day range in which new scans will be started. The given range respects the target's local date. Active scans and submodule scans may continue outside of this time frame!"
-                              data-position="right center" data-variation="tiny wide"><i
-                                class="question circle outline icon"></i></span>
-                    </label>
-                    <div class="ui small circular labels" style="margin-top: 10px;">
-                        <a class="ui label" data-tooltip="Monday" data-variation="tiny"
-                           data-bind="click: function (data) { updateSkipDays(1) }, css: { blue: !skipDays()[1] }">
-                            M
-                        </a>
-                        <a class="ui label" data-tooltip="Tuesday" data-variation="tiny"
-                           data-bind="click: function (data) { updateSkipDays(2) }, css: { blue: !skipDays()[2] }">
-                            T
-                        </a>
-                        <a class="ui label" data-tooltip="Wednesday" data-variation="tiny"
-                           data-bind="click: function (data) { updateSkipDays(3) }, css: { blue: !skipDays()[3] }">
-                            W
-                        </a>
-                        <a class="ui label" data-tooltip="Thursday" data-variation="tiny"
-                           data-bind="click: function (data) { updateSkipDays(4) }, css: { blue: !skipDays()[4] }">
-                            T
-                        </a>
-                        <a class="ui label" data-tooltip="Friday" data-variation="tiny"
-                           data-bind="click: function (data) { updateSkipDays(5) }, css: { blue: !skipDays()[5] }">
-                            F
-                        </a>
-                        <a class="ui label" data-tooltip="Saturday" data-variation="tiny"
-                           data-bind="click: function (data) { updateSkipDays(6) }, css: { blue: !skipDays()[6] }">
-                            S
-                        </a>
-                        <a class="ui label" data-tooltip="Sunday" data-variation="tiny"
-                           data-bind="click: function (data) { updateSkipDays(0) }, css: { blue: !skipDays()[0] }">
-                            S
-                        </a>
-                    </div>
-                </div>
-            </div>
-            <div class="four wide field">
-                <div class="field">
-                    <label>
-                        Scan Time
-                        <span data-html="Time range in which new scans will be started. The given range respects the target's local time. Active scans and submodule scans may continue outside of this time frame!"
-                              data-position="right center" data-variation="tiny wide"><i
-                                class="question circle outline icon"></i></span>
-                    </label>
-                    <div class="fields" style="margin-bottom: 0;">
-                        <div class="eight wide field">
-                            <div class="ui calendar" id="calendarStart">
-                                <div class="ui input left icon">
-                                    <i class="clock icon"></i>
-                                    <label for="inputWorkingHoursStart"></label>
-                                    <input id="inputWorkingHoursStart" type="text" placeholder="Start">
-                                </div>
-                            </div>
-                        </div>
-                        <div class="eight wide field">
-                            <div class="ui calendar" id="calendarEnd">
-                                <div class="ui input left icon">
-                                    <i class="clock icon"></i>
-                                    <label for="inputWorkingHoursEnd"></label>
-                                    <input id="inputWorkingHoursEnd" type="text" placeholder="End">
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
             </div>
             <div class="eight wide field">
                 <label for="inputSensitivePorts">
@@ -93,7 +20,29 @@
                 </label>
                 <input type="text" id="inputSensitivePorts"
                        placeholder="515, 631, 9100, 9101, 9102, 9103"
-                       data-bind="textInput: args().scan_settings.sensitive_ports">
+                       data-bind="textInput: args().scan_settings.sensitive_ports.join(', ')">
+            </div>
+        </div>
+
+
+        <h4 class="ui horizontal divider header">
+            Scan Times
+            <span
+                    data-html="Day and time ranges in which new scans will be started. The ranges are relative to each target's local time. Ongoing scans may continue outside of these time ranges!"
+                    data-position="right center" data-variation="tiny">
+                <i class="question circle outline icon"></i>
+            </span>
+        </h4>
+        <div class="ui hidden clearing divider"></div>
+        <div id="divScanTimes">
+
+            <div class="ui grid">
+                <!-- ko foreach: {data: timespans} -->
+                <div class="eight wide column" style="padding-top: 0; padding-bottom: 0">
+                    <!-- ko component: { name: 'scopes-settings-timespan', params: { parent: $parent, id: id, startDay: startDay, startTime: startTime, endDay: endDay, endTime: endTime} } -->
+                    <!-- /ko -->
+                </div>
+                <!-- /ko -->
             </div>
         </div>
 
@@ -101,7 +50,7 @@
         <h4 class="ui horizontal divider header">
             Agent Processes
             <span
-                    data-html="A scan agent executes multiple instances of each scan module in parallel."
+                    data-html="A scan agent executes multiple instances of each scan module in parallel. This are the default instance limits for agents, but they can be overridden in each agent's configuration!"
                     data-position="right center" data-variation="tiny">
                 <i class="question circle outline icon"></i>
             </span>
@@ -161,6 +110,23 @@
                     </div>
                 </div>
                 <div class="two wide column">
+                    <label>Nuclei</label>
+                </div>
+                <div class="four wide column">
+                    <div id="sliderNuclei" class="ui teal slider"></div>
+                </div>
+                <div class="two wide column">
+                    <div class="field">
+                        <label for="inputInstancesNuclei">
+                            <input id="inputInstancesNuclei" type="text" disabled=""
+                                   data-bind="textInput: maxInstancesNuclei">
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row" style="padding: 0;">
+                <div class="two wide column">
                     <label>SMB</label>
                 </div>
                 <div class="four wide column">
@@ -174,9 +140,6 @@
                         </label>
                     </div>
                 </div>
-            </div>
-
-            <div class="row" style="padding: 0;">
                 <div class="two wide column">
                     <label>SSH</label>
                 </div>
@@ -191,6 +154,9 @@
                         </label>
                     </div>
                 </div>
+            </div>
+
+            <div class="row" style="padding: 0;">
                 <div class="two wide column">
                     <label>SSL</label>
                 </div>
@@ -205,9 +171,6 @@
                         </label>
                     </div>
                 </div>
-            </div>
-
-            <div class="row" style="padding: 0;">
                 <div class="two wide column">
                     <label>Web Crawler</label>
                 </div>
@@ -222,6 +185,9 @@
                         </label>
                     </div>
                 </div>
+            </div>
+
+            <div class="row" style="padding: 0;">
                 <div class="two wide column">
                     <label>Web Enum</label>
                 </div>
@@ -238,6 +204,17 @@
                 </div>
             </div>
 
+            <!-- ko if: agentLimits -->
+            <div class="row">
+                <div class="ui tiny visible warning message"
+                     style="width:inherit; margin-left: 1rem; margin-right: 1rem;">
+                    <i class="exclamation triangle icon"></i>
+                    At least one scan agent assigned to this scan scope has dedicated scan limits configured. Above scan
+                    scope limits only apply to those scan agents without dedicated limits.
+                </div>
+            </div>
+            <!-- /ko -->
+
         </div>
 
 
@@ -249,6 +226,14 @@
             </span>
         </h4>
 
+        <!-- ko if: args().scan_settings.ot -->
+        <div class="ui small visible warning message">
+            <i class="exclamation triangle icon"></i>
+            <b>OT discovery scan scope</b> intended to discover devices mainly on OSI layer 2! <b>Customize</b> scan
+            arguments <b>according to the resilience</b> of the targeted networks.
+        </div>
+        <!-- /ko -->
+
         <div class="fields" data-bind="css: maxInstancesDiscovery() > 0 ? '' : 'disabled'">
             <div class="eight wide field">
                 <label for="inputNmapArgs">
@@ -258,12 +243,11 @@
                             class="question circle outline icon"></i></span>
                 </label>
                 <textarea id="inputNmapArgs"
-                          placeholder="-PE -PP -Pn -sS -sU -O -p U:53,67,68,111,161,162,1900,2049,T:0-65535 -sV -T4 --randomize-hosts --host-timeout 6h --max-retries 2 --traceroute --resolve-all --script=default"
                           rows="2"
-                          data-bind="textInput: args().scan_settings.discovery_nmap_args">
+                          data-bind="textInput: args().scan_settings.discovery_nmap_args, attr: {placeholder: args().scan_settings.ot ? '-sT -p 21,22,23,25,80,102,135,139,161,443,445,502,623,993,995,2404,3389,4840,4843,5060,8080,8443,20000,34962,34963,34964,44818,47808,4840,4843 -T2 --randomize-hosts --host-timeout 6h --max-retries 1 --max-rate 30 --traceroute --resolve-all --script s7-info,modbus-discover,bacnet-info,enip-info' : '-sS -sU -PE -PP -Pn -O -p U:53,67,68,111,161,162,1900,2049,T:0-65535 -sV -T4 --randomize-hosts --host-timeout 6h --max-retries 2 --traceroute --resolve-all --script=default'}">
                 </textarea>
             </div>
-            <div class="eight wide field">
+            <div class="eight wide field" data-bind="css: args().scan_settings.ot ? 'disabled' : ''">
                 <label for="inputNmapArgsPrescan">
                     Nmap Args <b>Pre-Scan</b>&nbsp;
                     <span data-html="Nmap arguments to use for a first pre-scan, intended to collect some smaller results before a potential IDS might trigger. If left empty, no pre-scan will be conducted."
@@ -271,9 +255,8 @@
                             class="question circle outline icon"></i></span>
                 </label>
                 <textarea id="inputNmapArgsPrescan"
-                          placeholder="-Pn -sS -p 21,22,23,80,135,139,443,445,3389,5900,8080,8443 -T4 --randomize-hosts --host-timeout 2m --max-retries 2"
                           rows="2"
-                          data-bind="textInput: args().scan_settings.discovery_nmap_args_prescan">
+                          data-bind="textInput: args().scan_settings.discovery_nmap_args_prescan, attr: {placeholder: args().scan_settings.ot ? '' : '-sS -Pn -p 21,22,23,80,135,139,443,445,3389,5900,8080,8443 -T4 --randomize-hosts --host-timeout 2m --max-retries 2'}">
                 </textarea>
             </div>
         </div>
@@ -304,7 +287,7 @@
                 <div class="ui input left icon">
                     <i class="user secret icon"></i>
                     <input type="text" id="inputHttpUserAgent"
-                           placeholder="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:112.0) Gecko/20100101 Firefox/112.0"
+                           placeholder="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0"
                            data-bind="textInput: args().scan_settings.http_user_agent">
                 </div>
             </div>
@@ -319,15 +302,28 @@
                 <div class="ui right labeled input">
                     <input id="inputNetworkTimeout" type="text" placeholder="8"
                            data-bind="textInput: args().scan_settings.network_timeout_seconds">
-                    <div class="ui label" style="width: 80px">
+                    <div class="ui label">
                         Seconds
                     </div>
                 </div>
             </div>
         </div>
 
-        <div class="fields">
-            <div class="four wide field" data-bind="css: maxInstancesSmb() > 0 ? '' : 'disabled'">
+        <div class="fields" data-bind="css: maxInstancesSmb() > 0 ? '' : 'disabled'">
+            <div class="four wide field">
+                <label for="inputSmbForcedShares">
+                    SMB Force Shares&nbsp;
+                    <span data-html="Enter comma separated list of shares you would always like to check, because they might exist but be invisible"
+                          data-position="right center" data-variation="tiny wide"><i
+                            class="question circle outline icon"></i></span>
+                </label>
+                <textarea id="inputSmbForcedShares"
+                          rows="3"
+                          placeholder="C, D, E, F, G, H, C$, D$, E$, F$, G$, H$, ADMIN$, TEMP, TMP"
+                          data-bind="textInput: args().scan_settings.smb_forced_shares">
+                </textarea>
+            </div>
+            <div class="four wide field">
                 <label for="inputSmbExcludeShares">
                     SMB Exclude Shares&nbsp;
                     <span data-html="Enter comma separated list of shares you would like to ignore"
@@ -335,12 +331,12 @@
                             class="question circle outline icon"></i></span>
                 </label>
                 <textarea id="inputSmbExcludeShares"
-                          rows="4"
+                          rows="3"
                           placeholder="print$, W7DP$, LSDP, LSDP_mosaic$, LSDP_test$, LSDP.WW005, lsdp-backup, lsdp_drivers_ww300$, LSDPW7$, custom_root$, gplmshare, SCCMContentLib$, SCCMContentLibD$, WsusContent"
                           data-bind="textInput: args().scan_settings.smb_exclude_shares">
                 </textarea>
             </div>
-            <div class="four wide field" data-bind="css: maxInstancesSmb() > 0 ? '' : 'disabled'">
+            <div class="four wide field">
                 <label for="inputSmbExcludeFolders">
                     SMB Exclude Folders&nbsp;
                     <span data-html="Enter comma separated list of folders you would like to ignore"
@@ -349,12 +345,12 @@
                 </label>
                 <textarea id="inputSmbExcludeFolders"
                           type="text"
-                          rows="4"
+                          rows="3"
                           placeholder="Comma, separated, list, of, folder, names"
                           data-bind="textInput: args().scan_settings.smb_exclude_folders">
                 </textarea>
             </div>
-            <div class="four wide field" data-bind="css: maxInstancesSmb() > 0 ? '' : 'disabled'">
+            <div class="four wide field">
                 <label for="inputSmbExcludeExtensions">
                     SMB Exclude Extensions&nbsp;
                     <span data-html="Enter comma separated list of file extensions you would like to ignore"
@@ -363,12 +359,15 @@
                 </label>
                 <textarea id="inputSmbExcludeExtensions"
                           type="text"
-                          rows="4"
+                          rows="3"
                           placeholder="Comma, separated, list, of, file, extensions"
                           data-bind="textInput: args().scan_settings.smb_exclude_extensions">
                 </textarea>
             </div>
-            <div class="four wide field" data-bind="css: maxInstancesSmb() > 0 ? '' : 'disabled'">
+        </div>
+
+        <div class="four fields" data-bind="css: maxInstancesSmb() > 0 ? '' : 'disabled'">
+            <div class="field">
                 <label for="inputSmbExcludeFileSize">
                     SMB Exclude Size&nbsp;
                     <span data-html="File size below which files are skipped during crawling"
@@ -378,27 +377,26 @@
                 <div class="ui right labeled input">
                     <input id="inputSmbExcludeFileSize" type="text" placeholder="1024"
                            data-bind="textInput: args().scan_settings.smb_exclude_file_size_below">
-                    <div class="ui label" style="width: 80px">
+                    <div class="ui label">
                         Bytes
                     </div>
                 </div>
-                <label for="inputSmbExcludeModified" style="padding-top: 13px;">
+            </div>
+            <div class="field">
+                <label for="inputSmbExcludeLastModifiedBelow">
                     SMB Exclude Old Files&nbsp;
                     <span data-html="File modification date below which files are skipped during crawling. Files with empty modification date will be collected, nevertheless."
                           data-position="right center" data-variation="tiny wide"><i
                             class="question circle outline icon"></i></span>
                 </label>
-                <div class="ui calendar" id="calendarExclude">
+                <div class="ui calendar" id="calendarSmbExcludeLastModifiedBelow">
                     <div class="ui input left icon">
                         <i class="calendar icon"></i>
-                        <input id="inputSmbExcludeModified" type="text">
+                        <input id="inputSmbExcludeLastModifiedBelow" type="text">
                     </div>
                 </div>
             </div>
-        </div>
-
-        <div class="four fields">
-            <div class="field" data-bind="css: maxInstancesSmb() > 0 ? '' : 'disabled'">
+            <div class="field">
                 <label for="inputSmbDepth">
                     SMB Depth&nbsp;
                     <span data-html="Depth of the share's folder structure to go down. -1 = no limit."
@@ -408,7 +406,7 @@
                 <input type="text" id="inputSmbDepth" placeholder="-1"
                        data-bind="textInput: args().scan_settings.smb_depth">
             </div>
-            <div class="field" data-bind="css: maxInstancesSmb() > 0 ? '' : 'disabled'">
+            <div class="field">
                 <label for="inputSmbThreads">
                     SMB Threads&nbsp;
                     <span data-html="Amount of parallel requests per SMB target"
@@ -418,8 +416,144 @@
                 <input type="text" id="inputSmbThreads" placeholder="4"
                        data-bind="textInput: args().scan_settings.smb_threads">
             </div>
+        </div>
 
-            <div class="field" data-bind="css: maxInstancesWebcrawler() > 0 ? '' : 'disabled'">
+        <div class="fields" data-bind="css: maxInstancesNuclei() > 0 ? '' : 'disabled'">
+            <div class="four wide field">
+                <label for="inputNucleiIncludeSeverities">
+                    Nuclei Include Severities
+                    <span data-html="Enter comma separated list of template findings severities you would like to include"
+                          data-position="right center" data-variation="tiny wide"><i
+                            class="question circle outline icon"></i></span>
+                </label>
+                <textarea id="inputNucleiIncludeSeverities"
+                          rows="1"
+                          placeholder="*"
+                          data-bind="textInput: args().scan_settings.nuclei_include_severities">
+                </textarea>
+            </div>
+            <div class="four wide field">
+                <label for="inputNucleiExcludeSeverities">
+                    Nuclei Exclude Severities
+                    <span data-html="Enter comma separated list of template findings severities you would like to ignore"
+                          data-position="right center" data-variation="tiny wide"><i
+                            class="question circle outline icon"></i></span>
+                </label>
+                <textarea id="inputNucleiExcludeSeverities"
+                          rows="1"
+                          placeholder="-"
+                          data-bind="textInput: args().scan_settings.nuclei_exclude_severities">
+                </textarea>
+            </div>
+            <div class="four wide field">
+                <label for="inputNucleiIncludeTags">
+                    Nuclei Include Tags
+                    <span data-html="Enter comma separated list of template tags you would like to include: cve,lfi,rce,xss"
+                          data-position="right center" data-variation="tiny wide"><i
+                            class="question circle outline icon"></i></span>
+                </label>
+                <textarea id="inputNucleiIncludeTags"
+                          type="text"
+                          rows="1"
+                          placeholder="*"
+                          data-bind="textInput: args().scan_settings.nuclei_include_tags">
+                </textarea>
+            </div>
+            <div class="four wide field">
+                <label for="inputNucleiExcludeTags">
+                    Nuclei Exclude Tags
+                    <span data-html="Enter comma separated list of template tags you would like to ignore: cve,lfi,rce,xss"
+                          data-position="right center" data-variation="tiny wide"><i
+                            class="question circle outline icon"></i></span>
+                </label>
+                <textarea id="inputNucleiExcludeTags"
+                          type="text"
+                          rows="1"
+                          placeholder="-"
+                          data-bind="textInput: args().scan_settings.nuclei_exclude_tags">
+                </textarea>
+            </div>
+
+        </div>
+
+        <div class="fields" data-bind="css: maxInstancesNuclei() > 0 ? '' : 'disabled'">
+
+            <div class="four wide field">
+                <label for="inputNucleiIncludeIDs">
+                    Nuclei Include IDs
+                    <span data-html="Enter comma separated list of template ids you would like to include."
+                          data-position="right center" data-variation="tiny wide"><i
+                            class="question circle outline icon"></i></span>
+                </label>
+                <textarea id="inputNucleiIncludeIDs"
+                          type="text"
+                          rows="1"
+                          placeholder="*"
+                          data-bind="textInput: args().scan_settings.nuclei_include_ids">
+                </textarea>
+            </div>
+            <div class="four wide field">
+                <label for="inputNucleiExcludeIDs">
+                    Nuclei Exclude IDs
+                    <span data-html="Enter comma separated list of template ids you would like to ignore."
+                          data-position="right center" data-variation="tiny wide"><i
+                            class="question circle outline icon"></i></span>
+                </label>
+                <textarea id="inputNucleiExcludeIDs"
+                          type="text"
+                          rows="1"
+                          placeholder="-"
+                          data-bind="textInput: args().scan_settings.nuclei_exclude_ids">
+                </textarea>
+            </div>
+
+            <div class="four wide field">
+                <label for="inputNucleiIncludeProtocolTypes">
+                    Nuclei Include Protocols&nbsp;
+                    <span data-html="Enter comma separated list of template protocols you would like to include: tcp,http,dns,ssl"
+                          data-position="right center" data-variation="tiny wide"><i
+                            class="question circle outline icon"></i></span>
+                </label>
+                <textarea id="inputNucleiIncludeProtocolTypes"
+                          rows="1"
+                          placeholder="*"
+                          data-bind="textInput: args().scan_settings.nuclei_include_protocols">
+                </textarea>
+            </div>
+
+            <div class="four wide field">
+                <label for="inputNucleiExcludeProtocolTypes">
+                    Nuclei Exclude Protocols&nbsp;
+                    <span data-html="Enter comma separated list of template protocols you would like to ignore: tcp,http,dns,ssl"
+                          data-position="right center" data-variation="tiny wide"><i
+                            class="question circle outline icon"></i></span>
+                </label>
+                <textarea id="inputNucleiExcludeProtocolTypes"
+                          rows="1"
+                          placeholder="-"
+                          data-bind="textInput: args().scan_settings.nuclei_exclude_protocols">
+                    </textarea>
+            </div>
+
+
+        </div>
+
+        <div class="fields" data-bind="css: maxInstancesWebcrawler() > 0 ? '' : 'disabled'">
+            <div class="twelve wide field">
+                <label for="inputWebcrawlerFollowTypes">
+                    Web Crawler Follow Types&nbsp;
+                    <span data-html="Response content types to follow"
+                          data-position="right center" data-variation="tiny wide"><i
+                            class="question circle outline icon"></i></span>
+                </label>
+                <textarea
+                        id="inputWebcrawlerFollowTypes"
+                        rows="5"
+                        placeholder="text/html, text/plain, text/javascript, application/javascript, application/json, application/atom+xml, application/rss+xml, application/xhtml+xml, application/x-latex, application/xml, application/xml-dtd, application/x-sh, application/x-tex, application/x-texinfo, text/cache-manifest, text/calendar, text/css, text/csv, text/csv-schema, text/directory, text/dns, text/ecmascript, text/encaprtp, text/example, text/fwdred, text/grammar-ref-list, text/jcr-cnd, text/markdown, text/mizar, text/n3, text/parameters, text/provenance-notation, text/prs.fallenstein.rst, text/prs.lines.tag, text/raptorfec, text/RED, text/rfc822-headers, text/rtf, text/rtp-enc-aescm128, text/rtploopback, text/rtx, text/SGML, text/t140, text/tab-separated-values, text/troff, text/turtle, text/ulpfec, text/uri-list, text/vcard, text/vnd.abc, text/vnd.debian.copyright, text/vnd.DMClientScript, text/vnd.dvb.subtitle, text/vnd.esmertec.theme-descriptor, text/vnd.fly, text/vnd.fmi.flexstor, text/vnd.graphviz, text/vnd.in3d.3dml, text/vnd.in3d.spot, text/vnd.IPTC.NewsML, text/vnd.IPTC.NITF, text/vnd.latex-z, text/vnd.motorola.reflex, text/vnd.ms-mediapackage, text/vnd.net2phone.commcenter.command, text/vnd.radisys.msml-basic-layout, text/vnd.si.uricatalogue, text/vnd.sun.j2me.app-descriptor, text/vnd.trolltech.linguist, text/vnd.wap.si, text/vnd.wap.sl, text/vnd.wap.wmlscript, text/vnd.wap-wml, text/vnd-a, text/vnd-curl, text/xml, text/xml-external-parsed-entity"
+                        data-bind="textInput: args().scan_settings.webcrawler_follow_types">
+                </textarea>
+            </div>
+            <div class="four wide field">
                 <label for="inputWebcrawlerDepth">
                     Web Crawler Depth&nbsp;
                     <span data-html="Depth of the site's navigation tree to go down. -1 = no limit."
@@ -428,9 +562,8 @@
                 </label>
                 <input type="text" id="inputWebcrawlerDepth" placeholder="-1"
                        data-bind="textInput: args().scan_settings.webcrawler_depth">
-            </div>
-            <div class="field" data-bind="css: maxInstancesWebcrawler() > 0 ? '' : 'disabled'">
-                <label for="inputWebcrawlerThreads">
+
+                <label for="inputWebcrawlerThreads" style="padding-top: 13px;">
                     Web Crawler Threads&nbsp;
                     <span data-html="Amount of parallel requests per HTTP target"
                           data-position="right center" data-variation="tiny wide"><i
@@ -439,21 +572,6 @@
                 <input type="text" id="inputWebcrawlerThreads" placeholder="4"
                        data-bind="textInput: args().scan_settings.webcrawler_max_threads">
             </div>
-        </div>
-
-        <div class="field" data-bind="css: maxInstancesWebcrawler() > 0 ? '' : 'disabled'">
-            <label for="inputWebcrawlerFollowTypes">
-                Web Crawler Follow Types&nbsp;
-                <span data-html="Response content types to follow"
-                      data-position="right center" data-variation="tiny wide"><i
-                        class="question circle outline icon"></i></span>
-            </label>
-            <textarea
-                    id="inputWebcrawlerFollowTypes"
-                    rows="2"
-                    placeholder="text/html, text/plain, text/javascript, application/javascript, application/json, application/atom+xml, application/rss+xml, application/xhtml+xml, application/x-latex, application/xml, application/xml-dtd, application/x-sh, application/x-tex, application/x-texinfo, text/cache-manifest, text/calendar, text/css, text/csv, text/csv-schema, text/directory, text/dns, text/ecmascript, text/encaprtp, text/example, text/fwdred, text/grammar-ref-list, text/jcr-cnd, text/markdown, text/mizar, text/n3, text/parameters, text/provenance-notation, text/prs.fallenstein.rst, text/prs.lines.tag, text/raptorfec, text/RED, text/rfc822-headers, text/rtf, text/rtp-enc-aescm128, text/rtploopback, text/rtx, text/SGML, text/t140, text/tab-separated-values, text/troff, text/turtle, text/ulpfec, text/uri-list, text/vcard, text/vnd.abc, text/vnd.debian.copyright, text/vnd.DMClientScript, text/vnd.dvb.subtitle, text/vnd.esmertec.theme-descriptor, text/vnd.fly, text/vnd.fmi.flexstor, text/vnd.graphviz, text/vnd.in3d.3dml, text/vnd.in3d.spot, text/vnd.IPTC.NewsML, text/vnd.IPTC.NITF, text/vnd.latex-z, text/vnd.motorola.reflex, text/vnd.ms-mediapackage, text/vnd.net2phone.commcenter.command, text/vnd.radisys.msml-basic-layout, text/vnd.si.uricatalogue, text/vnd.sun.j2me.app-descriptor, text/vnd.trolltech.linguist, text/vnd.wap.si, text/vnd.wap.sl, text/vnd.wap.wmlscript, text/vnd.wap-wml, text/vnd-a, text/vnd-curl, text/xml, text/xml-external-parsed-entity"
-                    data-bind="textInput: args().scan_settings.webcrawler_follow_types">
-            </textarea>
         </div>
 
         <div class="ui middle aligned grid">
@@ -502,7 +620,7 @@
                 <div class="ui right floated buttons">
                     <button class="ui button" type="button" data-bind="click: dispose">Cancel</button>
                     <div class="or"></div>
-                    <button class="ui teal button" type="button" data-bind="click: submitEdit">Save</button>
+                    <button class="ui teal button" type="submit">Save</button>
                 </div>
             </div>
         </div>

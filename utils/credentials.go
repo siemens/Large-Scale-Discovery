@@ -24,7 +24,7 @@ const AlphaNum = "abcdefghijklmnopqrstuvwxyz0123456789"
 // ValidPassword checks whether a given string matches password requirements
 func ValidPassword(
 	password string,
-	minLength int,
+	requiredLength int,
 	requiresLower bool,
 	requiresUpper bool,
 	requiresNumber bool,
@@ -44,7 +44,7 @@ func ValidPassword(
 	}
 
 	// Check min password length
-	if n < minLength {
+	if n < requiredLength {
 		return false
 	}
 
@@ -59,7 +59,7 @@ func ValidPassword(
 			continue
 		}
 
-		// Check if character is symbol
+		// Check if character is a symbol
 		if char < 'A' || char > 'z' {
 			hasSymbol = true
 			continue
@@ -71,7 +71,7 @@ func ValidPassword(
 			continue
 		}
 
-		// Check if character is uppwer case
+		// Check if character is upper case
 		if char >= 'A' && char <= 'Z' {
 			hasUpper = true
 			continue
@@ -96,19 +96,19 @@ func ValidPassword(
 	return true
 }
 
-// GenerateToken generates a random string based allowed letters and a given length
-func GenerateToken(letters string, length int) (string, error) {
+// GenerateToken generates a random string based allowed symbols and a given length
+func GenerateToken(symbols string, length int) (string, error) {
 
 	// Prepare characters to use
-	chars := []rune(letters)
-	max := big.NewInt(int64(len(chars)))
+	chars := []rune(symbols)
+	charsLen := big.NewInt(int64(len(chars)))
 
 	// Build random string
 	var b strings.Builder
 	for i := 0; i < length; i++ {
 
 		// Get random int between 0 and len(chars)
-		randInt, err := rand.Int(rand.Reader, max)
+		randInt, err := rand.Int(rand.Reader, charsLen)
 		if err != nil {
 			return "", err
 		}

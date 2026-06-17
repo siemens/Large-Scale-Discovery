@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2024.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -13,25 +13,45 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
+
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/Large-Scale-Discovery/_build"
 	"github.com/siemens/Large-Scale-Discovery/log"
 	"go.uber.org/zap/zapcore"
-	"os"
-	"sync"
 )
 
 var agentConfig = &AgentConfig{} // Global configuration
 var agentConfigLock sync.Mutex   // Lock required to avoid simultaneous requesting/updating of config
-
-var templateCredentialsLdap = Credentials{
-	"If *no* explicit LDAP credentials are configured, implicit authentication will be tried on Windows. Implicit authentication does not work on Linux and queries would be skipped.", "", "", "",
+var templateCredentialsLdap = CredentialsGssapi{
+	Credentials: Credentials{
+		Comment:  "If *no* explicit LDAP credentials are configured, implicit authentication will be tried on Windows. Implicit authentication does not work on Linux and queries would be skipped.",
+		Domain:   "",
+		User:     "",
+		Password: "",
+	},
+	DisableGssapi: false,
 }
+var templateCredentialsNuclei = CredentialsNuclei{
+	Comment:  "If *no* explicit credentials are configured, templates requiring these variables will be skipped.",
+	User:     "",
+	Password: "",
+}
+
+//lint:ignore U1000 used in Windows-only builds
 var templateCredentialsSmb = Credentials{
-	"If *no* explicit SMB credentials are configured, implicit authentication will be tried on Windows. SMB crawling is not supported on Linux and would be skipped.", "", "", "",
+	Comment:  "If *no* explicit SMB credentials are configured, implicit authentication will be tried on Windows. SMB crawling is not supported on Linux and would be skipped.",
+	Domain:   "",
+	User:     "",
+	Password: "",
 }
 var templateCredentialsWeb = Credentials{
-	"If *no* explicit credentials are configured, authentication will be skipped. Works both, on Windows and Linux.", "", "", "",
+	Comment:  "If *no* explicit credentials are configured, authentication will be skipped. Works both, on Windows and Linux.",
+	Domain:   "",
+	User:     "",
+	Password: "",
 }
 
 // Init initializes the configuration module and loads a JSON configuration. If JSON is not existing, a default
@@ -71,7 +91,7 @@ func Load(path string) error {
 		return errLoad
 	}
 
-	// Parse Json
+	// Parse JSON
 	errUnmarshal := json.Unmarshal(rawJson, newConfig)
 	if errUnmarshal != nil {
 		return errUnmarshal
@@ -102,13 +122,13 @@ func Save(conf *AgentConfig, path string) error {
 	agentConfigLock.Lock()
 	defer agentConfigLock.Unlock()
 
-	// Serialize to Json
+	// Serialize to JSON
 	file, errMarshal := json.MarshalIndent(conf, "", "    ")
 	if errMarshal != nil {
 		return errMarshal
 	}
 
-	// Write Json to file
+	// Write JSON to file
 	errWrite := os.WriteFile(path, file, 0644)
 	if errWrite != nil {
 		return errWrite
@@ -133,51 +153,24 @@ func defaultAgentConfigFactory() AgentConfig {
 
 	// Prepare default logging settings and adapt for agent
 	logging := log.DefaultLogSettingsFactory()
-	logging.File.Path = "./logs/agent.log"
+	logging.File.Path = filepath.Join("logs", "agent.log")
 	logging.Smtp.Connector.Subject = "Agent Error Log"
 
 	// Prepare default settings for development
-	scopeSecret := ""
+	var scopeSecrets = make([]string, 0)
 	if _build.DevMode {
-		scopeSecret = "dev_secret"
+		scopeSecrets = []string{"dev_secret"}
 		logging.Console.Level = zapcore.DebugLevel
 	}
 
 	// Prepare default agent config
 	conf := AgentConfig{
 		BrokerAddress:  "localhost:3333",
-		ScopeSecret:    scopeSecret,
+		ScopeSecrets:   scopeSecrets,
 		Paths:          templatePaths,
 		Authentication: templateAuthentication,
 		Logging:        logging,
-		Modules: Modules{
-			Discovery: ModuleDiscovery{
-				LdapServerComment:  "If *no* LDAP server is configured, the respective scan target's domain will be queried. Cross-domain queries might only work with implicit LDAP authentication on Windows.",
-				LdapServer:         "",
-				BlacklistFile:      "",
-				DomainOrderComment: "Sometimes there might be multiple DNS names discovered for a single host. With this grouped and ordered list of domains, you can force them into a deterministic order to promote the most plausible one. E.g. allows to prefer domain.local over domain.com.",
-				DomainOrder: []string{
-					"local",
-					"sub1.local",
-					"sub2.local",
-					"third-party.com",
-				},
-			},
-			Ssl: ModuleSsl{
-				Comment:              "SSL certificates will always be validated against default browser's trust stores. Additionally, they will be matched against the local OS' trust store, unless you want to set a custom one!",
-				CustomTruststoreFile: "",
-			},
-			Webcrawler: ModuleWebcrawler{
-				Download:     false,
-				DownloadPath: "",
-				DownloadTypes: []string{
-					"application/pdf", "application/msword", "application/vnd.ms-excel", "vnd.ms-excel.addin.macroEnabled.12",
-					"vnd.ms-excel.sheet.binary.macroEnabled.12", "vnd.ms-excel.sheet.macroEnabled.12",
-					"vnd.ms-excel.template.macroEnabled.12", "application/vnd.ms-word.document.macroEnabled.12",
-					"vnd.ms-word.template.macroEnabled.12", "application/vnd.ms-word.template.macroEnabled.12",
-				},
-			},
-		},
+		Modules:        templateModules,
 	}
 
 	// Return generated config
@@ -195,15 +188,49 @@ type Credentials struct {
 	Password string `json:"password"`
 }
 
-type Modules struct {
-	// Module specific configurations. Values set here, should only be required by the associated scan module or are
-	// meant to override other generic values.
-	Discovery  ModuleDiscovery  `json:"discovery"`
-	Ssl        ModuleSsl        `json:"ssl"`
-	Webcrawler ModuleWebcrawler `json:"webcrawler"`
+type CredentialsGssapi struct {
+	Credentials
+	DisableGssapi bool `json:"disable_gssapi"`
+}
+type CredentialsNuclei struct {
+	Comment  string `json:"comment"`
+	User     string `json:"user"`
+	Password string `json:"password"`
+}
+
+type ModuleBanner struct {
+	MaxInstances int `json:"max_instances"`
+}
+
+func (m *ModuleBanner) UnmarshalJSON(b []byte) error {
+
+	// Prepare temporary auxiliary data structure to load raw JSON data
+	type aux ModuleBanner
+	var raw aux
+
+	// Set default value if no other value is present in the read JSON file
+	raw.MaxInstances = -1
+
+	// Unmarshal serialized JSON into temporary auxiliary structure
+	err := json.Unmarshal(b, &raw)
+	if err != nil {
+		return err
+	}
+
+	// Fix invalid settings
+	if raw.MaxInstances < -1 {
+		raw.MaxInstances = -1
+	}
+
+	// Update struct with de-serialized values
+	*m = ModuleBanner(raw)
+
+	// Return nil as everything went fine
+	return nil
 }
 
 type ModuleDiscovery struct {
+	MaxInstances int `json:"max_instances"`
 	// Discovery-specific configuration values.
 	LdapServerComment  string   `json:"ldap_server_comment"`
 	LdapServer         string   `json:"ldap_server"`
@@ -214,14 +241,22 @@ type ModuleDiscovery struct {
 
 func (m *ModuleDiscovery) UnmarshalJSON(b []byte) error {
 
-	// Prepare temporary auxiliary data structure to load raw Json data
+	// Prepare temporary auxiliary data structure to load raw JSON data
 	type aux ModuleDiscovery
 	var raw aux
 
-	// Unmarshal serialized Json into temporary auxiliary structure
+	// Set default value if no other value is present in the read JSON file
+	raw.MaxInstances = -1
+
+	// Unmarshal serialized JSON into temporary auxiliary structure
 	err := json.Unmarshal(b, &raw)
 	if err != nil {
 		return err
+	}
+
+	// Fix invalid settings
+	if raw.MaxInstances < -1 {
+		raw.MaxInstances = -1
 	}
 
 	// Do input validation
@@ -242,7 +277,101 @@ func (m *ModuleDiscovery) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+type ModuleNfs struct {
+	MaxInstances int `json:"max_instances"`
+}
+
+func (m *ModuleNfs) UnmarshalJSON(b []byte) error {
+
+	// Prepare temporary auxiliary data structure to load raw JSON data
+	type aux ModuleNfs
+	var raw aux
+
+	// Set default value if no other value is present in the read JSON file
+	raw.MaxInstances = -1
+
+	// Unmarshal serialized JSON into temporary auxiliary structure
+	err := json.Unmarshal(b, &raw)
+	if err != nil {
+		return err
+	}
+
+	// Fix invalid settings
+	if raw.MaxInstances < -1 {
+		raw.MaxInstances = -1
+	}
+
+	// Update struct with de-serialized values
+	*m = ModuleNfs(raw)
+
+	// Return nil as everything went fine
+	return nil
+}
+
+type ModuleNuclei struct {
+	MaxInstances int `json:"max_instances"`
+}
+
+func (m *ModuleNuclei) UnmarshalJSON(b []byte) error {
+
+	// Prepare temporary auxiliary data structure to load raw JSON data
+	type aux ModuleNuclei
+	var raw aux
+
+	// Set default value if no other value is present in the read JSON file
+	raw.MaxInstances = -1
+
+	// Unmarshal serialized JSON into temporary auxiliary structure
+	err := json.Unmarshal(b, &raw)
+	if err != nil {
+		return err
+	}
+
+	// Fix invalid settings
+	if raw.MaxInstances < -1 {
+		raw.MaxInstances = -1
+	}
+
+	// Update struct with de-serialized values
+	*m = ModuleNuclei(raw)
+
+	// Return nil as everything went fine
+	return nil
+}
+
+type ModuleSsh struct {
+	MaxInstances int `json:"max_instances"`
+}
+
+func (m *ModuleSsh) UnmarshalJSON(b []byte) error {
+
+	// Prepare temporary auxiliary data structure to load raw JSON data
+	type aux ModuleSsh
+	var raw aux
+
+	// Set default value if no other value is present in the read JSON file
+	raw.MaxInstances = -1
+
+	// Unmarshal serialized JSON into temporary auxiliary structure
+	err := json.Unmarshal(b, &raw)
+	if err != nil {
+		return err
+	}
+
+	// Fix invalid settings
+	if raw.MaxInstances < -1 {
+		raw.MaxInstances = -1
+	}
+
+	// Update struct with de-serialized values
+	*m = ModuleSsh(raw)
+
+	// Return nil as everything went fine
+	return nil
+}
+
 type ModuleSsl struct {
+	MaxInstances int `json:"max_instances"`
 	// Ssl-specific configuration values.
 	Comment              string `json:"custom_truststore_file_comment"`
 	CustomTruststoreFile string `json:"custom_truststore_file"` // Path to custom trust store. Otherwise, OS one is used
@@ -250,14 +379,22 @@ type ModuleSsl struct {
 
 func (m *ModuleSsl) UnmarshalJSON(b []byte) error {
 
-	// Prepare temporary auxiliary data structure to load raw Json data
+	// Prepare temporary auxiliary data structure to load raw JSON data
 	type aux ModuleSsl
 	var raw aux
 
-	// Unmarshal serialized Json into temporary auxiliary structure
+	// Set default value if no other value is present in the read JSON file
+	raw.MaxInstances = -1
+
+	// Unmarshal serialized JSON into temporary auxiliary structure
 	err := json.Unmarshal(b, &raw)
 	if err != nil {
 		return err
+	}
+
+	// Fix invalid settings
+	if raw.MaxInstances < -1 {
+		raw.MaxInstances = -1
 	}
 
 	// Do input validation
@@ -276,22 +413,31 @@ func (m *ModuleSsl) UnmarshalJSON(b []byte) error {
 }
 
 type ModuleWebcrawler struct {
+	MaxInstances int `json:"max_instances"`
 	// Webcrawler-specific configuration values.
 	Download      bool     `json:"download_files"` // Whether to download downloadable contents
-	DownloadPath  string   `json:"download_path"`  // Path to to folder to download files to. If empty the working directory is chosen.
+	DownloadPath  string   `json:"download_path"`  // Path to the folder to download files to. If empty the working directory is chosen.
 	DownloadTypes []string `json:"download_types"` // Response content types to download
 }
 
 func (m *ModuleWebcrawler) UnmarshalJSON(b []byte) error {
 
-	// Prepare temporary auxiliary data structure to load raw Json data
+	// Prepare temporary auxiliary data structure to load raw JSON data
 	type aux ModuleWebcrawler
 	var raw aux
 
-	// Unmarshal serialized Json into temporary auxiliary structure
+	// Set default value if no other value is present in the read JSON file
+	raw.MaxInstances = -1
+
+	// Unmarshal serialized JSON into temporary auxiliary structure
 	err := json.Unmarshal(b, &raw)
 	if err != nil {
 		return err
+	}
+
+	// Fix invalid settings
+	if raw.MaxInstances < -1 {
+		raw.MaxInstances = -1
 	}
 
 	// Do input validation
@@ -308,31 +454,70 @@ func (m *ModuleWebcrawler) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-type AgentConfig struct {
-	// The root configuration object tying all configuration segments together.
-	BrokerAddress  string         `json:"broker_address"`
-	ScopeSecret    string         `json:"scope_secret"`
-	Paths          Paths          `json:"paths"`
-	Authentication Authentication `json:"authentication"`
-	Logging        log.Settings   `json:"logging"`
-	Modules        Modules        `json:"modules"`
+type ModuleWebenum struct {
+	MaxInstances int `json:"max_instances"`
 }
 
-func (c *AgentConfig) UnmarshalJSON(b []byte) error {
+func (m *ModuleWebenum) UnmarshalJSON(b []byte) error {
 
-	// Prepare temporary auxiliary data structure to load raw Json data
-	type aux AgentConfig
+	// Prepare temporary auxiliary data structure to load raw JSON data
+	type aux ModuleWebenum
 	var raw aux
 
-	// Unmarshal serialized Json into temporary auxiliary structure
+	// Set default value if no other value is present in the read JSON file
+	raw.MaxInstances = -1
+
+	// Unmarshal serialized JSON into temporary auxiliary structure
 	err := json.Unmarshal(b, &raw)
 	if err != nil {
 		return err
 	}
 
-	// Do input validation
-	if raw.ScopeSecret == "" || len(raw.ScopeSecret) < 10 {
-		return fmt.Errorf("invalid scope secret")
+	// Fix invalid settings
+	if raw.MaxInstances < -1 {
+		raw.MaxInstances = -1
+	}
+
+	// Update struct with de-serialized values
+	*m = ModuleWebenum(raw)
+
+	// Return nil as everything went fine
+	return nil
+}
+
+type AgentConfig struct {
+	// The root configuration object tying all configuration segments together.
+	BrokerAddress  string         `json:"broker_address"`
+	ScopeSecrets   []string       `json:"scope_secrets"`
+	Paths          Paths          `json:"paths"`
+	Authentication Authentication `json:"authentication"`
+	Logging        log.Settings   `json:"logging"`
+	Modules        Modules        `json:"modules"`
+	OtInterfaces   []string       `json:"ot_interfaces"` // The network interface to run the OT scans on, e.g. "eth0". Only relevant for OT scan scopes. Empty list scans all non-loopback interfaces.
+}
+
+func (c *AgentConfig) UnmarshalJSON(b []byte) error {
+
+	// Prepare temporary auxiliary data structure to load raw JSON data
+	type aux AgentConfig
+	var raw aux
+
+	// Unmarshal serialized JSON into temporary auxiliary structure
+	err := json.Unmarshal(b, &raw)
+	if err != nil {
+		return err
+	}
+
+	// Check if there is at least one scope secret defined
+	if len(raw.ScopeSecrets) == 0 {
+		return fmt.Errorf("no scope secret")
+	}
+
+	// Validate defined scope secrets
+	for _, secret := range raw.ScopeSecrets {
+		if len(secret) < 10 {
+			return fmt.Errorf("invalid scope secret")
+		}
 	}
 
 	// Update struct with de-serialized values

@@ -11,11 +11,16 @@
 package database
 
 import (
+	"errors"
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/glebarez/sqlite"
 	"github.com/siemens/GoScans/banner"
 	"github.com/siemens/GoScans/discovery"
 	"github.com/siemens/GoScans/nfs"
+	"github.com/siemens/GoScans/nuclei"
 	"github.com/siemens/GoScans/smb"
 	"github.com/siemens/GoScans/ssh"
 	"github.com/siemens/GoScans/ssl"
@@ -26,8 +31,6 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	gormlog "gorm.io/gorm/logger"
-	"strings"
-	"time"
 )
 
 var managerDb *gorm.DB // If desired public, code is most likely in the wrong package!
@@ -35,11 +38,18 @@ var managerDb *gorm.DB // If desired public, code is most likely in the wrong pa
 // OpenManagerDb initializes the manager db
 func OpenManagerDb() error {
 
-	// Initialize management database
-	// With busy timeout to avoid DB locks: https://github.com/mattn/go-sqlite3/issues/274
-	// Busy timeout in milliseconds
+	// Prepare sqlite connection
+	// Gorm might open additional connections, so it's important that
+	// attributes are set in the DSN, rather than a subsequent PRAGMA query.
+	// Attributes definition according to https://github.com/glebarez/go-sqlite.
+	dsn := "file:manager.sqlite?" +
+		"_pragma=journal_mode(WAL)&" + // WAL journal mode for better concurrency
+		"_pragma=busy_timeout(60000)&" + // busy timeout to avoid instant database locked errors
+		"_pragma=foreign_keys(1)" // with enforced foreign key constraints, otherwise the SQLITE database might ignore them
+
+	// Open sqlite database
 	var errOpen error
-	managerDb, errOpen = gorm.Open(sqlite.Open("manager.sqlite?_busy_timeout=600000"), &gorm.Config{
+	managerDb, errOpen = gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		Logger: gormlog.Default.LogMode(gormlog.Warn),
 	})
 	if errOpen != nil {
@@ -51,17 +61,21 @@ func OpenManagerDb() error {
 		managerDb.Logger = managerDb.Logger.LogMode(gormlog.Info) // Apply log mode to database
 	}
 
-	// Enable WAL mode for better concurrency
-	managerDb.Exec("PRAGMA journal_mode = WAL")
-
-	// Enable foreign key support in SQLITE3 databases, where it is disabled by default -.-
-	managerDb.Exec("PRAGMA foreign_keys = ON;") // Required by SQLITE3 to enforce foreign key relations!!
+	// Check if pragmas were set correctly
+	errPragmas := utils.CheckPragmas(managerDb, map[string]interface{}{
+		"journal_mode": "wal", // string
+		"busy_timeout": 60000, // int (ms)
+		"foreign_keys": 1,     // int
+	})
+	if errPragmas != nil {
+		return fmt.Errorf("could not set PRAGMAs in manager db: %s", errPragmas)
+	}
 
 	// Create or update the management db tables
 	errMigrate := managerDb.AutoMigrate(
 		&T_db_server{},
 		&T_scan_scope{},
-		&T_scan_settings{},
+		&T_scan_setting{},
 		&T_scan_agent{},
 		&T_scope_view{},
 		&T_view_grant{},
@@ -81,10 +95,16 @@ func CloseManagerDb() error {
 		// Check for potential query optimizations and install them (to be done before closing connection)
 		managerDb.Exec("PRAGMA optimize") // https://www.sqlite.org/pragma.html#pragma_module_list
 
-		// Retrieve and close sql db connection
+		// Cleanup database to shrink file size
+		errVacuum := managerDb.Exec("VACUUM").Error
+		if errVacuum != nil {
+			return fmt.Errorf("could not vacuum DB: %s", errVacuum)
+		}
+
+		// Retrieve and close sql DB connection
 		sqlDb, errDb := managerDb.DB()
 		if errDb != nil {
-			return fmt.Errorf("could not retrieve underlying db connection: %s", errDb)
+			return fmt.Errorf("could not retrieve underlying DB connection: %s", errDb)
 		}
 		errClose := sqlDb.Close()
 		if errClose != nil {
@@ -95,30 +115,91 @@ func CloseManagerDb() error {
 	return nil
 }
 
-// GetServerEntry queries the manager db for the database server by ID. It returns nil and a gorm.ErrRecordNotFound
-// if no entry is found (check with errors.Is(...)).
-func GetServerEntry(serverId uint64) (*T_db_server, error) {
+// GetDatabaseEntries queries the manager db for all database servers
+func GetDatabaseEntries() ([]T_db_server, error) {
 
-	// Prepare db server memory
-	var dbServer = T_db_server{}
+	// Prepare database server memory
+	var dbServers []T_db_server
 
-	// Find described db server
+	// Find described database server
 	errDb := managerDb.
-		Where("id = ?", serverId).
-		First(&dbServer).Error
+		Find(&dbServers).Error
 	if errDb != nil {
 		return nil, errDb
 	}
 
 	// Return
+	return dbServers, nil
+}
+
+// GetDatabaseEntry queries the manager db for the database server by ID.
+// If no entry is found, a nil pointer is returned, make sure to check it!
+func GetDatabaseEntry(dbServerId uint64) (*T_db_server, error) {
+
+	// Prepare memory for result
+	var dbServer = T_db_server{}
+
+	// Execute query
+	errDb := managerDb.
+		Preload("ScanScopes").
+		Where("id = ?", dbServerId).
+		First(&dbServer).Error
+	if errors.Is(errDb, gorm.ErrRecordNotFound) {
+		return nil, nil
+	} else if errDb != nil {
+		return nil, errDb
+	}
+
+	// Return result
 	return &dbServer, nil
 }
 
-// GetScopeEntries queries the manager db for all available scan scopes including their db server details and
+// UpdateDatabaseEntry updates data of existing database servers in the database or creates new ones. None will be removed.
+func UpdateDatabaseEntry(dbServer *T_db_server) error {
+
+	// Decide list of attributes to update
+	cols := []string{"name", "dialect", "host", "host_public", "port", "admin", "args"}
+	if len(dbServer.Password) > 0 { // Only set new password if defined. Otherwise, keep old one!
+		cols = append(cols, "password")
+	}
+
+	// Update columns to new value on `id` conflict.
+	errDb := managerDb.
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "id"}},
+			DoUpdates: clause.AssignmentColumns(cols), // Unfortunately we can not omit columns
+		}).
+		Create(&dbServer).Error
+	if errDb != nil {
+		return errDb
+	}
+
+	// Return nil as everything went fine
+	return nil
+}
+
+// RemoveDatabaseEntry removes a database server from the manager db
+func RemoveDatabaseEntry(dbServerId uint64) error {
+
+	// Prepare memory for result
+	dbEntry := T_db_server{
+		Id: dbServerId,
+	}
+
+	errDb := dbEntry.Delete()
+	if errDb != nil {
+		return errDb
+	}
+
+	// Return nil as everything went fine
+	return nil
+}
+
+// GetScopeEntries queries the manager db for all available scan scopes including their database server details and
 // scan settings. It returns an empty slice and NO error if no entry is found.
 func GetScopeEntries() ([]T_scan_scope, error) {
 
-	// Prepare query result
+	// Prepare memory for result
 	var scanScopes []T_scan_scope
 
 	// Find all scan scopes
@@ -139,7 +220,7 @@ func GetScopeEntries() ([]T_scan_scope, error) {
 // is found.
 func GetScopeEntryIds() ([]uint64, error) {
 
-	// Prepare query result
+	// Prepare memory for result
 	var scanScopes []T_scan_scope
 
 	// Find all scan scopes
@@ -168,10 +249,10 @@ func GetScopeEntriesOf(groupIds []uint64) ([]T_scan_scope, error) {
 		return []T_scan_scope{}, nil
 	}
 
-	// Prepare query result
+	// Prepare memory for result
 	var scanScopes []T_scan_scope
 
-	// Get the requested scan scope
+	// Execute query
 	errDb := managerDb.
 		Preload("ScanSettings").
 		Preload("ScanAgents").
@@ -183,18 +264,18 @@ func GetScopeEntriesOf(groupIds []uint64) ([]T_scan_scope, error) {
 		return nil, errDb
 	}
 
-	// Return
+	// Return result
 	return scanScopes, nil
 }
 
-// GetScopeEntry queries the manager db for the scope entry by ID. It returns an empty slice and a
-// gorm.ErrRecordNotFound if no entry is found (check with errors.Is(...)).
+// GetScopeEntry queries the manager db for the scope entry by ID.
+// If no entry is found, a nil pointer is returned, make sure to check it!
 func GetScopeEntry(scopeId uint64) (*T_scan_scope, error) {
 
-	// Prepare query result
+	// Prepare memory for result
 	var scanScope T_scan_scope
 
-	// Get the requested scan scope
+	// Execute query
 	errDb := managerDb.
 		Preload("ScanSettings").
 		Preload("ScanAgents").
@@ -203,22 +284,24 @@ func GetScopeEntry(scopeId uint64) (*T_scan_scope, error) {
 		Preload("ScopeViews.Grants").
 		Where("id = ?", scopeId).
 		First(&scanScope).Error
-	if errDb != nil {
+	if errors.Is(errDb, gorm.ErrRecordNotFound) {
+		return nil, nil
+	} else if errDb != nil {
 		return nil, errDb
 	}
 
-	// Return
+	// Return result
 	return &scanScope, nil
 }
 
-// GetScopeEntryBySecret queries the manager db for the scope entry by secret. Returns nil and a gorm.ErrRecordNotFound
-// if no scan scope could be found with the given secret (check with errors.Is(...)).
+// GetScopeEntryBySecret queries the manager db for the scope entry by secret.
+// If no entry is found, a nil pointer is returned, make sure to check it!
 func GetScopeEntryBySecret(secret string) (*T_scan_scope, error) {
 
-	// Prepare query result
+	// Prepare memory for result
 	var scanScope T_scan_scope
 
-	// Get the requested scan scope
+	// Execute query
 	db := managerDb.
 		Preload("ScanSettings").
 		Preload("DbServer").
@@ -231,10 +314,32 @@ func GetScopeEntryBySecret(secret string) (*T_scan_scope, error) {
 
 	// Return not found error if entry could not be found
 	if db.RowsAffected != 1 {
-		return nil, gorm.ErrRecordNotFound
+		return nil, nil
 	}
 
-	// Return scope entry
+	// Return result
+	return &scanScope, nil
+}
+
+// GetScopeEntryByName returns the scan scope including its database server for a given scan scope database name.
+// If no entry is found, a nil pointer is returned, make sure to check it!
+func GetScopeEntryByName(dbName string) (*T_scan_scope, error) {
+
+	// Prepare memory for result
+	var scanScope T_scan_scope
+
+	// Execute query
+	errDb := managerDb.
+		Preload("DbServer").
+		Where("db_name = ?", dbName).
+		First(&scanScope).Error
+	if errors.Is(errDb, gorm.ErrRecordNotFound) {
+		return nil, nil
+	} else if errDb != nil {
+		return nil, errDb
+	}
+
+	// Return result
 	return &scanScope, nil
 }
 
@@ -242,7 +347,7 @@ func GetScopeEntryBySecret(secret string) (*T_scan_scope, error) {
 // NO error if no entry is found.
 func GetAgentEntries() ([]T_scan_agent, error) {
 
-	// Prepare query result
+	// Prepare memory for result
 	var scanAgents []T_scan_agent
 
 	// Find all scan scopes
@@ -270,20 +375,17 @@ func UpdateScanAgents(scopeId uint64, scanAgents []T_scan_agent) error {
 	return managerDb.Transaction(func(txManagerDb *gorm.DB) error {
 
 		// Make sure that the agents have the scopeId set. Copy the scan agents, to not alter the input
-		agents := make([]T_scan_agent, len(scanAgents))
+		agents := make([]T_scan_agent, len(scanAgents)) // Prefill with empty agent structs
 		for i, a := range scanAgents {
 			agents[i] = a
 			agents[i].IdTScanScope = scopeId
 		}
 
-		// Update columns to new value on `id_t_scan_scope`, `name`, `host`, and `ip` conflict.
-		// Use a new gorm session and force a limit on how many Entries can be batched, as we otherwise might
-		// exceed PostgreSQLs limit of 65535 parameters
+		// Update columns to new value on `id_t_scan_scope`, `name` and `host` conflict.
 		errDb := txManagerDb.
-			Session(&gorm.Session{CreateBatchSize: MaxBatchSizeScanAgent}).
 			Clauses(clause.OnConflict{
 				Columns:   []clause.Column{{Name: "id_t_scan_scope"}, {Name: "name"}, {Name: "host"}},
-				DoUpdates: clause.AssignmentColumns([]string{"ip", "last_seen", "tasks", "cpu_rate", "memory_rate", "platform", "platform_family", "platform_version"}), // Unfortunately we can not omit columns
+				DoUpdates: clause.AssignmentColumns([]string{"ip", "shared", "limits", "last_seen", "tasks", "cpu_rate", "memory_rate", "platform", "platform_family", "platform_version", "build_commit", "build_timestamp", "api_version"}), // Unfortunately we can not omit columns
 			}).
 			Create(&agents).Error
 		if errDb != nil {
@@ -300,7 +402,7 @@ func UpdateScanAgents(scopeId uint64, scanAgents []T_scan_agent) error {
 // ATTENTION: Contains sensitive information (e.g. DbServer details) which may not be yielded to clients!
 func GetViewEntries() ([]T_scope_view, error) {
 
-	// Prepare query result
+	// Prepare memory for result
 	var scopeViews []T_scope_view
 
 	// Find all scope views
@@ -326,10 +428,10 @@ func GetViewEntriesOf(groupIds []uint64) ([]T_scope_view, error) {
 		return []T_scope_view{}, nil
 	}
 
-	// Prepare query result
+	// Prepare memory for result
 	var scopeViews []T_scope_view
 
-	// Get the requested scan scope
+	// Execute query
 	errDb := managerDb.
 		Preload("ScanScope").
 		Preload("ScanScope.ScanSettings").
@@ -342,7 +444,7 @@ func GetViewEntriesOf(groupIds []uint64) ([]T_scope_view, error) {
 		return nil, errDb
 	}
 
-	// Return
+	// Return result
 	return scopeViews, nil
 }
 
@@ -351,10 +453,10 @@ func GetViewEntriesOf(groupIds []uint64) ([]T_scope_view, error) {
 // ATTENTION: Contains sensitive information (e.g. DbServer details) which may not be yielded to clients!
 func GetViewsGranted(username string) ([]T_scope_view, error) {
 
-	// Prepare query result
+	// Prepare memory for result
 	var scopeViews []T_scope_view
 
-	// Get the requested scan scope
+	// Execute query
 	errDb := managerDb.
 		Preload("ScanScope").
 		Preload("ScanScope.ScanSettings").
@@ -368,30 +470,32 @@ func GetViewsGranted(username string) ([]T_scope_view, error) {
 		return nil, errDb
 	}
 
-	// Return
+	// Return result
 	return scopeViews, nil
 }
 
-// GetViewEntry queries the manager db for the view entry by ID. It returns nil and a gorm.ErrRecordNotFound if no
-// entry is found (check with errors.Is(...)).
+// GetViewEntry queries the manager db for the view entry by ID.
+// If no entry is found, a nil pointer is returned, make sure to check it!
 // ATTENTION: Contains sensitive information (e.g. DbServer details) which may not be yielded to clients!
 func GetViewEntry(viewId uint64) (*T_scope_view, error) {
 
-	// Prepare query result
+	// Prepare memory for result
 	var scopeView T_scope_view
 
-	// Get the requested view entry
+	// Execute query
 	errDb := managerDb.
 		Preload("ScanScope").
 		Preload("ScanScope.DbServer").
 		Preload("Grants").
 		Where("id = ?", viewId).
 		First(&scopeView).Error
-	if errDb != nil {
+	if errors.Is(errDb, gorm.ErrRecordNotFound) {
+		return nil, nil
+	} else if errDb != nil {
 		return nil, errDb
 	}
 
-	// Return view entry
+	// Return result
 	return &scopeView, nil
 }
 
@@ -415,8 +519,8 @@ func ViewExists(scanScopeId uint64, viewName string) (bool, error) {
 	return false, nil
 }
 
-// createServerEntry creates a new db server entry in the manager db.
-func createServerEntry(
+// createDatabaseEntry creates a new database server entry in the manager db.
+func createDatabaseEntry(
 	txManagerDb *gorm.DB,
 	dbName string, // A name that can be assigned to the server as a human understandable identifier
 	dbDialect string,
@@ -450,14 +554,14 @@ func createServerEntry(
 	return dbEntry, nil
 }
 
-// getServerEntryByName queries the manager db for the database server entry by name. It returns nil and a
-// gorm.ErrRecordNotFound if no entry is found (check with errors.Is(...)).
-func getServerEntryByName(name string) (*T_db_server, error) {
+// getDatabaseEntryByName queries the manager db for the database server entry by name.
+// If no entry is found, a nil pointer is returned, make sure to check it!
+func getDatabaseEntryByName(name string) (*T_db_server, error) {
 
-	// Prepare db server memory
+	// Prepare database server memory
 	var dbServer = T_db_server{}
 
-	// Find described db server
+	// Find described database server
 	db := managerDb.
 		Where("name = ?", name).
 		Limit(1).
@@ -468,7 +572,7 @@ func getServerEntryByName(name string) (*T_db_server, error) {
 
 	// Return not found error if entry could not be found
 	if db.RowsAffected != 1 {
-		return nil, gorm.ErrRecordNotFound
+		return nil, nil
 	}
 
 	// Return
@@ -489,7 +593,7 @@ func createScopeEntry(
 	cyclesRetention int,
 	attributes utils.JsonMap,
 	size uint, // Amount of target addresses deployed in this scope
-	scanSettings T_scan_settings,
+	scanSettings T_scan_setting,
 ) (*T_scan_scope, error) {
 
 	// Make sure, attribute table column isn't null
@@ -516,6 +620,7 @@ func createScopeEntry(
 		CycleActive:     0,
 		CycleDone:       0,
 		CycleFailed:     0,
+		CycleQueue:      utils.JsonMap{},
 		ScanSettings:    scanSettings,
 	}
 
@@ -537,7 +642,7 @@ func createScopeEntry(
 func updateScopeInstances(txManagerDb *gorm.DB, scanScopeId uint64, instances map[string]uint32) error {
 
 	// Query scan scope by ID
-	var scanSettings T_scan_settings
+	var scanSettings T_scan_setting
 	errDb := txManagerDb.
 		Where("id_t_scan_scope = ?", scanScopeId).
 		First(&scanSettings).Error
@@ -546,26 +651,28 @@ func updateScopeInstances(txManagerDb *gorm.DB, scanScopeId uint64, instances ma
 	}
 
 	// Update max instances for every given module
-	for module, instances := range instances {
+	for module, moduleInstances := range instances {
 
 		// Set module instances and select equivalent db column
 		switch module {
 		case discovery.Label:
-			scanSettings.MaxInstancesDiscovery = instances
+			scanSettings.MaxInstancesDiscovery = moduleInstances
 		case banner.Label:
-			scanSettings.MaxInstancesBanner = instances
+			scanSettings.MaxInstancesBanner = moduleInstances
 		case nfs.Label:
-			scanSettings.MaxInstancesNfs = instances
+			scanSettings.MaxInstancesNfs = moduleInstances
+		case nuclei.Label:
+			scanSettings.MaxInstancesNuclei = moduleInstances
 		case smb.Label:
-			scanSettings.MaxInstancesSmb = instances
+			scanSettings.MaxInstancesSmb = moduleInstances
 		case ssh.Label:
-			scanSettings.MaxInstancesSsh = instances
+			scanSettings.MaxInstancesSsh = moduleInstances
 		case ssl.Label:
-			scanSettings.MaxInstancesSsl = instances
+			scanSettings.MaxInstancesSsl = moduleInstances
 		case webcrawler.Label:
-			scanSettings.MaxInstancesWebcrawler = instances
+			scanSettings.MaxInstancesWebcrawler = moduleInstances
 		case webenum.Label:
-			scanSettings.MaxInstancesWebenum = instances
+			scanSettings.MaxInstancesWebenum = moduleInstances
 		default:
 			return fmt.Errorf("unknown module '%s'", module)
 		}
@@ -656,11 +763,11 @@ func createGrantEntry(
 	return &grantEntry, nil
 }
 
-// serverCredentialsRequired determines whether a credentials set (user credentials or access token) is still
+// databaseCredentialsRequired determines whether a credentials set (user credentials or access token) is still
 // required on a given database.
-func serverCredentialsRequired(txManagerDb *gorm.DB, username string, dbServerId uint64) (bool, error) {
+func databaseCredentialsRequired(txManagerDb *gorm.DB, username string, dbServerId uint64) (bool, error) {
 
-	// Check if valid DB server ID was passed
+	// Check if valid database server ID was passed
 	if dbServerId == 0 {
 		return true, fmt.Errorf("invalid database server ID")
 	}
@@ -690,7 +797,7 @@ func serverCredentialsRequired(txManagerDb *gorm.DB, username string, dbServerId
 // DeleteAgent removes a scan agent from the manager db
 func DeleteAgent(agentId uint64) error {
 
-	// Prepare query result
+	// Prepare memory for result
 	scanAgent := T_scan_agent{
 		Id: agentId,
 	}

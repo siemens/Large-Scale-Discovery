@@ -42,20 +42,8 @@
                             <div class="sides">
                                 <div class="side active">
 
-                                    <!-- ko if: !scan_scope.enabled -->
-                                    <div class="ui active inverted dimmer">
-                                        <h2 class="ui icon header">
-                                                <span style="color: #9d9d9d">
-                                                    <i class="pause icon"></i>
-                                                    <br/>
-                                                    Paused
-                                                </span>
-                                        </h2>
-                                    </div>
-                                    <!-- /ko -->
-
                                     <table class="ui very basic collapsing celled table"
-                                           style="width: 220px; color:rgba(0, 0, 0, 0.68);">
+                                           style="width: 220px; color:rgba(0, 0, 0, 0.68);margin-bottom: 0;">
                                         <tbody>
                                         <tr data-tooltip="Scope Type" data-position="left center"
                                             data-variation="tiny">
@@ -84,7 +72,8 @@
                                                 <span data-bind="attr: {'data-html': (moment(scan_scope.last_sync, datetimeFormatGolang).isBefore(moment('0001-01-02', 'YYYY-MM-DD')) ? '<i>Targets not synchronized</i>' : 'Last Sync: ' + moment(scan_scope.last_sync, datetimeFormatGolang).format(datetimeFormat))}"
                                                       data-position="top center"
                                                       data-variation="tiny">
-                                                        <i class="teal small sync icon"></i>
+                                                        <i class="small sync icon"
+                                                           data-bind="class: (moment(scan_scope.last_sync, datetimeFormatGolang).isBefore(moment('0001-01-02', 'YYYY-MM-DD')) ? '' : moment(scan_scope.last_sync, datetimeFormatGolang).isBefore(moment().subtract(8, 'days')) ? 'red' : 'teal')"></i>
                                                     </span>
                                                 <!-- /ko -->
                                             </td>
@@ -154,6 +143,18 @@
                                         </tr>
                                         </tbody>
                                     </table>
+
+                                    <!-- ko if: !scan_scope.enabled -->
+                                    <div class="ui active inverted dimmer">
+                                        <h2 class="ui icon header">
+                                                <span style="color: #9d9d9d">
+                                                    <i class="pause icon"></i>
+                                                    <br/>
+                                                    Paused
+                                                </span>
+                                        </h2>
+                                    </div>
+                                    <!-- /ko -->
 
                                 </div>
                                 <div class="side">
@@ -228,10 +229,8 @@
                 </div>
 
                 <div class="extra center aligned content">
-                    <button class="ui tiny button" type="button" data-tooltip="Connection Details"
-                            data-position="bottom center"
-                            data-variation="tiny"
-                            data-bind="click: $parent.toggleDatabase">
+                    <button class="ui tiny button" type="button"
+                            data-bind="click: $parent.toggleDatabase, attr: {'data-tooltip': scan_scope.name, 'data-position': 'bottom center', 'data-variation': 'tiny'}">
                         <i class="database icon"></i> Connection Details
                     </button>
                 </div>

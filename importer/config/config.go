@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2024.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -13,12 +13,14 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
+
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/Large-Scale-Discovery/_build"
 	"github.com/siemens/Large-Scale-Discovery/log"
 	"go.uber.org/zap/zapcore"
-	"os"
-	"sync"
 )
 
 var importerConfig = &ImporterConfig{} // Global configuration
@@ -61,7 +63,7 @@ func Load(path string) error {
 		return errLoad
 	}
 
-	// Parse Json
+	// Parse JSON
 	errUnmarshal := json.Unmarshal(rawJson, newConfig)
 	if errUnmarshal != nil {
 		return errUnmarshal
@@ -92,13 +94,13 @@ func Save(conf *ImporterConfig, path string) error {
 	importerConfigLock.Lock()
 	defer importerConfigLock.Unlock()
 
-	// Serialize to Json
+	// Serialize to JSON
 	file, errMarshal := json.MarshalIndent(conf, "", "    ")
 	if errMarshal != nil {
 		return errMarshal
 	}
 
-	// Write Json to file
+	// Write JSON to file
 	errWrite := os.WriteFile(path, file, 0644)
 	if errWrite != nil {
 		return errWrite
@@ -123,17 +125,21 @@ func defaultImporterConfigFactory() ImporterConfig {
 
 	// Prepare default logging settings and adapt for importer
 	logging := log.DefaultLogSettingsFactory()
-	logging.File.Path = "./logs/importer.log"
+	logging.File.Path = filepath.Join("logs", "importer.log")
 	logging.Smtp.Connector.Subject = "Importer Error Log"
 
 	// Prepare default settings for development
+	managerSecret := ""
 	if _build.DevMode {
+		managerSecret = "dev_secret"
 		logging.Console.Level = zapcore.DebugLevel
 	}
 
 	// Generate importer config with default values
 	conf := ImporterConfig{
 		ManagerAddress: "localhost:2222",
+		ManagerSsl:     true, // Encrypted endpoint be used, unless within a secure network or with a TLS load balancer is in front.
+		ManagerSecret:  managerSecret,
 		Logging:        logging,
 		Importer:       map[string]interface{}{ // Flexible map of arguments as needed by integrated importers
 		},
@@ -150,6 +156,33 @@ func defaultImporterConfigFactory() ImporterConfig {
 type ImporterConfig struct {
 	// The root configuration object tying all configuration segments together.
 	ManagerAddress string                 `json:"manager_address"`
+	ManagerSsl     bool                   `json:"manager_ssl"`    // Encrypted endpoint be used, unless within a secure network or with a TLS load balancer is in front.
+	ManagerSecret  string                 `json:"manager_secret"` // Token to authorize RPC connections to invoke manager RPC methods.
 	Logging        log.Settings           `json:"logging"`
 	Importer       map[string]interface{} `json:"importer"` // Arbitrary arguments passed to importers. Flexible for own importer integrations.
+}
+
+// UnmarshalJSON reads a JSON file, validates values and populates the configuration struct
+func (c *ImporterConfig) UnmarshalJSON(b []byte) error {
+
+	// Prepare temporary auxiliary data structure to load raw JSON data
+	type aux ImporterConfig
+	var raw aux
+
+	// Unmarshal serialized JSON into temporary auxiliary structure
+	err := json.Unmarshal(b, &raw)
+	if err != nil {
+		return err
+	}
+
+	// Do input validation
+	if len(raw.ManagerSecret) == 0 {
+		return fmt.Errorf("manager secret required")
+	}
+
+	// Copy loaded JSON values to actual config
+	*c = ImporterConfig(raw)
+
+	// Return nil as everything is valid
+	return nil
 }

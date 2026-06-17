@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -11,7 +11,9 @@
 define(["knockout", "text!./register.html", "postbox", "jquery", "semantic-ui-modal", "semantic-ui-dimmer"],
     function (ko, template, postbox, $) {
 
+        /////////////////////////
         // VIEWMODEL CONSTRUCTION
+        /////////////////////////
         function ViewModel(params) {
 
             // Check authentication and redirect to login if necessary
@@ -39,11 +41,14 @@ define(["knockout", "text!./register.html", "postbox", "jquery", "semantic-ui-mo
             // Patch modal background color to be not transparent in this case
             $('.ui.dimmer').css("background-color", "teal");
 
-            // Initialize registration form with validators and submit action
+            // Initialize form with validators. keyboardShortcuts is disabled because
+            // Semantic UI's Enter handler would submit the form a second time alongside
+            // the browser's native submit that Knockout's submit binding already handles.
             this.$domForm.form({
                 fields: {
-                    inputEmail: ['empty', 'email'],
+                    inputEmail: ['notEmpty', 'email'],
                 },
+                keyboardShortcuts: false, // Prevent FomanticUI's own submit action handler from submitting again
             });
         }
 
@@ -51,7 +56,7 @@ define(["knockout", "text!./register.html", "postbox", "jquery", "semantic-ui-mo
         ViewModel.prototype.submitRegister = function (data, event) {
 
             // Keep reference THIS view model context
-            var parent = this;
+            var ctx = this;
 
             // Validate form
             if (!this.$domForm.form('is valid')) {
@@ -59,15 +64,6 @@ define(["knockout", "text!./register.html", "postbox", "jquery", "semantic-ui-mo
                 this.$domForm.each(shake);
                 return;
             }
-
-            // Handle request error
-            const callbackError = function (response, textStatus, jqXHR) {
-                parent.$domForm.form("add prompt", "inputEmail", "Invalid E-Mail");
-                if (!developmentLogin()) {
-                    parent.$domForm.form("add prompt", "inputPassword", "Invalid Password");
-                }
-                parent.$domForm.each(shake);
-            };
 
             // Handle request success
             const callbackSuccess = function (response, textStatus, jqXHR) {
@@ -79,10 +75,19 @@ define(["knockout", "text!./register.html", "postbox", "jquery", "semantic-ui-mo
                 postbox.publish("redirect", "login");
 
                 // Reset form
-                parent.$domForm.form("reset");
+                ctx.$domForm.form("reset");
 
                 // Hide modal
-                parent.$domModal.modal('hide');
+                ctx.$domModal.modal('hide');
+            };
+
+            // Handle request error
+            const callbackError = function (response, textStatus, jqXHR) {
+                ctx.$domForm.form("add prompt", "inputEmail", "Invalid E-Mail");
+                if (!developmentLogin()) {
+                    ctx.$domForm.form("add prompt", "inputPassword", "Invalid Password");
+                }
+                ctx.$domForm.each(shake);
             };
 
             // Prepare request body
@@ -106,6 +111,11 @@ define(["knockout", "text!./register.html", "postbox", "jquery", "semantic-ui-mo
 
         // VIEWMODEL ACTION
         ViewModel.prototype.redirectLogin = function (data, event) {
+
+            // Reset form
+            this.$domForm.form("reset");
+
+            // Redirect back to login
             postbox.publish("redirect", "login");
         };
 

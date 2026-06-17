@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -11,7 +11,9 @@
 define(["knockout", "text!./views.html", "postbox", "jquery", "semantic-ui-popup", "semantic-ui-dropdown"],
     function (ko, template, postbox, $) {
 
+        /////////////////////////
         // VIEWMODEL CONSTRUCTION
+        /////////////////////////
         function ViewModel(params) {
 
             // Initialize observables
@@ -24,9 +26,15 @@ define(["knockout", "text!./views.html", "postbox", "jquery", "semantic-ui-popup
             this.actionArgs = ko.observable(null); // action element row to work on
             this.inactiveUsers = ko.observableArray([]);
 
-            // Check authentication and redirect to login if necessary
+            // Check authentication and redirect to log in if necessary
             if (!authenticated()) {
                 postbox.publish("redirect", "login");
+                return;
+            }
+
+            // Check privileges and redirect to home if necessary
+            if (userAdmin() === false && userOwner() === false) {
+                postbox.publish("redirect", home());
                 return;
             }
 

@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -109,7 +109,12 @@ function apiCall(method, endpoint, headers, data, fnCallSuccess, fnCallError, su
 
                 // Clear storage and redirect to login
                 sessionStorage.clear();
-                window.location.replace("/");
+                window.location.replace("/?error=Unauthorized");
+            } else if (jqXHR.status === 429) {
+
+                // Set error message to display
+                errMsg = "Too many requests.";
+                errIcon = "battery empty";
             } else if (jqXHR.status === 503) {
 
                 // Set error message to display
@@ -217,14 +222,19 @@ function NavItem(title, href, target) {
     this.target = target;
 }
 
-function toast(message, messageClass, errIcon) {
+function toast(message, messageClass, errIcon, displayTime) {
+    var t = 3000
+    if (displayTime !== undefined) {
+        t = displayTime
+    }
     $('body').toast({
         message: message,
         class: messageClass,
         showIcon: errIcon ? errIcon : false,
         position: 'bottom right',
         showProgress: 'bottom',
-        progressUp: true
+        progressUp: true,
+        displayTime: t
     });
 }
 
@@ -255,9 +265,7 @@ function confirmOverlay(icon, title, messasge, fnAction, confirmWord, fnDeny) {
                 <i class="' + icon + ' icon"></i>' + title + ' \
             </div> \
             <div class="content" style="text-align: center"> \
-                <p> \
-                    ' + messasge + ' \
-                </p> \
+                <p>' + messasge + '</p> \
                 ' + inputHtml + ' \
             </div> \
             <div class="actions"> \
@@ -308,6 +316,60 @@ function confirmOverlay(icon, title, messasge, fnAction, confirmWord, fnDeny) {
     }).modal('show');
 }
 
+function infoOverlay(icon, title, messasge, fnDoneAction, fnDoneTimeout) {
+
+    // Define modal HTML
+    var modalHtml = ' \
+        <div class="ui tiny basic test modal front transition" style="display: block !important;"> \
+            <div class="ui icon header"> \
+                <i class="' + icon + ' icon"></i>' + title + ' \
+            </div> \
+            <div class="content" style="text-align: center"><p>' + messasge + '</p></div> \
+            <div class="actions"> \
+                <button class="ui basic ok inverted button"> \
+                    <i class="checkmark icon"></i> \
+                    Done \
+                </button> \
+            </div> \
+        </div> \
+    ';
+
+    // Define modal
+    var $modal = $(modalHtml);
+
+    // Inject modal
+    $('body').append($modal);
+
+    // Prepare flag for done status
+    var done = false
+
+    // Show modal
+    $modal.modal({
+        onDeny: function ($element) {
+            return true
+        },
+        onApprove: function ($element) {
+            return true
+        },
+        onHidden: function () {
+            fnDoneAction();
+            $modal.remove(); // Remove modal again after use
+            done = true
+        },
+    }).modal('show');
+
+    // Close automatically
+    if (fnDoneTimeout !== undefined) {
+        setTimeout(() => {
+            if (done === false) {
+                toast("Sensitive modal closed automatically.", "teal");
+                $modal.modal('hide')
+            }
+            done = true
+        }, fnDoneTimeout);
+    }
+}
+
 function isIpV4OrSubnet(value) {
     return /^([0-9]{1,3}\.){3}[0-9]{1,3}(\/([0-9]|[1-2][0-9]|3[0-2]))?$/igm.test(value);
 }
@@ -330,9 +392,36 @@ function isFqdn(value) { // Don't be too strict, people might chose weird (sub) 
     return true;
 }
 
-function sanitizeTargets(targets) {
+function isIpOrFqdn(value) {
+    if (value.includes("/")) {
+        return false
+    }
+    if (value === "localhost") {
+        return true
+    }
+    return isFqdn(value) || isIpV4OrSubnet(value) || isIpV6OrSubnet(value);
+}
 
-    // Clean list
+function sanitizeTarget(target) {
+    target.timezone = parseFloat(target.timezone);
+    if (target.input) {
+        target.input = target.input.trim();
+    }
+    if (target.timezone > 12) {
+        target.timezone = 12
+    } else if (target.timezone < -12) {
+        target.timezone = -12
+    }
+    if (target.timezone === null || isNaN(target.timezone)) {
+        target.timezone = 0;
+    }
+    delete target["scan_started"]
+    delete target["scan_finished"]
+    return target
+}
+
+
+function sanitizeTargets(targets) {
     targets = targets.filter(function (x) {
         if (x === null) {
             return false
@@ -345,35 +434,27 @@ function sanitizeTargets(targets) {
         }
         return true
     });
-
-    // Convert data types where necessary
     for (var i = 0; i < targets.length; i++) {
-
-        // Sanitize values
-        targets[i].timezone = parseFloat(targets[i].timezone);
-        targets[i].input = targets[i].input.trim();
-        if (targets[i].timezone > 12) {
-            targets[i].timezone = 12
-        } else if (targets[i].timezone < -12) {
-            targets[i].timezone = -12
-        }
-
-        // Set timezone to something if invalid
-        if (targets[i].timezone === null || isNaN(targets[i].timezone)) {
-            targets[i].timezone = 0;
-        }
-
-        // Validate input before submitting
-        if (!isIpV4OrSubnet(targets[i].input) && !isFqdn(targets[i].input) && targets[i].input !== "localhost") {
-            return [[], "Invalid scan input '" + targets[i].input + "'!"]
-        }
-
-        // Remove scan timestamps because they will not be updated
-        delete targets[i]["scan_started"]
-        delete targets[i]["scan_finished"]
+        sanitizeTarget(targets[i]);
     }
+    return targets
+}
 
-    return [targets, ""]
+function validateInput(target) {
+    if (!isIpV4OrSubnet(target.input) && !isFqdn(target.input) && target.input !== "localhost") {
+        return "Invalid scan input '" + target.input + "'!"
+    }
+    return ""
+}
+
+function validateInputs(targets) {
+    for (var i = 0; i < targets.length; i++) {
+        var err = validateInput(targets[i]);
+        if (err !== "") {
+            return err
+        }
+    }
+    return ""
 }
 
 /*
@@ -463,30 +544,58 @@ function getParameterByName(name) {
     return decodeURIComponent(results[2].replace(/\+/g, ' '));
 }
 
+/*
+ * Checks whether the user has the requested role in the backend
+ */
+function userAllowed(roleTag) {
+    if (userAdmin()) {
+        return true
+    }
+    if (!userDemo()) {
+        return false
+    }
+    return userRoles().indexOf(roleTag) >= 0;
+}
+
 function home() {
     return "home"
+}
+
+// Escapes the five standard HTML metacharacters so backend-controlled values
+// cannot inject markup into data-html (innerHTML) popup attributes.
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 /*
  * Initialize multi select search dropdown, of given ID. The passed KnockoutJs observable referenced, is the one
  * holding the current selection. All values are converted to upper-case (or to lower-case).
  */
-function initDropdown(jquerySelector, observableSelectedValues, placeholder, allowAdditions) {
+function initDropdown(jquerySelector, observableSelectedValues, placeholder, allowAdditions, onChange) {
     if (allowAdditions !== true) {
         allowAdditions = false
     }
-    $(jquerySelector).dropdown({
-        "sortSelect": true,
-        "fullTextSearch": true,
-        "ignore Diacritics": true,  // Treats special characters same as closest ascii equivalent
+    return $(jquerySelector).dropdown({
+        "sortSelect": "natural",
+        "fullTextSearch": "exact",
+        "ignoreDiacritics": true,  // Treats special characters same as closest ascii equivalent
         "forceSelection": false,    // Enabling does NOT work together with KnockoutJs observables, but causes a JS error after leaving the select box!
         "allowAdditions": allowAdditions,     // Enables adding new entries
         "hideAdditions": false,     // Shows "add" button/entry in dropdown
         "placeholder": placeholder, // Text to show if nothing is selected
         // DO NOT SET "ignoreCase" to true, it is broken (Fomantic 2.8.7), preventing values from being removed again.
-        "onRemove": function (value, text, $choice) {
-            observableSelectedValues.remove(value) // Somehow doesn't get removed from observable again automatically
+        "onRemove": function (value, text, $choice) { // Remove item from observable, Fomantic only edits DOM
+            observableSelectedValues.remove(value)
         },
+        "onAdd": function (value, text, $choice) { // Sanitize added values
+            return ("" + text).trim() // Integers to string and trim
+        },
+        "onChange": onChange,
     });
 }
 

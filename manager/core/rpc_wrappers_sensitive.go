@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2024.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -28,7 +28,7 @@ import (
 func RpcGetScopeFull(
 	logger scanUtils.Logger,
 	rpc *utils.Client,
-	managerPrivilegeSecret string,
+	managerSecretPrivilege string,
 	scopeSecret string,
 ) (database.T_scan_scope, error) {
 
@@ -36,7 +36,7 @@ func RpcGetScopeFull(
 	rpcEndpoint := "Manager.GetScopeFull"
 	rpcReply := ReplyScanScope{}
 	rpcArgs := ArgsScopeFull{
-		PrivilegeSecret: managerPrivilegeSecret,
+		SecretPrivilege: managerSecretPrivilege,
 		ScopeSecret:     scopeSecret,
 	}
 

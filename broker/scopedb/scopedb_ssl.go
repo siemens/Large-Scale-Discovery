@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2024.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -14,15 +14,16 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/jackc/pgconn"
 	"github.com/siemens/GoScans/ssl"
 	scanUtils "github.com/siemens/GoScans/utils"
 	managerdb "github.com/siemens/Large-Scale-Discovery/manager/database"
 	"github.com/siemens/Large-Scale-Discovery/utils"
 	"gorm.io/gorm"
-	"strings"
-	"sync"
-	"time"
 )
 
 // PrepareSslResult creates an info entry in the database to indicate an active process.
@@ -81,22 +82,33 @@ func PrepareSslResult(
 	}
 
 	// Create info entries, if not yet existing. It might exist from a previous scan attempt (if the scan crashed).
-	// This check which is applied here is specific to postgres. Use a new gorm session and force a limit on how
-	// many Entries can be batched, as we otherwise might exceed PostgreSQLs limit of 65535 parameters
+	// This check which is applied here is specific to postgres.
+	// Use a new gorm session and force a limit on how many Entries can be batched, as we otherwise might
+	// exceed the database's limit of 65535 parameters
 	errDb := scopeDb.
 		Session(&gorm.Session{CreateBatchSize: managerdb.MaxBatchSizeSsl}).
 		Create(&infoEntries).Error
-	var errCreate *pgconn.PgError
-	if errors.As(errDb, &errCreate) && errCreate.Code == "23505" { // Code for unique constraint violation
+
+	// Extract Postgres error if existing
+	var errPg *pgconn.PgError
+	errors.As(errDb, &errPg)
+
+	// Handle database errors
+	if errPg != nil && errPg.Code == "23505" { // Code for Postgres' unique constraint violation
 
 		// Fall back to inserting the entries one by one to ensure as many entries as possible being added to the db
 		for _, entry := range infoEntries {
 			errDb2 := scopeDb.Create(&entry).Error
-			var errCreate2 *pgconn.PgError
-			if errors.As(errDb2, &errCreate2) && errCreate2.Code == "23505" { // Code for unique constraint violation
-				logger.Debugf("SSL info entry '%d' already existing.", entry.IdTDiscoveryService)
+
+			// Extract Postgres error if existing
+			var errPg2 *pgconn.PgError
+			errors.As(errDb2, &errPg2)
+
+			// Handle database errors
+			if errPg2 != nil && errPg2.Code == "23505" { // Code for Postgres' unique constraint violation
+				logger.Debugf("SSL info entry %d already existing.", entry.IdTDiscoveryService)
 			} else if errDb2 != nil {
-				logger.Errorf("SSL info entry '%d' could not be created: %s", entry.IdTDiscoveryService, errDb2)
+				logger.Errorf("SSL info entry %d could not be created: %s", entry.IdTDiscoveryService, errDb2)
 			}
 		}
 	} else if errDb != nil {
@@ -137,7 +149,7 @@ func SaveSslResult(
 		// 			=> Discard results (to prevent later manipulation by client), but update scan_finished timestamp (to
 		// 			   allow users proper investigations in case of IDS alerts).
 
-		// Prepare query result
+		// Prepare memory for result
 		var infoEntry = managerdb.T_ssl{}
 		var infoEntryCount int64
 
@@ -156,7 +168,7 @@ func SaveSslResult(
 		}
 
 		// Add scan results, if this is the first result delivered (scan_finished not yet set)
-		if infoEntry.ScanFinished.Valid == false {
+		if !infoEntry.ScanFinished.Valid {
 
 			// Add scan results
 			errAdd := addTlsResults(txScopeDb, infoEntry.Id, idTDiscoveryService, result)
@@ -187,9 +199,10 @@ func SaveSslResult(
 func addTlsResults(txScopeDb *gorm.DB, tSslInfoId uint64, idTDiscoveryService uint64, result *ssl.Result) error {
 
 	// Prepare entry slices
-	issueEntries := make([]managerdb.T_ssl_issue, 0, len(result.Data))
-	cipherEntries := make([]managerdb.T_ssl_cipher, 0, 10)
-	certificateEntries := make([]managerdb.T_ssl_certificate, 0, 5)
+	resultCiphers := make([]managerdb.T_ssl_cipher, 0, 10)
+	resultCertificates := make([]managerdb.T_ssl_certificate, 0, 5)
+	resultSettings := make([]managerdb.T_ssl_setting, 0, len(result.Data))
+	resultIssues := make([]managerdb.T_ssl_issue, 0, len(result.Data))
 
 	// Iterate scan results
 	for _, sslData := range result.Data {
@@ -197,68 +210,30 @@ func addTlsResults(txScopeDb *gorm.DB, tSslInfoId uint64, idTDiscoveryService ui
 		// Sanitize some result strings that might contain invalid UTF8-sequences
 		sslData.Vhost = utils.ValidUtf8String(sslData.Vhost)
 
-		// Prepare SSL data
-		bi := sslData.Issues
-		issueEntries = append(issueEntries, managerdb.T_ssl_issue{
-			IdTDiscoveryService:          idTDiscoveryService,
-			IdTSsl:                       tSslInfoId,
-			Vhost:                        sslData.Vhost,
-			AnyChainInvalid:              bi.AnyChainInvalid,
-			AnyChainInvalidOrder:         bi.AnyChainInvalidOrder,
-			LowestProtocol:               bi.LowestProtocol.String(),
-			MinStrength:                  bi.MinStrength,
-			InsecureRenegotiation:        bi.InsecureRenegotiation,
-			AcceptsClientRenegotiation:   bi.AcceptsClientRenegotiation,
-			InsecureClientRenegotiation:  bi.InsecureClientRenegotiation,
-			SessionResumptionWithId:      bi.SessionResumptionWithId,
-			SessionResumptionWithTickets: bi.SessionResumptionWithTickets,
-			NoPerfectForwardSecrecy:      bi.NoPerfectForwardSecrecy,
-			Compression:                  bi.Compression,
-			ExportSuite:                  bi.ExportSuite,
-			DraftSuite:                   bi.DraftSuite,
-			Sslv2Enabled:                 bi.Sslv2Enabled,
-			Sslv3Enabled:                 bi.Sslv3Enabled,
-			Rc4Enabled:                   bi.Rc4Enabled,
-			Md2Enabled:                   bi.Md2Enabled,
-			Md5Enabled:                   bi.Md5Enabled,
-			Sha1Enabled:                  bi.Sha1Enabled,
-			EarlyDataSupported:           bi.EarlyDataSupported,
-			CcsInjection:                 bi.CcsInjection,
-			Beast:                        bi.Beast,
-			Heartbleed:                   bi.Heartbleed,
-			Lucky13:                      bi.Lucky13,
-			Poodle:                       bi.Poodle,
-			Freak:                        bi.Freak,
-			Logjam:                       bi.Logjam,
-			Sweet32:                      bi.Sweet32,
-			Drown:                        bi.Drown,
-			IsCompliantToMozillaConfig:   bi.IsCompliantToMozillaConfig,
-		})
-
 		// Convert list of supported elliptic curves to string
 		supportedECs := "id:name"
-		for _, curve := range sslData.EllipticCurves.SupportedCurves {
-			supportedECs += fmt.Sprintf("%s%d:%s", DbValueSeparator, curve.OpenSSLnid, curve.Name)
+		for _, curve := range sslData.Curves.SupportedCurves {
+			supportedECs += fmt.Sprintf("%s%d:%s", DbValueSeparator, curve.OpenSslNid, curve.Name)
 		}
 
 		// Convert list of rejected elliptic curves to string
 		rejectedECs := "id:name"
-		for _, curve := range sslData.EllipticCurves.RejectedCurves {
-			rejectedECs += fmt.Sprintf("%s%d:%s", DbValueSeparator, curve.OpenSSLnid, curve.Name)
+		for _, curve := range sslData.Curves.RejectedCurves {
+			rejectedECs += fmt.Sprintf("%s%d:%s", DbValueSeparator, curve.OpenSslNid, curve.Name)
 		}
 
-		// Iterate cipher suites
+		// Prepare cipher suites results
 		for _, cipher := range sslData.Ciphers {
 
 			// Prepare SSL cipher data
-			cipherEntries = append(cipherEntries, managerdb.T_ssl_cipher{
+			resultCiphers = append(resultCiphers, managerdb.T_ssl_cipher{
 				IdTDiscoveryService:     idTDiscoveryService,
 				IdTSsl:                  tSslInfoId,
 				Vhost:                   sslData.Vhost,
 				CipherId:                cipher.Id,
 				IanaName:                cipher.IanaName,
 				OpensslName:             cipher.OpensslName,
-				SupportsECDHKEyExchange: sslData.EllipticCurves.SupportECDHKeyExchange,
+				SupportsECDHKEyExchange: sslData.Curves.SupportEcdhKeyExchange,
 				SupportedEllipticCurves: supportedECs,
 				RejectedEllipticCurves:  rejectedECs,
 				ProtocolVersion:         cipher.Protocol.String(),
@@ -284,17 +259,16 @@ func addTlsResults(txScopeDb *gorm.DB, tSslInfoId uint64, idTDiscoveryService ui
 				Export:                  cipher.Export,
 				Draft:                   cipher.Draft,
 			})
-
 		}
 
-		// Iterate certificates
-		for i, deployment := range sslData.CertDeployments {
+		// Prepare certificates results
+		for i, certificateChain := range sslData.Chains {
 
 			// Concat and sanitize some result strings that might contain invalid UTF8-sequences
-			validatedBy := utils.ValidUtf8String(strings.Join(deployment.ValidatedBy, DbValueSeparator))
+			validatedBy := utils.ValidUtf8String(strings.Join(certificateChain.ValidatedBy, DbValueSeparator))
 
 			// Prepare certificate data
-			for _, certificate := range deployment.Certificates {
+			for _, certificate := range certificateChain.Certificates {
 
 				// Sanitize some result strings that might contain invalid UTF8-sequences
 				certificate.SubjectCN = utils.ValidUtf8String(certificate.SubjectCN)
@@ -308,7 +282,7 @@ func addTlsResults(txScopeDb *gorm.DB, tSslInfoId uint64, idTDiscoveryService ui
 				ocspUrls := utils.ValidUtf8String(strings.Join(certificate.OcspUrls, DbValueSeparator))
 
 				// Prepare certificate data
-				certificateEntries = append(certificateEntries, managerdb.T_ssl_certificate{
+				resultCertificates = append(resultCertificates, managerdb.T_ssl_certificate{
 					IdTDiscoveryService:    idTDiscoveryService,
 					IdTSsl:                 tSslInfoId,
 					Vhost:                  sslData.Vhost,
@@ -316,9 +290,9 @@ func addTlsResults(txScopeDb *gorm.DB, tSslInfoId uint64, idTDiscoveryService ui
 					Type:                   certificate.Type,
 					Version:                certificate.Version,
 					Serial:                 certificate.Serial.String(),
-					ValidChain:             len(deployment.ValidatedBy) > 0,
+					ValidChain:             len(certificateChain.ValidatedBy) > 0,
 					ChainValidatedBy:       validatedBy,
-					ValidChainOrder:        deployment.HasValidOrder,
+					ValidChainOrder:        certificateChain.HasValidOrder,
 					Subject:                subject,
 					SubjectCN:              certificate.SubjectCN,
 					Issuer:                 issuer,
@@ -343,38 +317,100 @@ func addTlsResults(txScopeDb *gorm.DB, tSslInfoId uint64, idTDiscoveryService ui
 				})
 			}
 		}
+
+		// Prepare SSL settings results
+		sslSettings := sslData.Settings // Temporary reference for shorter code
+		resultSettings = append(resultSettings, managerdb.T_ssl_setting{
+			IdTDiscoveryService:          idTDiscoveryService,
+			IdTSsl:                       tSslInfoId,
+			Vhost:                        sslData.Vhost,
+			LowestProtocol:               sslSettings.LowestProtocol.String(),
+			MinStrength:                  sslSettings.MinStrength,
+			Ems:                          sslSettings.Ems,
+			TlsFallbackScsv:              sslSettings.TlsFallbackScsv,
+			SecureRenegotiation:          sslSettings.SecureRenegotiation,
+			SessionResumptionWithId:      sslSettings.SessionResumptionWithId,
+			SessionResumptionWithTickets: sslSettings.SessionResumptionWithTickets,
+			IsCompliantToMozillaConfig:   sslSettings.IsCompliantToMozillaConfig,
+		})
+
+		// Prepare SSL issues results
+		sslIssues := sslData.Issues // Temporary reference for shorter code
+		resultIssues = append(resultIssues, managerdb.T_ssl_issue{
+			IdTDiscoveryService:     idTDiscoveryService,
+			IdTSsl:                  tSslInfoId,
+			Vhost:                   sslData.Vhost,
+			AnyChainInvalid:         sslIssues.AnyChainInvalid,
+			AnyChainInvalidOrder:    sslIssues.AnyChainInvalidOrder,
+			ClientRenegotiationDos:  sslIssues.ClientRenegotiationDos,
+			LowEncryptionStrength:   sslIssues.LowEncryptionStrength,
+			ExportSuite:             sslIssues.ExportSuite,
+			DraftSuite:              sslIssues.DraftSuite,
+			Rc4Enabled:              sslIssues.Rc4Enabled,
+			Md2Enabled:              sslIssues.Md2Enabled,
+			Md5Enabled:              sslIssues.Md5Enabled,
+			Sha1Enabled:             sslIssues.Sha1Enabled,
+			Sslv2Enabled:            sslIssues.Sslv2Enabled,
+			Sslv3Enabled:            sslIssues.Sslv3Enabled,
+			Tlsv1_0Enabled:          sslIssues.Tlsv1_0Enabled,
+			Tlsv1_1Enabled:          sslIssues.Tlsv1_1Enabled,
+			NoPerfectForwardSecrecy: sslIssues.NoPerfectForwardSecrecy,
+			Crime:                   sslIssues.Crime,
+			CcsInjection:            sslIssues.CcsInjection,
+			EarlyDataSupported:      sslIssues.EarlyDataSupported,
+			Beast:                   sslIssues.Beast,
+			Heartbleed:              sslIssues.Heartbleed,
+			Lucky13:                 sslIssues.Lucky13,
+			Poodle:                  sslIssues.Poodle,
+			Freak:                   sslIssues.Freak,
+			Logjam:                  sslIssues.Logjam,
+			Sweet32:                 sslIssues.Sweet32,
+			Drown:                   sslIssues.Drown,
+			Robot:                   sslIssues.Robot,
+		})
 	}
 
 	// Insert data into db. Order does NOT matter, as there are no references between the three tables. Empty slices
-	// would result in an error and we don't consider an empty slice an error, as there might simply be no results.
-	if len(issueEntries) > 0 {
+	// would result in an error, and we don't consider an empty slice an error, as there might simply be no results.
+	if len(resultCiphers) > 0 {
 
 		// Use a new gorm session and force a limit on how many Entries can be batched, as we otherwise might
-		// exceed PostgreSQLs limit of 65535 parameters
-		errDb := txScopeDb.
-			Session(&gorm.Session{CreateBatchSize: managerdb.MaxBatchSizeSslIssue}).
-			Create(&issueEntries).Error
-		if errDb != nil {
-			return errDb
-		}
-	}
-	if len(cipherEntries) > 0 {
-
-		// Use a new gorm session and force a limit on how many Entries can be batched, as we otherwise might
-		// exceed PostgreSQLs limit of 65535 parameters
+		// exceed the database's limit of 65535 parameters
 		errDb := txScopeDb.
 			Session(&gorm.Session{CreateBatchSize: managerdb.MaxBatchSizeSslCipher}).
-			Create(&cipherEntries).Error
+			Create(&resultCiphers).Error
 		if errDb != nil {
 			return errDb
 		}
 	}
-	if len(certificateEntries) > 0 {
+	if len(resultCertificates) > 0 {
 		// Use a new gorm session and force a limit on how many Entries can be batched, as we otherwise might
-		// exceed PostgreSQLs limit of 65535 parameters
+		// exceed the database's limit of 65535 parameters
 		errDb := txScopeDb.
 			Session(&gorm.Session{CreateBatchSize: managerdb.MaxBatchSizeSslCertificate}).
-			Create(&certificateEntries).Error
+			Create(&resultCertificates).Error
+		if errDb != nil {
+			return errDb
+		}
+	}
+	if len(resultSettings) > 0 {
+
+		// Use a new gorm session and force a limit on how many Entries can be batched, as we otherwise might
+		// exceed the database's limit of 65535 parameters
+		errDb := txScopeDb.
+			Session(&gorm.Session{CreateBatchSize: managerdb.MaxBatchSizeSslSetting}).
+			Create(&resultSettings).Error
+		if errDb != nil {
+			return errDb
+		}
+	}
+	if len(resultIssues) > 0 {
+
+		// Use a new gorm session and force a limit on how many Entries can be batched, as we otherwise might
+		// exceed the database's limit of 65535 parameters
+		errDb := txScopeDb.
+			Session(&gorm.Session{CreateBatchSize: managerdb.MaxBatchSizeSslIssue}).
+			Create(&resultIssues).Error
 		if errDb != nil {
 			return errDb
 		}

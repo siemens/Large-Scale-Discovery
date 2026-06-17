@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2024.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -13,15 +13,17 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/Large-Scale-Discovery/_build"
 	"github.com/siemens/Large-Scale-Discovery/log"
 	"github.com/siemens/Large-Scale-Discovery/manager/database"
 	"github.com/siemens/Large-Scale-Discovery/utils"
 	"go.uber.org/zap/zapcore"
-	"os"
-	"sync"
-	"time"
 )
 
 var managerConfig = &ManagerConfig{} // Global configuration
@@ -64,7 +66,7 @@ func Load(path string) error {
 		return errLoad
 	}
 
-	// Parse Json
+	// Parse JSON
 	errUnmarshal := json.Unmarshal(rawJson, newConfig)
 	if errUnmarshal != nil {
 		return errUnmarshal
@@ -95,13 +97,13 @@ func Save(conf *ManagerConfig, path string) error {
 	managerConfigLock.Lock()
 	defer managerConfigLock.Unlock()
 
-	// Serialize to Json
+	// Serialize to JSON
 	file, errMarshal := json.MarshalIndent(conf, "", "    ")
 	if errMarshal != nil {
 		return errMarshal
 	}
 
-	// Write Json to file
+	// Write JSON to file
 	errWrite := os.WriteFile(path, file, 0644)
 	if errWrite != nil {
 		return errWrite
@@ -126,7 +128,7 @@ func defaultManagerConfigFactory() ManagerConfig {
 
 	// Prepare default logging settings and adapt for manager
 	logging := log.DefaultLogSettingsFactory()
-	logging.File.Path = "./logs/manager.log"
+	logging.File.Path = filepath.Join("logs", "manager.log")
 	logging.Smtp.Connector.Subject = "Manager Error Log"
 
 	// Prepare default settings for development
@@ -136,40 +138,53 @@ func defaultManagerConfigFactory() ManagerConfig {
 
 	// Define default values
 	defaultInvalidPorts := []int{515, 631, 9100, 9101, 9102, 9103}
-	defaultSkipDays := []time.Weekday{0, 6}
-	defaultDiscoveryTimeEarliest := "09:00"
-	defaultDiscoveryTimeLatest := "15:00"
-	defaultNmapArgs := "-PE -PP -Pn -sS -sU -O -p U:53,67,68,111,161,162,1900,2049,T:0-65535 -sV -T4 --randomize-hosts --host-timeout 6h --max-retries 2 --traceroute --resolve-all --script=default"
-	defaultNmapArgsPrescan := "-Pn -sS -p 21,22,23,80,135,139,443,445,3389,5900,8080,8443 -T4 --randomize-hosts --host-timeout 2m --max-retries 2"
+	defaultDiscoveryTimespans := utils.Timespans{
+		{
+			StartDay:  "1",
+			StartTime: "09:00",
+			EndDay:    "5",
+			EndTime:   "17:00",
+		},
+	}
+	defaultNmapArgs := "-sS -sU -PE -PP -Pn -O -p U:53,67,68,111,161,162,1900,2049,T:0-65535 -sV -T4 --randomize-hosts --host-timeout 6h --max-retries 2 --traceroute --resolve-all --script=default"
+	defaultNmapArgsPrescan := "-sS -Pn -p 21,22,23,80,135,139,443,445,3389,5900,8080,8443 -T4 --randomize-hosts --host-timeout 2m --max-retries 2"
+	defaultNmapArgsOt := "-sT -p 21,22,23,25,80,102,135,139,161,443,445,502,623,993,995,2404,3389,4840,4843,5060,8080,8443,20000,34962,34963,34964,44818,47808,4840,4843 -T2 --randomize-hosts --host-timeout 6h --max-retries 1 --max-rate 30 --traceroute --resolve-all --script s7-info,modbus-discover,bacnet-info,enip-info"
 
 	// Ease some default values in development mode
 	if _build.DevMode {
-		defaultDiscoveryTimeEarliest = "00:00"
-		defaultDiscoveryTimeLatest = "23:59"
+		defaultDiscoveryTimespans = utils.Timespans{
+			{
+				StartDay:  "0",
+				StartTime: "00:00",
+				EndDay:    "6",
+				EndTime:   "23:59",
+			},
+		}
 		defaultNmapArgs = "-PE -PP -Pn -sS -O --top-ports 10 -sV -T4 --randomize-hosts --host-timeout 6h --max-retries 2 --traceroute --resolve-all"
 		defaultNmapArgsPrescan = ""
+		defaultNmapArgsOt = "-sT -p 21,22,23,25,80,102,135,139,161,443,445,502,623,993,995,2404,3389,4840,4843,5060,8080,8443,20000,34962,34963,34964,44818,47808,4840,4843 -T4 --randomize-hosts --host-timeout 6h --max-retries 2 --traceroute --resolve-all --script s7-info,modbus-discover,bacnet-info,enip-info"
 	}
 
 	// Prepare default manager config
-	scanDefaults := database.T_scan_settings{
+	scanDefaults := database.T_scan_setting{
 		MaxInstancesDiscovery:        30,
 		MaxInstancesBanner:           100,
 		MaxInstancesNfs:              0,
+		MaxInstancesNuclei:           5,
 		MaxInstancesSmb:              10,
 		MaxInstancesSsh:              25,
 		MaxInstancesSsl:              25,
 		MaxInstancesWebcrawler:       20,
 		MaxInstancesWebenum:          25,
-		SensitivePorts:               utils.JoinInt(defaultInvalidPorts, ","),
+		SensitivePorts:               utils.SanitizeCommaSeparated(utils.JoinInt(defaultInvalidPorts, ",")),
 		SensitivePortsSlice:          defaultInvalidPorts,
 		NetworkTimeoutSeconds:        8,
-		HttpUserAgent:                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:112.0) Gecko/20100101 Firefox/112.0",
-		DiscoveryTimeEarliest:        defaultDiscoveryTimeEarliest,
-		DiscoveryTimeLatest:          defaultDiscoveryTimeLatest,
-		DiscoverySkipDays:            utils.JoinWeekdays(defaultSkipDays, ","),
-		DiscoverySkipDaysSlice:       defaultSkipDays,
+		HttpUserAgent:                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0",
+		DiscoveryTimespans:           defaultDiscoveryTimespans.String(),
+		DiscoveryTimespansSlice:      defaultDiscoveryTimespans,
 		DiscoveryNmapArgs:            defaultNmapArgs,
 		DiscoveryNmapArgsPrescan:     defaultNmapArgsPrescan,
+		DiscoveryNmapArgsOt:          defaultNmapArgsOt,
 		DiscoveryExcludeDomains:      "cloudfront.net,wildcard.cloudfront.net,azurewebsites.net,scm.azure-mobile.net,scm.azurewebsites.net,sso.azurewebsites.net,wildcard.azure-mobile.net,wildcard.azurewebsites.net,wildcard.scm.azure-mobile.net,wildcard.scm.azurewebsites.net,wildcard.sso.azurewebsites.net",
 		NfsScanTimeoutMinutes:        60 * 24 * 4,
 		NfsDepth:                     -1,
@@ -180,9 +195,19 @@ func defaultManagerConfigFactory() ManagerConfig {
 		NfsExcludeFileSizeBelow:      -1,
 		NfsExcludeLastModifiedBelow:  time.Date(2008, 01, 01, 00, 00, 00, 00, time.UTC),
 		NfsAccessibleOnly:            true,
+		NucleiScanTimeoutMinutes:     60 * 2,
+		NucleiIncludeSeverities:      "",
+		NucleiExcludeSeverities:      "",
+		NucleiIncludeTags:            "",
+		NucleiExcludeTags:            "",
+		NucleiIncludeIds:             "",
+		NucleiExcludeIds:             "",
+		NucleiIncludeProtocols:       "",
+		NucleiExcludeProtocols:       "",
 		SmbScanTimeoutMinutes:        60 * 24 * 4,
 		SmbDepth:                     -1,
 		SmbThreads:                   4,
+		SmbForcedShares:              "C,D,E,F,G,H,C$,D$,E$,F$,G$,H$,ADMIN$,TEMP,TMP,tracking.log,not_existing_share,ofcscan",
 		SmbExcludeShares:             "print$,W7DP$,LSDP,LSDP_mosaic$,LSDP_test$,LSDP.WW005,lsdp-backup,lsdp_drivers_ww300$,LSDPW7$,custom_root$,gplmshare,SCCMContentLib$,SCCMContentLibD$,WsusContent",
 		SmbExcludeFolders:            "",
 		SmbExcludeExtensions:         "",
@@ -202,16 +227,19 @@ func defaultManagerConfigFactory() ManagerConfig {
 	}
 
 	// Prepare default config values
-	privilegeSecrets := make([]string, 0, 4) // capacity 4 for unit test, because this is what Golang makes out of it
-	var privilegeSecret string
+	var listenSecrets = make([]string, 0, 4)    // capacity 4 for unit test, because this is what Golang makes out of it
+	var privilegeSecrets = make([]string, 0, 4) // capacity 4 for unit test, because this is what Golang makes out of it
 	var passwordExpiry time.Duration
 	var tokenExpiry time.Duration
 	if _build.DevMode {
+		listenSecrets = append(listenSecrets, "dev_secret")
 		privilegeSecrets = append(privilegeSecrets, "dev_secret")
 		passwordExpiry = time.Hour * 24 * 365
 		tokenExpiry = time.Hour * 24 * 365
 	} else {
-		privilegeSecret, _ = utils.GenerateToken(utils.AlphaNumCaseSymbol, 64)
+		listenSecret, _ := utils.GenerateToken(utils.AlphaNumCaseSymbol, 64)
+		listenSecrets = append(listenSecrets, listenSecret)
+		privilegeSecret, _ := utils.GenerateToken(utils.AlphaNumCaseSymbol, 64)
 		privilegeSecrets = append(privilegeSecrets, privilegeSecret)
 		passwordExpiry = time.Hour * 12    // Should fit closely enough for one working day =)
 		tokenExpiry = time.Hour * 24 * 365 // Used as a maximum possible value
@@ -220,6 +248,8 @@ func defaultManagerConfigFactory() ManagerConfig {
 	// Generate manager config with default values
 	conf := ManagerConfig{
 		ListenAddress:    "localhost:2222",
+		ListenSsl:        true, // Encrypted endpoint be used, unless within a secure network or with a TLS load balancer is in front.
+		ListenSecrets:    listenSecrets,
 		PrivilegeSecrets: privilegeSecrets,
 		Database: Database{
 			Connections:         30,
@@ -253,11 +283,11 @@ type Database struct {
 // UnmarshalJSON reads a JSON file, validates values and populates the configuration struct
 func (d *Database) UnmarshalJSON(b []byte) error {
 
-	// Prepare temporary auxiliary data structure to load raw Json data
+	// Prepare temporary auxiliary data structure to load raw JSON data
 	type aux Database
 	var raw aux
 
-	// Unmarshal serialized Json into temporary auxiliary structure
+	// Unmarshal serialized JSON into temporary auxiliary structure
 	err := json.Unmarshal(b, &raw)
 	if err != nil {
 		return err
@@ -273,7 +303,7 @@ func (d *Database) UnmarshalJSON(b []byte) error {
 		return fmt.Errorf("invalid maximum token expiry duration")
 	}
 
-	// Copy loaded Json values to actual config
+	// Copy loaded JSON values to actual config
 	*d = Database(raw)
 
 	// Set unserializable values
@@ -286,9 +316,11 @@ func (d *Database) UnmarshalJSON(b []byte) error {
 
 type ManagerConfig struct {
 	// The root configuration object tying all configuration segments together.
-	ListenAddress    string                   `json:"listen_address"`
-	PrivilegeSecrets []string                 `json:"privilege_secrets"` // Tokens granting the privilege to query full scope details, including scope secret and the scope's database credentials. E.g. the web backend does not require these details, in contrast to the broker.
-	Database         Database                 `json:"database"`
-	Logging          log.Settings             `json:"logging"`
-	ScanDefaults     database.T_scan_settings `json:"scan_defaults"`
+	ListenAddress    string                  `json:"listen_address"`
+	ListenSsl        bool                    `json:"listen_ssl"`        // Encrypted endpoint be used, unless within a secure network or with a TLS load balancer is in front.
+	ListenSecrets    []string                `json:"listen_secrets"`    // Tokens to authorize RPC connections from other component (web backend, broker, pgproxy, importer) to invoke manager RPC methods.
+	PrivilegeSecrets []string                `json:"privilege_secrets"` // Tokens to authorize sensitive RPC requests, e.g. ones returning credentials that are not required by all components.
+	Database         Database                `json:"database"`
+	Logging          log.Settings            `json:"logging"`
+	ScanDefaults     database.T_scan_setting `json:"scan_defaults"`
 }

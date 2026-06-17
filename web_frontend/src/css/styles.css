@@ -27,27 +27,24 @@ body {
     height: 100vh;
 }
 
-a {
+a:not(.ui.label):not(.item) {
     color: #009C95;
 }
 
-a:hover {
+a:hover:not(.ui.label):not(.item) {
     color: teal;
 }
 
+/* Hides the Fomantic add button in multi select boxes as long as the user has not typed anything */
+.ui.dropdown .menu > .item:empty {
+    display: none !important;
+    pointer-events: none;
+}
+
+/* can be applied to sensitive fields to blur them if the option is set by the user */
 .sensitive {
     filter: blur(4px);
 }
-
-/*
- * Make spans always vertically align content
- */
-/*
-span {
-    display: inline-flex;
-    align-items: center;
-}
-*/
 
 .footer {
     border-top: 1px solid #DDDDDD;

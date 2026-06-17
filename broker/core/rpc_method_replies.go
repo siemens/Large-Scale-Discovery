@@ -18,7 +18,8 @@ import (
 // all scan modules and to simplify broker-side code. Required information is picked from this struct by the agent.
 // This struct will contain copied data from a cached scan target struct.
 type ScanTask struct {
-	Label          string // Name of the respective module to use this arguments with
+	Secret         string // Scope secret identifying the scan scope this scan tasks belongs to
+	Label          string // Name of the respective module to use these arguments with
 	Id             uint64 // PK from the source table (might be a t_discovery ID (scope db) or a sub scan target ID (broker db)
 	Target         string
 	Protocol       string
@@ -26,7 +27,7 @@ type ScanTask struct {
 	OtherNames     []string
 	Service        string
 	ServiceProduct string
-	ScanSettings   managerdb.T_scan_settings // Current scan settings taken from the scan scope
+	ScanSettings   managerdb.T_scan_setting // Current scan settings taken from the scan scope
 }
 
 // ReplyGetScanTask contains a list of scan tasks to be returned to a scan agent after requesting

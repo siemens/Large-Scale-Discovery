@@ -13,6 +13,8 @@ package scopedb
 import (
 	"database/sql"
 	"fmt"
+	"time"
+
 	"github.com/siemens/GoScans/banner"
 	"github.com/siemens/GoScans/nfs"
 	"github.com/siemens/GoScans/smb"
@@ -23,7 +25,6 @@ import (
 	"github.com/siemens/GoScans/webenum"
 	managerdb "github.com/siemens/Large-Scale-Discovery/manager/database"
 	"gorm.io/gorm"
-	"time"
 )
 
 const DbValueSeparator = "\n"

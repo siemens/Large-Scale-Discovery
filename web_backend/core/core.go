@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2024.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -12,7 +12,15 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -23,18 +31,14 @@ import (
 	"github.com/siemens/Large-Scale-Discovery/utils"
 	"github.com/siemens/Large-Scale-Discovery/web_backend/config"
 	"github.com/siemens/Large-Scale-Discovery/web_backend/database"
-	"io"
-	"net/http"
-	"os"
-	"path/filepath"
-	"strings"
-	"sync"
 )
 
 var coreCtx, coreCtxCancelFunc = context.WithCancel(context.Background()) // Backend context and context cancellation function. Backend should terminate when context is closed
 var shutdownOnce sync.Once                                                // Helper variable to prevent shutdown from doing its work multiple times.
 var rpcClient *utils.Client                                               // RPC client struct handling RPC connections and requests. This needs to be accessible by handler packages
 var httpRouter *gin.Engine                                                // HTTP Router dispatching HTTP requests to associated request handlers
+var httpServer *http.Server                                               // Reference to the listening HTTP server instance
+var httpServerS *http.Server                                              // Reference to the listening HTTPS server instance
 var apiEndpointsAdmin []string                                            // List of routes that are allowed for admins only
 var apiEndpointsNoAuth []string                                           // List of routes that do not require authentication
 var jwtSecret string                                                      // Secret used to sign authentication messages
@@ -42,11 +46,15 @@ var jwtAlgorithm string                                                   // Alg
 var httpServerCrt string                                                  // Certificate used by the listening RPC server
 var httpServerKey string                                                  // Key used by the listening RPC server
 
+const JwtKindWeb = "Web" // Interactive session token, short-lived, auto-refreshed
+const JwtKindApi = "API" // Long-lived API access token, not auto-refreshed
+
 // Jwt represents a JWT token and it's attributes, used for authentication
 type Jwt struct {
 	jwt.RegisteredClaims
 	UserId   uint64 // The ID of the user this JWT token belongs to
-	Revision uint   // User's logout count to invalidate previously issued JWT tokens ahead of time (JWT tokens not stored on the server-side like sessions!)
+	Revision uint   // For web tokens: user's LogoutCount. For API tokens: user's ApiTokenRevision
+	Kind     string // "Web" = interactive session token, "API" = long-lived API access token
 }
 
 func Init() error {
@@ -55,19 +63,21 @@ func Init() error {
 	conf := config.GetConfig()
 
 	// Prepare backend key and certificate path
-	httpServerCrt = filepath.Join("keys", "backend.crt")
-	httpServerKey = filepath.Join("keys", "backend.key")
-	if _build.DevMode {
-		httpServerCrt = filepath.Join("keys", "backend_dev.crt")
-		httpServerKey = filepath.Join("keys", "backend_dev.key")
-	}
-	errServerCrt := scanUtils.IsValidFile(httpServerCrt)
-	if errServerCrt != nil {
-		return errServerCrt
-	}
-	errServerKey := scanUtils.IsValidFile(httpServerKey)
-	if errServerKey != nil {
-		return errServerKey
+	if conf.ListenAddressHttps != "" {
+		httpServerCrt = filepath.Join("keys", "backend.crt")
+		httpServerKey = filepath.Join("keys", "backend.key")
+		if _build.DevMode {
+			httpServerCrt = filepath.Join("keys", "backend_dev.crt")
+			httpServerKey = filepath.Join("keys", "backend_dev.key")
+		}
+		errServerCrt := scanUtils.IsValidFile(httpServerCrt)
+		if errServerCrt != nil {
+			return errServerCrt
+		}
+		errServerKey := scanUtils.IsValidFile(httpServerKey)
+		if errServerKey != nil {
+			return errServerKey
+		}
 	}
 
 	// Set GIN release mode before initializing
@@ -110,6 +120,11 @@ func Init() error {
 	// Return 405 NOT ALLOWED if route is called with invalid method
 	httpRouter.HandleMethodNotAllowed = true
 
+	// Return a valid JSON body with HTTP error status code. Browser might try to parse response body as JSON.
+	httpRouter.NoRoute(func(ctx *gin.Context) {
+		respondError(ctx, http.StatusNotFound, http.StatusText(http.StatusNotFound))
+	})
+
 	// Attach GIN default logger middleware, which will take care of access logging
 	httpRouter.Use(gin.Logger())
 
@@ -131,9 +146,14 @@ func Init() error {
 	// Middleware to executes JWT authentication and some basic authorization checks
 	httpRouter.Use(MwJwtAuthentication())
 
+	// Middleware to enforce rate limits: IP-based for auth endpoints, user-based for authenticated API
+	httpRouter.Use(MwRateLimit())
+
 	// Middleware to compress all responses to minimize transmission times
 	// This helps clients on slower connections a lot on larger responses, and might help you reduce bandwidth costs
-	httpRouter.Use(gzip.Gzip(gzip.DefaultCompression))
+	httpRouter.Use(gzip.Gzip(gzip.DefaultCompression,
+		gzip.WithExcludedExtensions([]string{".zip"}),
+	))
 
 	// Initialize authenticators
 	errAuthenticators := initAuthenticators(conf.Authenticator)
@@ -151,7 +171,7 @@ func Init() error {
 	return nil
 }
 
-func InitManager() error {
+func ConnectManager() error {
 
 	// Get global logger
 	logger := log.GetLogger()
@@ -172,10 +192,11 @@ func InitManager() error {
 	// Register gob structures that will be sent via interface{}
 	manager.RegisterGobs()
 
-	// Initialize RPC client manager facing
-	rpcClient = utils.NewRpcClient(conf.ManagerAddress, rpcRemoteCrt)
+	// Initialize RPC client manager facing.
+	// The manager requires a shared secret to authorize the RPC connection.
+	rpcClient = utils.NewRpcClient(conf.ManagerAddress, conf.ManagerSsl, rpcRemoteCrt, conf.ManagerSecret)
 
-	// Connect to manager but don't wait to start answering client requests. Connection attempts continue in background.
+	// Connect to manager but don't wait to start answering client requests. Connection attempt continues in background.
 	_ = rpcClient.Connect(logger, true)
 
 	// Return as everything went fine
@@ -223,6 +244,7 @@ func Run() error {
 		httpRouter.Static(appBase, pathSrc)
 		httpRouter.Static("/node_modules/", pathModules)
 		httpRouter.StaticFile("/favicon.ico", filepath.Join(pathSrc, "favicon.ico"))
+
 	} else {
 
 		// Prepare frontend path
@@ -261,28 +283,56 @@ func Run() error {
 	// Prepare potential error
 	var err error = nil
 
-	// Launch web server
-	go func() {
+	// Start goroutine for HTTP endpoint
+	if conf.ListenAddressHttp != "" {
+		go func() {
 
-		// HTTP takes a different wildcard style than RPC, so make sure * works too...
-		listen := conf.ListenAddress
-		if strings.HasPrefix(listen, "*:") {
-			listen = strings.Replace(listen, "*:", ":", 1)
-		}
+			// Convert wildcard notation to suitable variant
+			listen := conf.ListenAddressHttp
+			if strings.HasPrefix(listen, "*:") {
+				listen = strings.Replace(listen, "*:", ":", 1)
+			}
 
-		// Create the TLS conf
-		tlsConf := utils.TlsConfigFactory()
+			// Create TLS web server
+			httpServer = &http.Server{Addr: listen, Handler: httpRouter}
 
-		// Create TLS web server
-		server := &http.Server{Addr: listen, Handler: httpRouter, TLSConfig: tlsConf}
+			// Start listening
+			errServe := httpServer.ListenAndServe()
+			if errServe != nil && !errors.Is(errServe, http.ErrServerClosed) {
+				err = errServe
+			}
 
-		// Start TLS web server
-		errServe := server.ListenAndServeTLS(httpServerCrt, httpServerKey)
-		if errServe != nil {
-			err = errServe
+			// Cancel core context, if it is not yet already
 			coreCtxCancelFunc()
-		}
-	}()
+		}()
+	}
+
+	// Start goroutine for HTTPS endpoint
+	if conf.ListenAddressHttps != "" {
+		go func() {
+
+			// Convert wildcard notation to suitable variant
+			listen := conf.ListenAddressHttps
+			if strings.HasPrefix(listen, "*:") {
+				listen = strings.Replace(listen, "*:", ":", 1)
+			}
+
+			// Create the TLS conf
+			tlsConf := utils.TlsConfigFactory()
+
+			// Create TLS web server
+			httpServerS = &http.Server{Addr: listen, Handler: httpRouter, TLSConfig: tlsConf}
+
+			// Start listening
+			errServe := httpServerS.ListenAndServeTLS(httpServerCrt, httpServerKey)
+			if errServe != nil && !errors.Is(errServe, http.ErrServerClosed) {
+				err = errServe
+			}
+
+			// Cancel core context, if it is not yet already
+			coreCtxCancelFunc()
+		}()
+	}
 
 	// Block until termination request
 	<-coreCtx.Done()
@@ -302,6 +352,24 @@ func Shutdown() {
 		// Close agent context. Waiting goroutines will abort if it is closed.
 		coreCtxCancelFunc()
 
+		// Shutdown HTTP server
+		if httpServer != nil {
+			errServer := httpServer.Shutdown(context.Background())
+			if errServer != nil {
+				logger.Errorf("Could not shutdwon HTTP server: %s", errServer)
+				_ = httpServer.Close() // Try forced shutdown
+			}
+		}
+
+		// Shut down HTTPS server
+		if httpServerS != nil {
+			errServerS := httpServerS.Shutdown(context.Background())
+			if errServerS != nil {
+				logger.Errorf("Could not shutdwon HTTPS server: %s", errServerS)
+				_ = httpServerS.Close() // Try forced shutdown
+			}
+		}
+
 		// Disconnect from manager
 		if rpcClient != nil {
 			rpcClient.Disconnect()
@@ -310,29 +378,34 @@ func Shutdown() {
 		// Make sure db gets closed on exit
 		errClose := database.Close()
 		if errClose != nil {
-			logger.Errorf("Could not close backend db connection: '%s'", errClose)
+			logger.Errorf("Could not close backend DB connection: '%s'", errClose)
 		}
 	})
 }
 
 // RegisterApiEndpoint registers a new route, which requires authentication.
 func RegisterApiEndpoint(version string, method string, path string, handlers ...gin.HandlerFunc) {
-	relUrl := fmt.Sprintf("/api/%s/%s", version, strings.Trim(path, "/"))
+	relUrl := GenerateRelativeUrl(version, strings.Trim(path, "/"))
 	httpRouter.Handle(method, relUrl, handlers...)
 }
 
 // RegisterApiEndpointAdmin registers a new route, which should not require authentication.
 func RegisterApiEndpointAdmin(version string, method string, path string, handlers ...gin.HandlerFunc) {
-	relUrl := fmt.Sprintf("/api/%s/%s", version, strings.Trim(path, "/"))
+	relUrl := GenerateRelativeUrl(version, strings.Trim(path, "/"))
 	apiEndpointsAdmin = append(apiEndpointsAdmin, relUrl)
 	RegisterApiEndpoint(version, method, path, handlers...)
 }
 
 // RegisterApiEndpointNoAuth registers a new route, which requires admin privileges.
 func RegisterApiEndpointNoAuth(version string, method string, path string, handlers ...gin.HandlerFunc) {
-	relUrl := fmt.Sprintf("/api/%s/%s", version, strings.Trim(path, "/"))
+	relUrl := GenerateRelativeUrl(version, strings.Trim(path, "/"))
 	apiEndpointsNoAuth = append(apiEndpointsNoAuth, relUrl)
 	RegisterApiEndpoint(version, method, path, handlers...)
+}
+
+// GenerateRelativeUrl generates a relative URL for an endpoint
+func GenerateRelativeUrl(version string, path string) string {
+	return fmt.Sprintf("/api/%s/%s", version, strings.Trim(path, "/"))
 }
 
 // RpcClient exposes the RPC client to external packages

@@ -12,6 +12,9 @@ package database
 
 import (
 	"database/sql"
+	"time"
+
+	"github.com/sanyokbig/pqinterval"
 )
 
 //
@@ -29,8 +32,9 @@ type ColumnsHost struct {
 	Address    string `gorm:"column:address;type:text;not null;index"`
 	Ip         string `gorm:"column:ip;type:text;not null;index"`
 	DnsName    string `gorm:"column:dns_name;type:text"`
-	OtherNames string `gorm:"column:other_names;type:text;index"` // Standard index important for Insights queries
+	OtherNames string `gorm:"column:other_names;type:text"` // Custom trigram full text search index installed by InstallTrigramIndices()
 	OtherIps   string `gorm:"column:other_ips;type:text"`
+	MacAddress string `gorm:"column:mac_address;type:text"`
 	Hops       string `gorm:"column:hops;type:text"`
 	Critical   bool   `gorm:"column:critical"`
 	ScanCycle  uint   `gorm:"column:scan_cycle;index"`
@@ -107,7 +111,7 @@ type ColumnsAd struct {
 
 // MaxBatchSizeDiscovery defines the maximum number of T_discovery instances that can be batched together
 // during an insert. This is calculated dividing 65535 by the number of fields (that are actually written to the db).
-const MaxBatchSizeDiscovery = 2520 // 65535 / 26
+const MaxBatchSizeDiscovery = 2520 // 65535 (Postgres) / 26
 
 type T_discovery struct {
 	Id uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex" json:"-"` // Index recommended on foreign keys for efficient update/delete cascaded actions
@@ -125,7 +129,7 @@ func (T_discovery) TableName() string {
 
 // MaxBatchSizeDiscoveryHost defines the maximum number T_discovery_host instances that can be batched together
 // during an insert. This is calculated dividing 65535 by the number of fields (that are actually written to the db).
-const MaxBatchSizeDiscoveryHost = 1040 // 65535 / 63
+const MaxBatchSizeDiscoveryHost = 1024 // 65535 (Postgres) / 64
 
 type T_discovery_host struct {
 	Id                  uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions
@@ -144,7 +148,7 @@ type T_discovery_host struct {
 
 // MaxBatchSizeDiscoveryService defines the maximum number T_discovery_service instances that can be batched together
 // during an insert. This is calculated dividing 65535 by the number of fields (that are actually written to the db).
-const MaxBatchSizeDiscoveryService = 923 // 65535 / 71
+const MaxBatchSizeDiscoveryService = 910 // 65535 (Postgres) / 72
 
 type T_discovery_service struct {
 	Id                  uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions
@@ -171,7 +175,7 @@ type T_discovery_service struct {
 
 // MaxBatchSizeDiscoveryScript defines the maximum number T_discovery_script instances that can be batched together
 // during an insert. This is calculated dividing 65535 by the number of fields (that are actually written to the db).
-const MaxBatchSizeDiscoveryScript = 978 // 65535 / 67
+const MaxBatchSizeDiscoveryScript = 963 // 65535 (Postgres) / 68
 
 type T_discovery_script struct {
 	Id                  uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions
@@ -194,7 +198,7 @@ type T_discovery_script struct {
 
 // MaxBatchSizeBanner defines the maximum number T_banner instances that can be batched together
 // during an insert. This is calculated dividing 65535 by the number of fields (that are actually written to the db).
-const MaxBatchSizeBanner = 5461 // 65535 / 12
+const MaxBatchSizeBanner = 5461 // 65535 (Postgres) / 12
 
 type T_banner struct {
 	// data table not necessary for banner module, due to simple result structure
@@ -212,7 +216,7 @@ type T_banner struct {
 
 // MaxBatchSizeNfs defines the maximum number T_nfs instances that can be batched together
 // during an insert. This is calculated dividing 65535 by the number of fields (that are actually written to the db).
-const MaxBatchSizeNfs = 6553 // 65535 / 10
+const MaxBatchSizeNfs = 6553 // 65535 (Postgres) / 10
 
 type T_nfs struct {
 	Id                  uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`          // Index recommended on foreign keys for efficient update/delete cascaded actions
@@ -231,7 +235,7 @@ func (T_nfs) TableName() string {
 
 // MaxBatchSizeNfsFile defines the maximum number T_nfs_file instances that can be batched together
 // during an insert. This is calculated dividing 65535 by the number of fields (that are actually written to the db).
-const MaxBatchSizeNfsFile = 3855 // 65535 / 17
+const MaxBatchSizeNfsFile = 3855 // 65535 (Postgres) / 17
 
 type T_nfs_file struct {
 	Id                  uint64       `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`    // Index recommended on foreign keys for efficient update/delete cascaded actions
@@ -258,7 +262,7 @@ type T_nfs_file struct {
 
 // MaxBatchSizeSmb defines the maximum number T_smb instances that can be batched together
 // during an insert. This is calculated dividing 65535 by the number of fields (that are actually written to the db).
-const MaxBatchSizeSmb = 6553 // 65535 / 10
+const MaxBatchSizeSmb = 6553 // 65535 (Postgres) / 10
 
 type T_smb struct {
 	Id                  uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`          // Index recommended on foreign keys for efficient update/delete cascaded actions
@@ -277,7 +281,7 @@ func (T_smb) TableName() string {
 
 // MaxBatchSizeSmbFile defines the maximum number T_smb_file instances that can be batched together
 // during an insert. This is calculated dividing 65535 by the number of fields (that are actually written to the db).
-const MaxBatchSizeSmbFile = 4095 // 65535 / 16
+const MaxBatchSizeSmbFile = 4095 // 65535 (Postgres) / 16
 
 type T_smb_file struct {
 	Id                  uint64       `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`    // Index recommended on foreign keys for efficient update/delete cascaded actions
@@ -303,7 +307,7 @@ type T_smb_file struct {
 
 // MaxBatchSizeSsh defines the maximum number T_ssh instances that can be batched together
 // during an insert. This is calculated dividing 65535 by the number of fields (that are actually written to the db).
-const MaxBatchSizeSsh = 4369 // 65535 / 15
+const MaxBatchSizeSsh = 4369 // 65535 (Postgres) / 15
 
 type T_ssh struct {
 	// data table not necessary for banner module, due to simple result structure
@@ -328,7 +332,7 @@ func (T_ssh) TableName() string {
 
 // MaxBatchSizeSsl defines the maximum number T_ssl instances that can be batched together
 // during an insert. This is calculated dividing 65535 by the number of fields (that are actually written to the db).
-const MaxBatchSizeSsl = 9362 // 65535 / 7
+const MaxBatchSizeSsl = 9362 // 65535 (Postgres) / 7
 
 type T_ssl struct {
 	Id                  uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`          // Index recommended on foreign keys for efficient update/delete cascaded actions
@@ -342,51 +346,9 @@ func (T_ssl) TableName() string {
 	return "t_ssl"
 }
 
-// MaxBatchSizeSslCertificate defines the maximum number T_ssl_certificate instances that can be batched together
-// during an insert. This is calculated dividing 65535 by the number of fields (that are actually written to the db).
-const MaxBatchSizeSslCertificate = 2047 // 65535 / 32
-
-type T_ssl_certificate struct {
-	Id                     uint64       `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`    // Index recommended on foreign keys for efficient update/delete cascaded actions
-	IdTDiscoveryService    uint64       `gorm:"column:id_t_discovery_service;type:bigint;index"` // Index recommended on foreign keys for efficient update/delete cascaded actions
-	IdTSsl                 uint64       `gorm:"column:id_t_ssl;type:bigint;index"`               // Index recommended on foreign keys for efficient update/delete cascaded actions
-	Vhost                  string       `gorm:"column:vhost;type:text"`
-	DeploymentId           uint64       `gorm:"column:deployment_id"` // Not a primary/foreign key nor an unique identifier!
-	Type                   string       `gorm:"column:type;type:text"`
-	Version                int          `gorm:"column:version"`
-	Serial                 string       `gorm:"column:serial_number;type:text"`
-	ValidChain             bool         `gorm:"column:valid_chain"`
-	ChainValidatedBy       string       `gorm:"column:chain_validated_by;type:text"`
-	ValidChainOrder        bool         `gorm:"column:valid_chain_order"`
-	Subject                string       `gorm:"column:subject;type:text"`
-	SubjectCN              string       `gorm:"column:subject_cn;type:text"`
-	Issuer                 string       `gorm:"column:issuer;type:text"`
-	IssuerCN               string       `gorm:"column:issuer_cn;type:text"`
-	AlternativeNames       string       `gorm:"column:alternative_names;type:text"`
-	ValidFrom              sql.NullTime `gorm:"column:valid_from"`
-	ValidTo                sql.NullTime `gorm:"column:valid_to"`
-	PublicKeyAlgorithm     string       `gorm:"column:public_key_algorithm;type:text"`
-	PublicKeyInfo          string       `gorm:"column:public_key_info;type:text"`
-	PublicKeyBits          uint64       `gorm:"column:public_key_bits"`
-	PublicKeyStrength      int          `gorm:"column:public_key_strength"`
-	SignatureAlgorithm     string       `gorm:"column:signature_algorithm;type:text"`
-	SignatureHashAlgorithm string       `gorm:"column:signature_hash_algorithm;type:text"`
-	CrlUrls                string       `gorm:"column:crl_urls;type:text"`
-	OcspUrls               string       `gorm:"column:ocsp_urls;type:text"`
-	KeyUsage               string       `gorm:"column:key_usage;type:text"`
-	ExtendedKeyUsage       string       `gorm:"column:extended_key_usage;type:text"`
-	BasicConstraintsValid  bool         `gorm:"column:basic_constraints_valid"`
-	Ca                     bool         `gorm:"column:ca"`
-	MaxPathLength          int          `gorm:"column:max_path_length"`
-	Sha1Fingerprint        string       `gorm:"column:sha1_fingerprint;type:text"`
-
-	TDiscoveryService *T_discovery_service `gorm:"foreignKey:IdTDiscoveryService;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"` // Relation struct used for gorm configuration and batch inserts (where it can be used to keep track of the IDs) and to enforce constraints. Can be nil if the ID is set in turn
-	TSsl              *T_ssl               `gorm:"foreignKey:IdTSsl;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`              // Relation struct used for gorm configuration and batch inserts (where it can be used to keep track of the IDs) and to enforce constraints. Can be nil if the ID is set in turn
-}
-
 // MaxBatchSizeSslCipher defines the maximum number T_ssl_cipher instances that can be batched together
 // during an insert. This is calculated dividing 65535 by the number of fields (that are actually written to the db).
-const MaxBatchSizeSslCipher = 2047 // 65535 / 32
+const MaxBatchSizeSslCipher = 2047 // 65535 (Postgres) / 32
 
 type T_ssl_cipher struct {
 	Id                      uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`    // Index recommended on foreign keys for efficient update/delete cascaded actions
@@ -426,45 +388,106 @@ type T_ssl_cipher struct {
 	TSsl              *T_ssl               `gorm:"foreignKey:IdTSsl;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`              // Relation struct used for gorm configuration and batch inserts (where it can be used to keep track of the IDs) and to enforce constraints. Can be nil if the ID is set in turn
 }
 
-// MaxBatchSizeSslIssue defines the maximum number T_ssl_issue instances that can be batched together
+// MaxBatchSizeSslCertificate defines the maximum number T_ssl_certificate instances that can be batched together
 // during an insert. This is calculated dividing 65535 by the number of fields (that are actually written to the db).
-const MaxBatchSizeSslIssue = 1985 // 65535 / 33
+const MaxBatchSizeSslCertificate = 2047 // 65535 (Postgres) / 32
 
-type T_ssl_issue struct {
+type T_ssl_certificate struct {
+	Id                     uint64       `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`    // Index recommended on foreign keys for efficient update/delete cascaded actions
+	IdTDiscoveryService    uint64       `gorm:"column:id_t_discovery_service;type:bigint;index"` // Index recommended on foreign keys for efficient update/delete cascaded actions
+	IdTSsl                 uint64       `gorm:"column:id_t_ssl;type:bigint;index"`               // Index recommended on foreign keys for efficient update/delete cascaded actions
+	Vhost                  string       `gorm:"column:vhost;type:text"`
+	DeploymentId           uint64       `gorm:"column:deployment_id"` // Not a primary/foreign key nor an unique identifier!
+	Type                   string       `gorm:"column:type;type:text"`
+	Version                int          `gorm:"column:version"`
+	Serial                 string       `gorm:"column:serial_number;type:text"`
+	ValidChain             bool         `gorm:"column:valid_chain"`
+	ChainValidatedBy       string       `gorm:"column:chain_validated_by;type:text"`
+	ValidChainOrder        bool         `gorm:"column:valid_chain_order"`
+	Subject                string       `gorm:"column:subject;type:text"`
+	SubjectCN              string       `gorm:"column:subject_cn;type:text"`
+	Issuer                 string       `gorm:"column:issuer;type:text"`
+	IssuerCN               string       `gorm:"column:issuer_cn;type:text"`
+	AlternativeNames       string       `gorm:"column:alternative_names;type:text"`
+	ValidFrom              sql.NullTime `gorm:"column:valid_from"`
+	ValidTo                sql.NullTime `gorm:"column:valid_to"`
+	PublicKeyAlgorithm     string       `gorm:"column:public_key_algorithm;type:text"`
+	PublicKeyInfo          string       `gorm:"column:public_key_info;type:text"`
+	PublicKeyBits          uint64       `gorm:"column:public_key_bits"`
+	PublicKeyStrength      int          `gorm:"column:public_key_strength"`
+	SignatureAlgorithm     string       `gorm:"column:signature_algorithm;type:text"`
+	SignatureHashAlgorithm string       `gorm:"column:signature_hash_algorithm;type:text"`
+	CrlUrls                string       `gorm:"column:crl_urls;type:text"`
+	OcspUrls               string       `gorm:"column:ocsp_urls;type:text"`
+	KeyUsage               string       `gorm:"column:key_usage;type:text"`
+	ExtendedKeyUsage       string       `gorm:"column:extended_key_usage;type:text"`
+	BasicConstraintsValid  bool         `gorm:"column:basic_constraints_valid"`
+	Ca                     bool         `gorm:"column:ca"`
+	MaxPathLength          int          `gorm:"column:max_path_length"`
+	Sha1Fingerprint        string       `gorm:"column:sha1_fingerprint;type:text"`
+
+	TDiscoveryService *T_discovery_service `gorm:"foreignKey:IdTDiscoveryService;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"` // Relation struct used for gorm configuration and batch inserts (where it can be used to keep track of the IDs) and to enforce constraints. Can be nil if the ID is set in turn
+	TSsl              *T_ssl               `gorm:"foreignKey:IdTSsl;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`              // Relation struct used for gorm configuration and batch inserts (where it can be used to keep track of the IDs) and to enforce constraints. Can be nil if the ID is set in turn
+}
+
+// MaxBatchSizeSslSetting defines the maximum number T_ssl_prevention_measures instances that can be batched together
+// during an insert. This is calculated dividing 65535 by the number of fields (that are actually written to the db).
+const MaxBatchSizeSslSetting = 5461 // 65535 (Postgres) / 12
+
+type T_ssl_setting struct {
 	Id                           uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`    // Index recommended on foreign keys for efficient update/delete cascaded actions
 	IdTDiscoveryService          uint64 `gorm:"column:id_t_discovery_service;type:bigint;index"` // Index recommended on foreign keys for efficient update/delete cascaded actions
 	IdTSsl                       uint64 `gorm:"column:id_t_ssl;type:bigint;index"`               // Index recommended on foreign keys for efficient update/delete cascaded actions
 	Vhost                        string `gorm:"column:vhost;type:text"`
-	AnyChainInvalid              bool   `gorm:"column:any_chain_invalid"`
-	AnyChainInvalidOrder         bool   `gorm:"column:any_chain_invalid_order"`
 	LowestProtocol               string `gorm:"column:lowest_protocol;type:text"`
 	MinStrength                  int    `gorm:"column:min_strength"`
-	InsecureRenegotiation        bool   `gorm:"column:insecure_renegotiation"`
-	AcceptsClientRenegotiation   bool   `gorm:"column:accepts_client_renegotiation"`
-	InsecureClientRenegotiation  bool   `gorm:"column:insecure_client_renegotiation"`
+	Ems                          bool   `gorm:"column:ems"`
+	TlsFallbackScsv              bool   `gorm:"column:tls_fallback_scsv"`
+	SecureRenegotiation          bool   `gorm:"column:secure_renegotiation"`
 	SessionResumptionWithId      bool   `gorm:"column:session_resumption_with_id"`
 	SessionResumptionWithTickets bool   `gorm:"column:session_resumption_with_tickets"`
-	NoPerfectForwardSecrecy      bool   `gorm:"column:no_perfect_forward_secrecy"`
-	Compression                  bool   `gorm:"column:compression"`
-	ExportSuite                  bool   `gorm:"column:export_suite"`
-	DraftSuite                   bool   `gorm:"column:draft_suite"`
-	Sslv2Enabled                 bool   `gorm:"column:sslv2_enabled"`
-	Sslv3Enabled                 bool   `gorm:"column:sslv3_enabled"`
-	Rc4Enabled                   bool   `gorm:"column:rc4_enabled"`
-	Md2Enabled                   bool   `gorm:"column:md2_enabled"`
-	Md5Enabled                   bool   `gorm:"column:md5_enabled"`
-	Sha1Enabled                  bool   `gorm:"column:sha1_enabled"`
-	EarlyDataSupported           bool   `gorm:"column:early_data_supported"`
-	CcsInjection                 bool   `gorm:"column:ccs_injection"`
-	Beast                        bool   `gorm:"column:beast"`
-	Heartbleed                   bool   `gorm:"column:heartbleed"`
-	Lucky13                      bool   `gorm:"column:lucky_13"`
-	Poodle                       bool   `gorm:"column:poodle"`
-	Freak                        bool   `gorm:"column:freak"`
-	Logjam                       bool   `gorm:"column:logjam"`
-	Sweet32                      bool   `gorm:"column:sweet_32"`
-	Drown                        bool   `gorm:"column:drown"`
 	IsCompliantToMozillaConfig   bool   `gorm:"column:is_compliant_to_mozilla_config"`
+
+	TDiscoveryService *T_discovery_service `gorm:"foreignKey:IdTDiscoveryService;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"` // Relation struct used for gorm configuration and batch inserts (where it can be used to keep track of the IDs) and to enforce constraints. Can be nil if the ID is set in turn
+	TSsl              *T_ssl               `gorm:"foreignKey:IdTSsl;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`              // Relation struct used for gorm configuration and batch inserts (where it can be used to keep track of the IDs) and to enforce constraints. Can be nil if the ID is set in turn
+}
+
+// MaxBatchSizeSslIssue defines the maximum number T_ssl_issue instances that can be batched together
+// during an insert. This is calculated dividing 65535 by the number of fields (that are actually written to the db).
+const MaxBatchSizeSslIssue = 2260 // 65535 (Postgres) / 29
+
+type T_ssl_issue struct {
+	Id                      uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`    // Index recommended on foreign keys for efficient update/delete cascaded actions
+	IdTDiscoveryService     uint64 `gorm:"column:id_t_discovery_service;type:bigint;index"` // Index recommended on foreign keys for efficient update/delete cascaded actions
+	IdTSsl                  uint64 `gorm:"column:id_t_ssl;type:bigint;index"`               // Index recommended on foreign keys for efficient update/delete cascaded actions
+	Vhost                   string `gorm:"column:vhost;type:text"`
+	LowEncryptionStrength   bool   `gorm:"column:low_encryption_strength"`
+	AnyChainInvalid         bool   `gorm:"column:any_chain_invalid"`
+	AnyChainInvalidOrder    bool   `gorm:"column:any_chain_invalid_order"`
+	ClientRenegotiationDos  bool   `gorm:"column:client_renegotiation_dos"`
+	CcsInjection            bool   `gorm:"column:ccs_injection"`
+	EarlyDataSupported      bool   `gorm:"column:early_data_supported"`
+	NoPerfectForwardSecrecy bool   `gorm:"column:no_perfect_forward_secrecy"`
+	Sslv2Enabled            bool   `gorm:"column:sslv2_enabled"`
+	Sslv3Enabled            bool   `gorm:"column:sslv3_enabled"`
+	Tlsv1_0Enabled          bool   `gorm:"column:tlsv1_0_enabled"`
+	Tlsv1_1Enabled          bool   `gorm:"column:tlsv1_1_enabled"`
+	ExportSuite             bool   `gorm:"column:export_suite"`
+	DraftSuite              bool   `gorm:"column:draft_suite"`
+	Md2Enabled              bool   `gorm:"column:md2_enabled"`
+	Md5Enabled              bool   `gorm:"column:md5_enabled"`
+	Rc4Enabled              bool   `gorm:"column:rc4_enabled"`
+	Sha1Enabled             bool   `gorm:"column:sha1_enabled"`
+	Beast                   bool   `gorm:"column:beast"`
+	Crime                   bool   `gorm:"column:crime"`
+	Drown                   bool   `gorm:"column:drown"`
+	Freak                   bool   `gorm:"column:freak"`
+	Heartbleed              bool   `gorm:"column:heartbleed"`
+	Logjam                  bool   `gorm:"column:logjam"`
+	Lucky13                 bool   `gorm:"column:lucky_13"`
+	Poodle                  bool   `gorm:"column:poodle"`
+	Robot                   bool   `gorm:"column:robot"`
+	Sweet32                 bool   `gorm:"column:sweet_32"`
 
 	TDiscoveryService *T_discovery_service `gorm:"foreignKey:IdTDiscoveryService;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"` // Relation struct used for gorm configuration and batch inserts (where it can be used to keep track of the IDs) and to enforce constraints. Can be nil if the ID is set in turn
 	TSsl              *T_ssl               `gorm:"foreignKey:IdTSsl;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`              // Relation struct used for gorm configuration and batch inserts (where it can be used to keep track of the IDs) and to enforce constraints. Can be nil if the ID is set in turn
@@ -472,7 +495,7 @@ type T_ssl_issue struct {
 
 // MaxBatchSizeWebcrawler defines the maximum number T_webcrawler instances that can be batched together
 // during an insert. This is calculated dividing 65535 by the number of fields (that are actually written to the db).
-const MaxBatchSizeWebcrawler = 9362 // 65535 / 7
+const MaxBatchSizeWebcrawler = 9362 // 65535 (Postgres) / 7
 
 type T_webcrawler struct {
 	Id                  uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`          // Index recommended on foreign keys for efficient update/delete cascaded actions
@@ -488,7 +511,7 @@ func (T_webcrawler) TableName() string {
 
 // MaxBatchSizeWebcrawlerVhost defines the maximum number T_webcrawler_vhost instances that can be batched together
 // during an insert. This is calculated dividing 65535 by the number of fields (that are actually written to the db).
-const MaxBatchSizeWebcrawlerVhost = 4681 // 65535 / 14
+const MaxBatchSizeWebcrawlerVhost = 4681 // 65535 (Postgres) / 14
 
 type T_webcrawler_vhost struct {
 	Id                  uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`    // Index recommended on foreign keys for efficient update/delete cascaded actions
@@ -512,7 +535,7 @@ type T_webcrawler_vhost struct {
 
 // MaxBatchSizeWebcrawlerPage defines the maximum number T_webcrawler_page instances that can be batched together
 // during an insert. This is calculated dividing 65535 by the number of fields (that are actually written to the db).
-const MaxBatchSizeWebcrawlerPage = 3449 // 65535 / 19
+const MaxBatchSizeWebcrawlerPage = 3449 // 65535 (Postgres) / 19
 
 type T_webcrawler_page struct {
 	Id                  uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`    // Index recommended on foreign keys for efficient update/delete cascaded actions
@@ -542,7 +565,7 @@ type T_webcrawler_page struct {
 
 // MaxBatchSizeWebenum defines the maximum number T_webenum instances that can be batched together
 // during an insert. This is calculated dividing 65535 by the number of fields (that are actually written to the db).
-const MaxBatchSizeWebenum = 9362 // 65535 / 7
+const MaxBatchSizeWebenum = 9362 // 65535 (Postgres) / 7
 
 type T_webenum struct {
 	Id                  uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`          // Index recommended on foreign keys for efficient update/delete cascaded actions
@@ -558,7 +581,7 @@ func (T_webenum) TableName() string {
 
 // MaxBatchSizeWebenumResult defines the maximum number T_webenum_results instances that can be batched together
 // during an insert. This is calculated dividing 65535 by the number of fields (that are actually written to the db).
-const MaxBatchSizeWebenumResult = 3640 // 3449 / 19
+const MaxBatchSizeWebenumResult = 3449 // 65535 (Postgres) / 19
 
 type T_webenum_results struct {
 	Id                  uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`    // Index recommended on foreign keys for efficient update/delete cascaded actions
@@ -583,4 +606,57 @@ type T_webenum_results struct {
 
 	TDiscoveryService *T_discovery_service `gorm:"foreignKey:IdTDiscoveryService;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"` // Relation struct used for gorm configuration and batch inserts (where it can be used to keep track of the IDs) and to enforce constraints. Can be nil if the ID is set in turn
 	TWebenum          *T_webenum           `gorm:"foreignKey:IdTWebenum;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`          // Relation struct used for gorm configuration and batch inserts (where it can be used to keep track of the IDs) and to enforce constraints. Can be nil if the ID is set in turn
+}
+
+// T_sql_log stores log entries of queries executed by users
+type T_sql_log struct {
+	Id             uint64              `gorm:"column:id;primaryKey" json:"id"` // Id autoincrement
+	DbName         string              `gorm:"column:db_name;type:text" json:"db_name"`
+	DbUser         string              `gorm:"column:db_user;type:text" json:"db_user"`
+	DbTable        string              `gorm:"column:db_table;type:text" json:"db_table"`
+	Query          string              `gorm:"column:query;type:text" json:"query"`
+	QueryResults   int                 `gorm:"column:query_results" json:"query_results"`
+	QueryTimestamp time.Time           `gorm:"column:query_timestamp;default:CURRENT_TIMESTAMP" json:"query_timestamp"`
+	QueryDuration  pqinterval.Duration `gorm:"column:query_duration;type:interval" json:"query_duration"` // Query duration is the time the database needed to execute the query
+	TotalDuration  pqinterval.Duration `gorm:"column:total_duration;type:interval" json:"total_duration"` // Total duration = query duration + network transfer
+	ClientName     string              `gorm:"column:client_name;type:text" json:"client_name"`           // Name of the client connected
+
+	QueryDurationString string `json:"query_duration_string"`
+	TotalDurationString string `json:"total_duration_string"`
+}
+
+// MaxBatchSizeNuclei defines the maximum number T_nuclei instances that can be batched together
+// during an insert. This is calculated dividing 65535 by the number of fields (that are actually written to the db).
+const MaxBatchSizeNuclei = 9362 // 65535 (Postgres) / 7
+
+type T_nuclei struct {
+	Id                  uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`          // Index recommended on foreign keys for efficient update/delete cascaded actions
+	IdTDiscoveryService uint64 `gorm:"column:id_t_discovery_service;type:bigint;uniqueIndex"` // Index recommended on foreign keys for efficient update/delete cascaded actions
+	ColumnsScan                // Insert scan data columns composition
+
+	TDiscoveryService *T_discovery_service `gorm:"foreignKey:IdTDiscoveryService;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"` // Relation struct used for gorm configuration and batch inserts (where it can be used to keep track of the IDs) and to enforce constraints. Can be nil if the ID is set in turn
+}
+
+func (T_nuclei) TableName() string {
+	return "t_nuclei"
+}
+
+// MaxBatchSizeNucleiFinding defines the maximum number T_nuclei_result instances that can be batched together
+// during an insert. This is calculated dividing 65535 by the number of fields (that are actually written to the db).
+const MaxBatchSizeNucleiFinding = 4096 // 65535 (Postgres) / 16
+
+// T_nuclei_result Nuclei ResultEvent struct:
+// https://pkg.go.dev/github.com/projectdiscovery/nuclei/v3/pkg/model#Info
+type T_nuclei_result struct {
+	Id                  uint64 `gorm:"column:id;type:bigint;primaryKey;uniqueIndex"`    // Index recommended on foreign keys for efficient update/delete cascaded actions
+	IdTDiscoveryService uint64 `gorm:"column:id_t_discovery_service;type:bigint;index"` // Index recommended on foreign keys for efficient update/delete cascaded actions
+	IdTNuclei           uint64 `gorm:"column:id_t_nuclei;type:bigint;index"`            // Index recommended on foreign keys for efficient update/delete cascaded actions
+	TemplateId          string `gorm:"column:template_id;type:text"`
+	TemplateType        string `gorm:"column:template_type;type:text"`
+	TemplateTags        string `gorm:"column:template_tags;type:text"`
+	TemplateSeverity    string `gorm:"column:template_severity;type:text"`
+	TemplateOutput      string `gorm:"column:template_output;type:text"`
+
+	TDiscoveryService *T_discovery_service `gorm:"foreignKey:IdTDiscoveryService;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"` // Relation struct used for gorm configuration and batch inserts (where it can be used to keep track of the IDs) and to enforce constraints. Can be nil if the ID is set in turn
+	TNuclei           *T_nuclei            `gorm:"foreignKey:IdTNuclei;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`           // Relation struct used for gorm configuration and batch inserts (where it can be used to keep track of the IDs) and to enforce constraints. Can be nil if the ID is set in turn
 }

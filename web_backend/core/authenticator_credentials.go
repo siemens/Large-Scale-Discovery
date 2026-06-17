@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2024.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -12,11 +12,12 @@ package core
 
 import (
 	"database/sql"
+	"strings"
+
 	"github.com/gin-gonic/gin"
 	"github.com/siemens/Large-Scale-Discovery/_build"
 	"github.com/siemens/Large-Scale-Discovery/utils"
 	"github.com/siemens/Large-Scale-Discovery/web_backend/database"
-	"strings"
 )
 
 // init automatically registers the authenticator implemented in this file. If you don't want this authenticator,
@@ -62,7 +63,7 @@ func (a *AuthenticatorCredentials) Domains() []string {
 func (a *AuthenticatorCredentials) Init(conf map[string]interface{}) error {
 
 	// Check whether required arguments are available and valid
-	val, _ := conf["credentials_registration"]
+	val := conf["credentials_registration"]
 	registration, _ := val.(bool)
 
 	// Initialize authenticator
@@ -100,15 +101,15 @@ func (a *AuthenticatorCredentials) register() gin.HandlerFunc {
 	type responseBody struct{}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := GetContextLogger(context)
+		logger := GetContextLogger(ctx)
 
 		// Abort registration if disabled
 		if !a.registration {
 			logger.Debugf("Credentials registration is disabled.")
-			Respond(context, true, "Credentials registration is disabled.", responseBody{})
+			Respond(ctx, true, "Credentials registration is disabled.", responseBody{})
 			return
 		}
 
@@ -116,17 +117,17 @@ func (a *AuthenticatorCredentials) register() gin.HandlerFunc {
 		var req requestBody
 
 		// Decode JSON request into struct
-		errReq := context.BindJSON(&req)
+		errReq := ctx.BindJSON(&req)
 		if errReq != nil {
 			logger.Errorf("Could not decode request: %s", errReq)
-			RespondInternalError(context) // Return generic error information
+			RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Check if received email address is plausible
 		if !utils.IsPlausibleEmail(req.Email) {
 			logger.Debugf("Invalid e-mail address.")
-			Respond(context, true, "Invalid e-mail address.", responseBody{})
+			Respond(ctx, true, "Invalid e-mail address.", responseBody{})
 			return
 		}
 
@@ -137,22 +138,22 @@ func (a *AuthenticatorCredentials) register() gin.HandlerFunc {
 		errAuthenticator := authenticatorAllowed(req.Email, a)
 		if errAuthenticator != nil {
 			logger.Debugf("Credentials authenticator not responsible for '%s'.", req.Email)
-			Respond(context, true, "Invalid registration method.", responseBody{})
+			Respond(ctx, true, "Invalid registration method.", responseBody{})
 			return
 		}
 
 		// Query for user with given email address
 		userEntry, errUserEntry := database.GetUserByMail(req.Email)
 		if errUserEntry != nil {
-			logger.Errorf("Could not query existing users: %s", errUserEntry)
-			RespondInternalError(context) // Return generic error information
+			logger.Errorf("Could not query user '%s': %s", req.Email, errUserEntry)
+			RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Check if user with same e-mail address already exists
 		if userEntry != nil {
 			logger.Debugf("E-mail address already registered.")
-			Respond(context, true, "E-mail address already registered.", responseBody{})
+			Respond(ctx, true, "E-mail address already registered.", responseBody{})
 			return
 		}
 
@@ -166,7 +167,7 @@ func (a *AuthenticatorCredentials) register() gin.HandlerFunc {
 			true,
 		) {
 			logger.Debugf("Insufficient password complexity.")
-			Respond(context, true, "Insufficient password complexity.", responseBody{})
+			Respond(ctx, true, "Insufficient password complexity.", responseBody{})
 			return
 		}
 
@@ -174,7 +175,7 @@ func (a *AuthenticatorCredentials) register() gin.HandlerFunc {
 		passwordHash, errHash := utils.CreatePasswordHash(req.Password)
 		if errHash != nil {
 			logger.Errorf("Could not calculate password hash: %s", errHash)
-			RespondInternalError(context) // Return generic error information
+			RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
@@ -202,7 +203,7 @@ func (a *AuthenticatorCredentials) register() gin.HandlerFunc {
 		if loader != nil {
 
 			// ATTENTION: RefreshUser might update user attributes, but does not yet commit them!
-			errTemporary, errInternal, errPublic := loader.RefreshUser(logger, user)
+			errTemporary, errPublic, errInternal := loader.RefreshUser(logger, user)
 
 			// Abort if there was an error and return response based on error kind
 			if len(errPublic) > 0 {
@@ -215,15 +216,15 @@ func (a *AuthenticatorCredentials) register() gin.HandlerFunc {
 						strings.ToLower(strings.Trim(errPublic, ".")),
 					)
 				}
-				Respond(context, true, errPublic, responseBody{})
+				Respond(ctx, true, errPublic, responseBody{})
 				return
 			} else if errTemporary != nil {
 				logger.Warningf("Could not update user data for user '%s': %s", req.Email, errTemporary)
-				RespondTemporaryError(context)
+				RespondTemporaryError(ctx)
 				return
 			} else if errInternal != nil {
 				logger.Errorf("Could not load user data for user '%s': %s", req.Email, errInternal)
-				RespondInternalError(context) // Return generic error information
+				RespondInternalError(ctx) // Return generic error information
 				return
 			}
 		}
@@ -232,13 +233,13 @@ func (a *AuthenticatorCredentials) register() gin.HandlerFunc {
 		errCreate := user.Create()
 		if errCreate != nil {
 			logger.Errorf("Could not create new user '%s': %s", userEmail, errCreate)
-			RespondInternalError(context) // Return generic error information
+			RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Return response
 		logger.Debugf("User created.")
-		Respond(context, false, "User created.", responseBody{})
+		Respond(ctx, false, "User created.", responseBody{})
 	}
 }
 
@@ -259,40 +260,40 @@ func (a *AuthenticatorCredentials) login() gin.HandlerFunc {
 	type responseBody struct{} // Access tokens will be automatically appended on success
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := GetContextLogger(context)
+		logger := GetContextLogger(ctx)
 
 		// Declare expected request struct
 		var req requestBody
 
 		// Decode JSON request into struct
-		errReq := context.BindJSON(&req)
+		errReq := ctx.BindJSON(&req)
 		if errReq != nil {
 			logger.Errorf("Could not decode request: %s", errReq)
-			RespondInternalError(context) // Return generic error information
+			RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Make sure Email address is set, which is the primary user identifier
 		if req.Email == "" {
 			logger.Debugf("No login e-mail address supplied.")
-			Respond(context, true, "E-mail address required.", responseBody{})
+			Respond(ctx, true, "E-mail address required.", responseBody{})
 			return
 		}
 
 		// Make sure Email address is set, which is the primary user identifier
 		if req.Password == "" {
 			logger.Debugf("No login password supplied.")
-			Respond(context, true, "Password required.", responseBody{})
+			Respond(ctx, true, "Password required.", responseBody{})
 			return
 		}
 
 		// Check if received email address is plausible
 		if !utils.IsPlausibleEmail(req.Email) {
 			logger.Warningf("Could not authenticate invalid email address '%s'.", req.Email)
-			RespondAuthError(context)
+			RespondAuthError(ctx)
 			return
 		}
 
@@ -303,7 +304,7 @@ func (a *AuthenticatorCredentials) login() gin.HandlerFunc {
 		errAuthenticator := authenticatorAllowed(req.Email, a)
 		if errAuthenticator != nil {
 			logger.Debugf("Credentials authenticator not responsible for '%s'.", req.Email)
-			Respond(context, true, "Invalid user.", responseBody{})
+			Respond(ctx, true, "Invalid user.", responseBody{})
 			return
 		}
 
@@ -311,22 +312,22 @@ func (a *AuthenticatorCredentials) login() gin.HandlerFunc {
 		userEmail := req.Email
 		userEntry, errUserEntry := database.GetUserByMail(userEmail)
 		if errUserEntry != nil {
-			logger.Errorf("Could not query existing users: %s", errUserEntry)
-			RespondInternalError(context) // Return generic error information
+			logger.Errorf("Could not query user '%s': %s", userEmail, errUserEntry)
+			RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Check if user exists
 		if userEntry == nil {
-			logger.Debugf("Unknown login e-mail address.")
-			Respond(context, true, "Invalid user.", responseBody{})
+			logger.Debugf("Could not find user '%s'.", userEmail)
+			Respond(ctx, true, "Invalid user.", responseBody{})
 			return
 		}
 
 		// Check if user can authenticate via password
-		if len(userEntry.Password.String) == 0 || len(userEntry.SsoId.String) != 0 {
+		if len(userEntry.Password.String) == 0 {
 			logger.Debugf("User not a credentials user.")
-			Respond(context, true, "Invalid user.", responseBody{})
+			Respond(ctx, true, "Invalid user.", responseBody{})
 			return
 		}
 
@@ -334,7 +335,7 @@ func (a *AuthenticatorCredentials) login() gin.HandlerFunc {
 		success := utils.CheckPasswordHash(userEntry.Password.String, req.Password)
 		if success != nil {
 			logger.Debugf("Authentication failed with invalid credentials.")
-			Respond(context, true, "Invalid user.", responseBody{})
+			Respond(ctx, true, "Invalid user.", responseBody{})
 			return
 		}
 
@@ -345,7 +346,7 @@ func (a *AuthenticatorCredentials) login() gin.HandlerFunc {
 		if loader != nil {
 
 			// ATTENTION: RefreshUser might update user attributes, but does not yet commit them!
-			errTemporary, errInternal, errPublic := loader.RefreshUser(logger, userEntry)
+			errTemporary, errPublic, errInternal := loader.RefreshUser(logger, userEntry)
 
 			// Abort if there was an error and return response based on error kind
 			if len(errPublic) > 0 {
@@ -358,7 +359,7 @@ func (a *AuthenticatorCredentials) login() gin.HandlerFunc {
 						strings.ToLower(strings.Trim(errPublic, ".")),
 					)
 				}
-				Respond(context, true, errPublic, responseBody{})
+				Respond(ctx, true, errPublic, responseBody{})
 				return
 			} else if errTemporary != nil {
 				logger.Warningf("Could not update user data for user '%s': %s", req.Email, errTemporary)
@@ -371,15 +372,15 @@ func (a *AuthenticatorCredentials) login() gin.HandlerFunc {
 
 		// Do some important login checks, update login-related user attributes and write any changes
 		// ATTENTION: Commits all changed user attributes!
-		errUser, errLogin := doLogin(logger, userEntry)
+		errUser, errLogin := doLogin(logger, userEntry, nil, ctx.Request.Host)
 		if errUser != nil {
 			logger.Debugf("Login not allowed for user '%s': '%s'.", userEmail, errUser)
-			Respond(context, true, "Invalid user.", responseBody{})
+			Respond(ctx, true, "Invalid user.", responseBody{})
 			return
 
 		} else if errLogin != nil {
 			logger.Errorf("Could not login user '%s': %s", userEmail, errLogin)
-			RespondInternalError(context) // Return generic error information
+			RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
@@ -388,13 +389,13 @@ func (a *AuthenticatorCredentials) login() gin.HandlerFunc {
 
 		// Update request context with current user. It will be used by "Respond()" to generate and attach a fresh
 		// access token for this user to the response.
-		SetContextStorage(context, &ContextStorage{
+		SetContextStorage(ctx, &ContextStorage{
 			Logger:      logger,
 			CurrentUser: userEntry,
 		})
 
 		// Return response
 		logger.Debugf("Authentication successful.")
-		Respond(context, false, "Authentication successful.", responseBody{})
+		Respond(ctx, false, "Authentication successful.", responseBody{})
 	}
 }

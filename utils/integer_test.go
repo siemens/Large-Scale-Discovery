@@ -11,8 +11,37 @@
 package utils
 
 import (
+	"reflect"
 	"testing"
 )
+
+func TestUniqueInts(t *testing.T) {
+
+	// Prepare and run test cases
+	tests := []struct {
+		name     string
+		elements []int
+		want     []int
+	}{
+		{
+			name:     "sample-slice",
+			elements: []int{1, 1, 1, 1, 1, 2, 3, 4, 5, 100, 1000, 400, 231, 11, 1, 1},
+			want:     []int{1, 2, 3, 4, 5, 100, 1000, 400, 231, 11},
+		},
+		{
+			name:     "sample-slice-with-0",
+			elements: []int{0, 1, 2, 3, 0, 3, 0, 0},
+			want:     []int{0, 1, 2, 3},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := UniqueInts(tt.elements); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("UniqueInts() = '%v', want = '%v'", got, tt.want)
+			}
+		})
+	}
+}
 
 func TestIntContained(t *testing.T) {
 
@@ -45,7 +74,7 @@ func TestIntContained(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := IntContained(tt.args.candidate, tt.args.slices...); got != tt.want {
-				t.Errorf("UintContained() = '%v', want = '%v'", got, tt.want)
+				t.Errorf("IntContained() = '%v', want = '%v'", got, tt.want)
 			}
 		})
 	}

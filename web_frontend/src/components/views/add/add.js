@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -11,7 +11,9 @@
 define(["knockout", "text!./add.html", "postbox", "jquery", 'semantic-ui-dropdown'],
     function (ko, template, postbox, $) {
 
+        /////////////////////////
         // VIEWMODEL CONSTRUCTION
+        /////////////////////////
         function ViewModel(params) {
 
             // Keep reference to PARENT view model context
@@ -66,12 +68,15 @@ define(["knockout", "text!./add.html", "postbox", "jquery", 'semantic-ui-dropdow
             // Initialize dropdown elements
             this.$domComponent.find('select.dropdown').dropdown();
 
-            // Initialize form validators
+            // Initialize form with validators. keyboardShortcuts is disabled because
+            // Semantic UI's Enter handler would submit the form a second time alongside
+            // the browser's native submit that Knockout's submit binding already handles.
             this.$domForm.form({
                 fields: {
                     inputName: ['minLength[3]'],
-                    selectScope: ['empty'],
+                    selectScope: ['notEmpty'],
                 },
+                keyboardShortcuts: false, // Prevent FomanticUI's own submit action handler from submitting again
             });
 
             // Load and set initial data

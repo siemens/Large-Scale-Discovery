@@ -1,0 +1,82 @@
+<!-- ko if: userDemo() -->
+<div style="background-color:#fff6f6; margin-bottom:0;cursor:pointer"
+     data-bind="click: function(){ $('#modalFeedback').modal('toggle'); }">
+    <div class="ui center aligned container">
+        <div class="ui stackable grid">
+            <div class="column"
+                 style="font-family: Lato, system-ui, -apple-system, Segoe UI, Roboto, Oxygen, Ubuntu, Cantarell, Helvetica Neue, Arial, Noto Sans, Liberation Sans, sans-serif, Apple Color Emoji, Segoe UI Emoji, Segoe UI Symbol, Noto Color Emoji; color: #9f3a38; margin: 10px;">
+                <i class="address book icon"></i>
+                Unfortunately, your <b>business unit</b> is <b>not a signed-up</b> customer yet.
+                You can only use this web interface to <b>get an impression</b> about what you are missing out on.
+            </div>
+        </div>
+    </div>
+</div>
+<!-- /ko -->
+
+<div style="height:15vw; max-height:160px; background-color: teal; background-image: url('img/header2.jpg'); background-position: center bottom; background-size: cover;"></div>
+<div id="divNavTop" class="ui borderless teal inverted pointing menu"
+     style="margin-top: -40px; background-color: transparent; z-index: 1111">
+    <div class="ui container">
+
+        <!-- ko if: authenticated -->
+        <a class="item" href="#home"
+           data-bind="style: { 'background-color': btnBackground('home', ''), 'color': btnColor('home', '') }">
+            <i class="igloo icon"></i>
+            Home
+        </a>
+        <!-- ko if: userAdmin() || userOwner() -->
+        <a class="item" href="#configuration/scopes"
+           data-bind="style: { 'background-color': btnBackground('configuration'), 'color': btnColor('configuration') }">
+            <i class="sliders horizontal icon"></i>
+            Configuration
+        </a>
+        <!-- /ko -->
+
+        <!-- ko foreach: {data: frontendLinks()["menu"]} -->
+        <a class="item" data-bind="attr: {href: $data.href, target: $data.target}">
+            <!-- ko if: $data.icon !== "" -->
+            <i data-bind="class: $data.icon" class="icon"></i>
+            <!-- /ko -->
+            <span data-bind="text: $data.text"></span>
+        </a>
+        <!-- /ko -->
+
+        <!-- ko if: userAdmin -->
+        <a class="item" href="#admin/users"
+           data-bind="style: { 'background-color': btnBackground('admin'), 'color': btnColor('admin') }">
+            <i class="user tie icon"></i>
+            Administration
+        </a>
+        <!-- /ko -->
+
+        <div class="right inverted menu">
+            <a class="item" data-bind="click: togglePresentationMode">
+                <i data-bind="class: presentationClass() ? 'eye slash icon' : 'eye icon' "></i>&nbsp
+            </a>
+            <a class="item" href="#api"
+               data-bind="style: { 'background-color': btnBackground('api'), 'color': btnColor('api') }">
+                <i class="code icon"></i>
+                API
+            </a>
+            <!-- ko if: userAdmin() || userOwner() -->
+            <a class="item" href="#installation"
+               data-bind="style: { 'background-color': btnBackground('installation'), 'color': btnColor('installation') }">
+                <i class="download icon"></i>
+                Scan Agent
+            </a>
+            <!-- /ko -->
+            <a class="item" data-bind="click: submitLogout">
+                <i class="sign out icon"></i>
+                Logout
+            </a>
+            <!-- ko if: userAccess -->
+            <a class="item" style="background-color: #db2828;" data-bind="click: generateDatabasePassword">
+                <i class="key icon"></i>
+            </a>
+            <!-- /ko -->
+        </div>
+        <!-- /ko -->
+    </div>
+
+</div>

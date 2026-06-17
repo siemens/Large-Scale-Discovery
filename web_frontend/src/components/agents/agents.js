@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -11,7 +11,17 @@
 define(["knockout", "text!./agents.html", "postbox", "jquery", "avatars-bottts", "semantic-ui-popup"],
     function (ko, template, postbox, $, avatarBottts) {
 
+        // Return human-readable byte size (GiB / MiB / KiB / B)
+        function formatBytes(bytes) {
+            if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(1) + ' GiB';
+            if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + ' MiB';
+            if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KiB';
+            return bytes + ' B';
+        }
+
+        /////////////////////////
         // VIEWMODEL CONSTRUCTION
+        /////////////////////////
         function ViewModel(params) {
 
             // Initialize observables
@@ -55,6 +65,12 @@ define(["knockout", "text!./agents.html", "postbox", "jquery", "avatars-bottts",
                     ctx.agentStats([])
                 }
 
+                // Sort scope list by name naturally
+                data.sort((a, b) => a.scope_name.localeCompare(b.scope_name, navigator.languages[0] || navigator.language, {
+                    numeric: true,
+                    ignorePunctuation: false
+                }));
+
                 // Sanitize values
                 data.forEach(function (value, index, array) {
 
@@ -63,7 +79,7 @@ define(["knockout", "text!./agents.html", "postbox", "jquery", "avatars-bottts",
                         value["agents"] = []
                     }
 
-                    // Sort list by name naturally
+                    // Sort agent list by name naturally
                     value["agents"].sort((a, b) => a.host.localeCompare(b.host, navigator.languages[0] || navigator.language, {
                         numeric: true,
                         ignorePunctuation: false
@@ -79,6 +95,24 @@ define(["knockout", "text!./agents.html", "postbox", "jquery", "avatars-bottts",
                         value["agents"][j]["platform"] = platform.toTitleCase()
                         value["agents"][j]["platform_family"] = platform_family.toTitleCase()
                         value["agents"][j]["platform_version"] = platform_version.toTitleCase()
+
+                        // Compute CPU tooltip: "<cores> cores × <ghz> GHz" or "<cores> cores" (null hides tooltip)
+                        var cpuCores = value["agents"][j]["cpu_cores"] || 0;
+                        var cpuMhz = value["agents"][j]["cpu_mhz"] || 0;
+                        var cpuTooltip = null;
+                        if (cpuCores > 0) {
+                            cpuTooltip = cpuMhz > 0
+                                ? cpuCores + ' cores × ' + (cpuMhz / 1000).toFixed(1) + ' GHz'
+                                : cpuCores + ' cores';
+                        }
+                        value["agents"][j]["cpu_tooltip"] = cpuTooltip;
+
+                        // Compute RAM tooltip: human-readable total memory (null hides tooltip)
+                        var memTotal = value["agents"][j]["memory_total"] || 0;
+                        value["agents"][j]["memory_tooltip"] = memTotal > 0 ? formatBytes(memTotal) : null;
+
+                        // Flag whether the agent reports tool version fields (absent on legacy agents)
+                        value["agents"][j]["has_tool_versions"] = value["agents"][j]["version_nmap"] !== undefined;
 
                         // Calculate time since last seen
                         var now = moment()
@@ -115,12 +149,15 @@ define(["knockout", "text!./agents.html", "postbox", "jquery", "avatars-bottts",
                         } else if (hours < 2 && hours >= 1) {
                             last_seen_text = "an hour ago"
                             last_seen_color = "#fbbd08" // seems strange
+                            show_delete = true
                         } else if (hours >= 1) {
                             last_seen_text = Math.floor(hours) + " hours ago"
                             last_seen_color = "#fbbd08" // seems strange
+                            show_delete = true
                         } else if (minutes > 30) {
                             last_seen_text = Math.floor(minutes) + " min ago"
                             last_seen_color = "#fbbd08" // seems all good
+                            show_delete = true
                         } else if (minutes >= 5) {
                             last_seen_text = Math.floor(minutes) + " min ago"
                             last_seen_color = "teal" // seems all good
@@ -156,7 +193,13 @@ define(["knockout", "text!./agents.html", "postbox", "jquery", "avatars-bottts",
                 var fnCompare = function (value, index) {
                     return value.last_seen === oldAgentsOrder[index].last_seen &&
                         value.cpu_rate === oldAgentsOrder[index].cpu_rate &&
-                        value.memory_rate === oldAgentsOrder[index].memory_rate
+                        value.memory_rate === oldAgentsOrder[index].memory_rate &&
+                        value.cpu_cores === oldAgentsOrder[index].cpu_cores &&
+                        value.cpu_mhz === oldAgentsOrder[index].cpu_mhz &&
+                        value.memory_total === oldAgentsOrder[index].memory_total &&
+                        value.version_nmap === oldAgentsOrder[index].version_nmap &&
+                        value.version_npcap === oldAgentsOrder[index].version_npcap &&
+                        value.version_sslyze === oldAgentsOrder[index].version_sslyze
                 }
                 if (newAgentsOrder.length !== oldAgentsOrder.length || !newAgentsOrder.every(fnCompare)) {
 
@@ -197,6 +240,7 @@ define(["knockout", "text!./agents.html", "postbox", "jquery", "avatars-bottts",
             // Initialize tasks popup
             if (data.tasks) {
                 $(element).find(".image").popup({
+                    hoverable: true,
                     inline: true,
                     position: 'left center',
                     forcePosition: true,
@@ -204,7 +248,7 @@ define(["knockout", "text!./agents.html", "postbox", "jquery", "avatars-bottts",
             }
 
             // Generate and render scan agent avatar
-            $(element).find(".image").each(function (index) {
+            $(element).find(".avatar").each(function (index) {
                 var options = {
                     // https://avatars.dicebear.com/styles/bottts
                     colors: ["amber", "blue", "blueGrey", "brown", "cyan", "deepOrange",
@@ -230,7 +274,7 @@ define(["knockout", "text!./agents.html", "postbox", "jquery", "avatars-bottts",
             confirmOverlay(
                 "mask",
                 "Delete Scan Agent",
-                "This will delete this scan agent's stats until new activity is observed. <br />Are you sure you want to delete scan agent stats of </br><span class=\"ui red text\">'" + data.name + "'</span></br> from</br>  <span class=\"ui red text\">'" + scopeName + "'</span>?",
+                "This will remove the scan agent's status until new activity is observed.",
                 function () {
 
                     // Handle request success

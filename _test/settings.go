@@ -13,7 +13,6 @@ package _test
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sync"
@@ -21,54 +20,65 @@ import (
 
 // Settings necessary for some unit tests
 var settings *Settings
-var settingsErr error // Indicates if settings initialization failed
 var once sync.Once
 
 type Settings struct {
-	PathDataDir  string // Path to sample data used by unit tests
-	PathOpenssl  string // Path to the openSSL executable (needed for encrypted email)
-	LogRecipient string // Recipient for log messages generated during unit test execution
 	LdapHost     string // LDAP host to test LDAP queries with
 	LdapUser     string // Username to query LDAP with
 	LdapPassword string // Password to query LDAP with
+	PgHost       string // PostgreSQL host for integration tests; leave empty to skip PG tests
+	PgPort       int    // PostgreSQL port (default: 5432)
+	PgUser       string // PostgreSQL admin user (default: postgres)
+	PgPassword   string // PostgreSQL admin password
 }
 
-func GetSettings() (*Settings, error) {
+// GetSettings returns test settings that should be used by unit tests.
+// Invalid settings will be changed to empty values.
+// Unit test should decide themselves which of these settings are mandatory and check their availability.
+// Unit tests should always run as comprehensive as possible with the current configuration.
+func GetSettings() *Settings {
 
 	// Initialize unit test settings if not done yet
 	once.Do(func() {
 
 		// Get absolute path to bin folder
-		_, filename, _, _ := runtime.Caller(0)
-		workingDir := filepath.Dir(filename)
-		workingDir = filepath.Join(workingDir, "../", "_test")
+		_, filename, _, _ := runtime.Caller(0) // File path of _test.settings.go
+		workingDir := filepath.Dir(filename)   // Dir path of _test
+
+		///////////////////////////////////////////////////////////////////////
+		// CONFIGURE BEFORE RUNNING UNIT TESTS TO INCREASE COVERAGE ==========>
+		// EVERYTHING THAT IS NOT SET CORRECTLY WILL LEAD TO SKIPPED UNIT TESTS
+		///////////////////////////////////////////////////////////////////////
+		ldapHost := ""       // must be set to enable respective unit tests!
+		ldapUser := ""       // must be set to enable respective unit tests!
+		ldapPassword := ""   // must be set to enable respective unit tests!
+		pgHost := ""         // must be set to enable PostgreSQL integration tests!
+		pgPort := 5432       // default PostgreSQL port
+		pgUser := "postgres" // default PostgreSQL admin user
+		pgPassword := ""     // set if authentication is required
+		// proxy, _ = url.Parse("http://127.0.0.1:8080") // ATTENTION: Responses might look different via proxy!!
+		///////////////////////////////////////////////////////////////////////
+		// <========== CONFIGURE BEFORE RUNNING UNIT TESTS TO INCREASE COVERAGE
+		///////////////////////////////////////////////////////////////////////
 
 		// Changes working directory to the bin folder.
 		err := os.Chdir(workingDir)
 		if err != nil {
-			fmt.Println("Error ", err.Error())
+			panic(fmt.Sprintf("could not set working directory for unit tests: %s", err))
 		}
 
 		// Create a new instance of the unit test settings, that might need to be adapted before running unit tests
 		settings = &Settings{
-			PathOpenssl:  "C:\\Program Files\\OpenSSL-Win64\\bin\\openssl.exe", // CONFIGURE BEFORE RUNNING UNIT TESTS
-			LogRecipient: "user@domain.tld",                                    // CONFIGURE BEFORE RUNNING UNIT TESTS. Must be valid address or test will get stuck!
-			LdapHost:     "",                                                   // must be set to enable respective LDAP unit tests!
-			LdapUser:     "",                                                   // must be set to enable respective LDAP unit tests!
-			LdapPassword: "",                                                   // must be set to enable respective LDAP unit tests!
+			LdapHost:     ldapHost,
+			LdapUser:     ldapUser,
+			LdapPassword: ldapPassword,
+			PgHost:       pgHost,
+			PgPort:       pgPort,
+			PgUser:       pgUser,
+			PgPassword:   pgPassword,
 		}
-
-		// Check if settings are valid
-		_, errPathOpenssl := exec.Command(settings.PathOpenssl).CombinedOutput()
-		if errPathOpenssl != nil {
-			settingsErr = fmt.Errorf("invalid OpenSSL path")
-			return
-		}
-
-		// Set static values which should not be changed
-		settings.PathDataDir = filepath.Join(workingDir, "data")
 	})
 
 	// Return previously initialized unit test settings
-	return settings, settingsErr
+	return settings
 }

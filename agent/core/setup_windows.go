@@ -14,15 +14,16 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"github.com/siemens/GoScans/smb"
-	"github.com/siemens/GoScans/ssl"
-	"github.com/siemens/Large-Scale-Discovery/agent/config"
-	"github.com/siemens/Large-Scale-Discovery/log"
 	"os"
 	"path/filepath"
 	"syscall"
 	"time"
 	"unsafe"
+
+	"github.com/siemens/GoScans/smb"
+	"github.com/siemens/GoScans/ssl"
+	"github.com/siemens/Large-Scale-Discovery/agent/config"
+	"github.com/siemens/Large-Scale-Discovery/log"
 )
 
 // checkConfigDependant tests OS specific configuration values by trying to initialize scan modules with them. This allows to
@@ -45,6 +46,7 @@ func checkConfigDependant() error {
 		dummyTarget,
 		3,
 		3,
+		[]string{"C", "D", "C$", "D$"},
 		[]string{"a", "b", "c"},
 		[]string{"a"},
 		[]string{".a"},
@@ -62,7 +64,7 @@ func checkConfigDependant() error {
 	// Decide trust store for SSL test
 	var sslyzeAdditionalTruststore string
 	if len(conf.Modules.Ssl.CustomTruststoreFile) == 0 {
-		sslyzeAdditionalTruststore = SslOsTruststoreFile
+		sslyzeAdditionalTruststore = pathSslOsTruststoreFile
 	} else {
 		sslyzeAdditionalTruststore = conf.Modules.Ssl.CustomTruststoreFile
 	}
@@ -89,21 +91,21 @@ func generateTruststoreOs(truststoreOutputFile string) error {
 
 	// Create given path if not existing
 	path := filepath.Dir(truststoreOutputFile)
-	errMkDirs := os.MkdirAll(path, 0770) // folder needs execute rights to be accessed
+	errMkDirs := os.MkdirAll(path, 0700) // folder needs execute rights to be accessed
 	if errMkDirs != nil {
 		return fmt.Errorf("could prepare path for trust store: %s", errMkDirs)
 	}
 
-	// Export the CA windows store
-	errCA := windowsExportTrustStore(truststoreOutputFile, false, "generated", "CA")
-	if errCA != nil {
-		return fmt.Errorf("could not export trust store: %s", errCA)
+	// Export the CA Windows store
+	errCa := windowsExportTrustStore(truststoreOutputFile, false, "generated", "CA")
+	if errCa != nil {
+		return fmt.Errorf("could not export trust store: %s", errCa)
 	}
 
-	// Export the ROOT windows store
-	errROOT := windowsExportTrustStore(truststoreOutputFile, true, "generated", "ROOT")
-	if errROOT != nil {
-		return fmt.Errorf("could not export trust store: %s", errROOT)
+	// Export the ROOT Windows store
+	errRoot := windowsExportTrustStore(truststoreOutputFile, true, "generated", "ROOT")
+	if errRoot != nil {
+		return fmt.Errorf("could not export trust store: %s", errRoot)
 	}
 
 	// Return nil as everything went fine

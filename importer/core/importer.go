@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2024.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -12,9 +12,10 @@ package core
 
 import (
 	"fmt"
+	"strings"
+
 	managerdb "github.com/siemens/Large-Scale-Discovery/manager/database"
 	"github.com/siemens/Large-Scale-Discovery/utils"
-	"strings"
 )
 
 var importers = make(map[string]Importer) // Map of importer names referencing the responsible importer module.
@@ -125,7 +126,7 @@ func ParseFilters(scanScopeSettings utils.JsonMap) (Filters, error) {
 func readSliceAttribute(attributes utils.JsonMap, key string) ([]string, error) {
 
 	// Access attribute value
-	val, _ := attributes[key]
+	val := attributes[key]
 
 	// Return empty slice if value is nil
 	if val == nil {

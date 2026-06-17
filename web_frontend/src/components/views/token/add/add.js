@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -11,7 +11,9 @@
 define(["knockout", "text!./add.html", "postbox", "jquery", "semantic-ui-dropdown"],
     function (ko, template, postbox, $) {
 
+        /////////////////////////
         // VIEWMODEL CONSTRUCTION
+        /////////////////////////
         function ViewModel(params) {
 
             // Keep reference to PARENT view model context
@@ -29,15 +31,18 @@ define(["knockout", "text!./add.html", "postbox", "jquery", "semantic-ui-dropdow
             this.$domComponent = $('#divTokensAdd');
             this.$domForm = this.$domComponent.find("form");
 
-            // Initialize Create Group form validators
+            // Initialize form with validators. keyboardShortcuts is disabled because
+            // Semantic UI's Enter handler would submit the form a second time alongside
+            // the browser's native submit that Knockout's submit binding already handles.
             this.$domForm.form({
                 fields: {
                     inputDescription: ['minLength[5]'],
                 },
+                keyboardShortcuts: false, // Prevent FomanticUI's own submit action handler from submitting again
             });
 
             // Initialize slider
-            initSlider("#sliderExpiry", this.tokenExpiryDays, 1, 365, 1);
+            initSlider("#sliderExpiry", this.tokenExpiryDays, 1, 731, 1);
 
             // Fade in
             this.$domComponent.transition('fade down');
@@ -64,8 +69,45 @@ define(["knockout", "text!./add.html", "postbox", "jquery", "semantic-ui-dropdow
             // Handle request success
             const callbackSuccess = function (response, textStatus, jqXHR) {
 
-                // Show toast message for user
-                toast(response.message, "success");
+                // Get password if returned by the backend.
+                // It's only returned if it couldn't be sent out via encrypted e-mail.
+                var username = response.body["username"]
+                var password = response.body["password"]
+
+                // Show toast message for successful modal
+                // If username and password are empty, they were sent out by e-mail by the backend.
+                if (username === "" && password === "") {
+                    toast(response.message, "success");
+                } else {
+                    infoOverlay(
+                        "key",
+                        "Generated Access Token",
+                        'Please note the following access token details, they will disappear shortly.</br>\n' +
+                        '<div class="ui sixteen column centered grid">\n' +
+                        '  <div class="ten wide column">\n' +
+                        '       <table class="ui centered inverted black table">\n' +
+                        '         <tbody>\n' +
+                        '           <tr>\n' +
+                        '             <td>Username</td>\n' +
+                        '             <td>' + username + '</td>\n' +
+                        '           </tr>\n' +
+                        '           <tr>\n' +
+                        '             <td>Password</td>\n' +
+                        '             <td>' + password + '</td>\n' +
+                        '           </tr>\n' +
+                        '         </tbody>\n' +
+                        '       </table>\n' +
+                        '  </div>\n' +
+                        '</div>\n',
+                        function () {
+
+                            // Clear credentials after dialog close
+                            password = ""
+                            username = ""
+                        },
+                        20000, // Safety timeout for modal, in case it's showing sensitive data
+                    )
+                }
 
                 // Notify parent to reload updated data
                 ctx.parent.loadData();

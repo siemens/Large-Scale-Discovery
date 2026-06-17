@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2024.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -13,9 +13,13 @@ package core
 import (
 	"errors"
 	"fmt"
+	"math"
+	"time"
+
 	"github.com/siemens/GoScans/banner"
 	"github.com/siemens/GoScans/discovery"
 	"github.com/siemens/GoScans/nfs"
+	"github.com/siemens/GoScans/nuclei"
 	"github.com/siemens/GoScans/smb"
 	"github.com/siemens/GoScans/ssh"
 	"github.com/siemens/GoScans/ssl"
@@ -30,13 +34,11 @@ import (
 	managerdb "github.com/siemens/Large-Scale-Discovery/manager/database"
 	"github.com/siemens/Large-Scale-Discovery/utils"
 	"github.com/vburenin/nsync"
-	"math"
-	"time"
 )
 
 var cleanupGracePeriod = time.Minute * 20 // Period after broker launch, in which timed out scans are not cleaned up to allow scan agents to save accumulated scan results
 var cleanupInterval = time.Minute * 5     // Interval in which cleanup of exceeded scan tasks will execute
-var submitInterval = time.Minute          // Interval in which scan agent stats will be transferred to the manager
+var submitInterval = time.Second * 6      // Interval in which scan agent stats will be transferred to the manager. Interval should be longer than agent request interval!
 var rpcStatsLock = nsync.NewTryMutex()    // Named mutex to prevent parallel manager submits of scope stats
 
 // backgroundTasks initializes and handles background tasks to be executed on a regular basis.
@@ -48,7 +50,7 @@ var rpcStatsLock = nsync.NewTryMutex()    // Named mutex to prevent parallel man
 func backgroundTasks() {
 
 	// Get tagged logger
-	logger := log.GetLogger().Tagged(fmt.Sprintf("backgroundTasks"))
+	logger := log.GetLogger().Tagged("backgroundTasks")
 	logger.Infof("Starting background tasks.")
 
 	// Log potential panics before letting them move on
@@ -153,10 +155,10 @@ func cleanMemory(logger scanUtils.Logger, notification manager.ReplyNotification
 		}
 	}
 
-	// Clean scan agent stats of expired scan scopes from memory
+	// Clean scan agent stats of removed scan scopes from memory
 	for _, agentStat := range memory.GetAgents() {
 		if !utils.Uint64Contained(agentStat.IdTScanScope, notification.RemainingScopeIds) {
-			memory.RemoveAgent(agentStat.Name, agentStat.Host, "") // Don't use IP for identification as it might be a dynamic one
+			memory.RemoveAgent(agentStat.Name, agentStat.Host, "", agentStat.IdTScanScope) // Don't use IP for identification as it might be a dynamic one
 			logger.Infof(
 				"Scan agent stats of '%s-%s-%s' removed from memory.",
 				agentStat.Name,
@@ -250,6 +252,8 @@ func cleanExceeded(logger scanUtils.Logger) {
 				maxScanTimeMinutes = 20 // Banner scan module does not have a configurable timeout because it should not take long
 			case nfs.Label:
 				maxScanTimeMinutes = scanScope.ScanSettings.NfsScanTimeoutMinutes
+			case nuclei.Label:
+				maxScanTimeMinutes = scanScope.ScanSettings.NucleiScanTimeoutMinutes
 			case smb.Label:
 				maxScanTimeMinutes = scanScope.ScanSettings.SmbScanTimeoutMinutes
 			case ssl.Label:
@@ -341,31 +345,50 @@ func submitStats(logger scanUtils.Logger) {
 		defer rpcStatsLock.Unlock()
 
 		// Get copy of map of agent stats
-		agentStats := memory.GetAgents()
+		agents := memory.GetAgents()
+
+		// Clear memory so that new entries can accumulate already for the next execution
+		// and to minimize possible race conditions of agent requests between GetAgents() and ClearAgents().
+		// Memory needs to be cleared to avoid sending stats for old outdated scan agents that don't exist anymore.
+		memory.ClearAgents()
 
 		// Group scan agent stats by scan scope ID
-		scopeAgents := make(map[uint64][]managerdb.T_scan_agent)
-		for _, agent := range agentStats {
+		agentsByScope := make(map[uint64][]managerdb.T_scan_agent)
+		for _, agent := range agents {
 
 			// Get scope specific slice
-			scanAgents, ok := scopeAgents[agent.IdTScanScope]
+			scopeAgents, ok := agentsByScope[agent.IdTScanScope]
 
 			// Initialize scan agent slice for scan scope if not yet existing
 			if !ok {
-				scopeAgents[agent.IdTScanScope] = make([]managerdb.T_scan_agent, 0, 1)
-				scanAgents, _ = scopeAgents[agent.IdTScanScope]
+				agentsByScope[agent.IdTScanScope] = make([]managerdb.T_scan_agent, 0, 1)
+				scopeAgents = agentsByScope[agent.IdTScanScope]
 			}
 
 			// Attach new scan agent statistics
-			scanAgents = append(scanAgents, agent)
+			scopeAgents = append(scopeAgents, agent)
 
 			// Update referenced scopes
-			scopeAgents[agent.IdTScanScope] = scanAgents
+			agentsByScope[agent.IdTScanScope] = scopeAgents
 		}
 
-		// Send updated agent stats to manager via RPC. Additional scan progress stats will be queried and attached by
-		// the manager during this call.
-		errRpc := manager.RpcUpdateAgents(logger, rpcClient, scopeAgents)
+		// Get known scan scopes from memory
+		scopes := memory.GetScopes()
+
+		// Collect per-module queue stats for each scope
+		statsByScope := make(map[uint64]utils.JsonMap)
+		for scopeId := range scopes {
+			scopeStats, errScopeStats := brokerdb.GetScopeStats(scopeId)
+			if errScopeStats != nil {
+				logger.Warningf("Could not query scope stats of scan scope %d: %s", scopeId, errScopeStats)
+				continue
+			}
+			statsByScope[scopeId] = scopeStats
+		}
+
+		// Send updated agent and queue stats to manager via RPC. Additional scan progress stats will be queried
+		// and attached by the manager during this call.
+		errRpc := manager.RpcUpdateScopeStats(logger, rpcClient, agentsByScope, statsByScope)
 		if errors.Is(errRpc, utils.ErrRpcConnectivity) {
 			logger.Debugf("Skipped submitting scan stats, due to connectivity issues.")
 			return
@@ -373,8 +396,5 @@ func submitStats(logger scanUtils.Logger) {
 			logger.Warningf("Could not submit scan stats: %s", errRpc)
 			return
 		}
-
-		// Clear memory, after latest entries were submitted successfully
-		memory.ClearAgents()
 	}
 }

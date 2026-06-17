@@ -2,7 +2,7 @@
 
 Large-Scale Discovery is a solution for discovering assets, services and contents and metadata within large IT/OT
 networks. It relies on a few basic well-known open-source tools ([Nmap](https://nmap.org/)
-, [SSlyze](https://github.com/nabla-c0d3/sslyze/releases))
+, [SSLyze](https://github.com/nabla-c0d3/sslyze/releases))
 and is extended with additional scan logic and several custom scan modules.
 
 Results are collected in a structured repository of things visible and accessible. Data can be searched, filtered,
@@ -42,6 +42,7 @@ protocols (HTTP, SMB,...) to discover contents and includes user and access mana
 - Web enumeration
 - SSH enumeration
 - SSL enumeration
+- Nuclei vulnerability enumeration
 
 ## Components
 
@@ -62,6 +63,7 @@ in parallel to scale:
 - *Importer* (`importer`): Optional utility component to sync scan scope inputs with external sources. This component is
   not necessary for _custom_ scan scopes, which are directly populated from the user input via the web interface. The
   importer can be deployed to import scan inputs from external sources, e.g. a network or asset repository.
+- *PgProxy* (`pgproxy`): Optional PostgreSQL proxy component for secure, controlled access to scan scope databases.
 
   <img src="Readme_components.png" alt="Components and Interfaces" />
 
@@ -76,7 +78,7 @@ hardened, respectively, stripped.
 
 ## GIT configuration
 
-If you plan to submit code, please setup your GIT, e.g.:
+If you plan to submit code, please set up your GIT, e.g.:
 
 ```
 git config --global user.name "Name Surname"
@@ -150,7 +152,8 @@ mode. Similarly, in production mode, but with hardened configuration.
 
 #### Preparation
 
-* Install node.js (v10 or v11), which is used for dependency management and generating an optimized deployment version
+* Install node.js (v20 LTS or later; CI uses Node.js 25), which is used for dependency management and generating an
+  optimized deployment version
   of the application later.
 * Download dependencies. Most of them are only required to support development, some of them are actively used within
   the web application. See *package.json* for details. Open command line in `./web_frontend` and run:
@@ -205,15 +208,15 @@ gulp build
 Go to `./_bin` and execute `build_prod_win.bat` to create production builds. Production builds will:
 
 - exclude development code (by applying build tag 'prod')
-- apply more secure/realistic production setting
+- apply more secure/realistic production settings
 - strip debug symbols
 
 #### Building on Linux for Linux
 
-Go to `./_bin` and execute `build_prod_lin.sh` to create production builds. Production builds will:
+Go to `./_bin` and execute `build_prod_unix.sh` to create production builds. Production builds will:
 
 - exclude development code (by applying build tag 'prod')
-- apply more secure/realistic production setting
+- apply more secure/realistic production settings
 - strip debug symbols
 
 It's easiest to not bother cross-compiling and just use a Linux machine (e.g. VM) to build for Linux.
@@ -262,5 +265,5 @@ Scan settings
 
 # Some entertainment
 
-[![Development History](Readme_visualization_code.gif)](https://www.youtube.com/watch?v=)
+[![Development History](Readme_visualization_code.gif)](https://youtu.be/I6YeXmt6cGY)
 <br />[[Full Video](https://youtu.be/I6YeXmt6cGY)]

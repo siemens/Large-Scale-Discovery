@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -11,7 +11,9 @@
 define(["knockout", "text!./feedback.html", "postbox", "jquery", "semantic-ui-modal"],
     function (ko, template, postbox, $) {
 
+        /////////////////////////
         // VIEWMODEL CONSTRUCTION
+        /////////////////////////
         function ViewModel(params) {
 
             // Initialize observables
@@ -22,12 +24,15 @@ define(["knockout", "text!./feedback.html", "postbox", "jquery", "semantic-ui-mo
             this.$domModal = $('#modalFeedback'); // Modal will be moved by Semantic UI and not within component area anymore
             this.$domForm = this.$domModal.find("form");
 
-            // Initialize registration form with validators and submit action
+            // Initialize form with validators. keyboardShortcuts is disabled because
+            // Semantic UI's Enter handler would submit the form a second time alongside
+            // the browser's native submit that Knockout's submit binding already handles.
             this.$domForm.form({
                 fields: {
-                    inputSubject: ['empty'],
-                    textareaMessage: ['empty']
+                    inputSubject: ['notEmpty'],
+                    textareaMessage: ['notEmpty']
                 },
+                keyboardShortcuts: false, // Prevent FomanticUI's own submit action handler from submitting again
             });
 
             // Keep reference THIS view model context

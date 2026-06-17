@@ -15,44 +15,30 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"golang.org/x/net/nettest"
 	"log"
+	"math"
 	"net"
 	"strings"
 	"syscall"
+
+	"golang.org/x/net/nettest"
 )
 
-// IsConnectionError detects whether a given error is one of the many types and sources of connectivity errors
-func IsConnectionError(err error) bool {
-
-	// Check if socket timeout error
-	if netError, ok := err.(net.Error); ok && netError.Timeout() {
-		return true
-	}
-
-	// Check if other connection error
-	switch t := err.(type) {
-	case *net.OpError:
-		if t.Op == "dial" {
-			return true
-		} else if t.Op == "read" {
-			return true
-		}
-	case syscall.Errno:
-		if errors.Is(t, syscall.ECONNREFUSED) {
-			return true
-		}
-	}
-
-	// Return false as it seems to be a different kind of error
-	return false
-}
+const NetworkSizeSkip = 327168 // Networks larger than this will be dropped
+const NetworkSizeSplit = 2048  // Networks larger than this will be split into smaller subnets
 
 // CountIpsInInput calculates the amount of possible IP addresses within a network range
 func CountIpsInInput(subnet string) (uint, error) {
 
-	// Return 1 if subnet actually is a single address
+	// Sanitize input
 	subnet = strings.TrimSpace(subnet)
+
+	// Return 0 if subnet is empty string
+	if len(subnet) == 0 {
+		return 0, nil
+	}
+
+	// Return 1 if subnet actually is a single address
 	if !strings.Contains(subnet, "/") || strings.HasSuffix(subnet, "/32") {
 		return 1, nil
 	}
@@ -72,6 +58,72 @@ func CountIpsInInput(subnet string) (uint, error) {
 
 	// Return calculated amount
 	return uint(last - first + 1), nil // Add broadcast IP to count
+}
+
+// SplitNetworkIpV4 splits a larger network range into smaller subnets of given size.
+// Returns original input if it is already smaller than the given target size.
+func SplitNetworkIpV4(network string, targetSize uint32) ([]string, error) {
+
+	// Prepare subnet masks lookup
+	cidrLookup := map[uint32]string{
+		1:    "/32",
+		2:    "/31",
+		4:    "/30",
+		8:    "/29",
+		16:   "/28",
+		32:   "/27",
+		64:   "/26",
+		128:  "/25",
+		256:  "/24",
+		512:  "/23",
+		1024: "/22",
+		2048: "/21",
+		4096: "/20",
+		8192: "/19",
+		// ... bigger ones might not make sense, but can be added
+	}
+	if _, ok := cidrLookup[targetSize]; !ok {
+		return nil, fmt.Errorf("invalid target size")
+	}
+
+	// Convert string to IPNet struct
+	_, ipv4Net, err := net.ParseCIDR(network)
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate network size
+	ones, bits := ipv4Net.Mask.Size()
+	networkSize := uint32(math.Pow(2, float64(bits-ones)))
+
+	// Return network if it is already small enough
+	if targetSize >= networkSize {
+		return []string{network}, nil
+	}
+
+	// Convert IPNet struct mask and address to uint32 network is BigEndian
+	mask := binary.BigEndian.Uint32(ipv4Net.Mask)
+	start := binary.BigEndian.Uint32(ipv4Net.IP)
+
+	// Find the final address
+	finish := (start & mask) | (mask ^ 0xffffffff)
+
+	// Prepare memory for subnets
+	var subnets []string
+
+	// Loop through addresses as uint32
+	for i := start; i <= finish; i += targetSize {
+
+		// Convert back to net.IP
+		ip := make(net.IP, 4)
+		binary.BigEndian.PutUint32(ip, i)
+
+		// Add to subnets
+		subnets = append(subnets, ip.String()+cidrLookup[targetSize])
+	}
+
+	// Return result
+	return subnets, nil
 }
 
 // GetOutboundIP gets preferred outbound ip of this machine by initializing a logical (fake) connection
@@ -136,11 +188,6 @@ func GetLocalIp() (string, error) {
 // SslSocket initializes an SSL socket listening for RPC connections
 func SslSocket(listenAddress string, certFile string, keyFile string) (net.Listener, error) {
 
-	// Sanitize wildcard input if contained
-	if strings.HasPrefix(listenAddress, "*:") {
-		listenAddress = strings.Replace(listenAddress, "*:", ":", 1)
-	}
-
 	// Load key files for RPC encryption
 	cert, errLoad := tls.LoadX509KeyPair(certFile, keyFile)
 	if errLoad != nil {
@@ -161,4 +208,30 @@ func SslSocket(listenAddress string, certFile string, keyFile string) (net.Liste
 
 	// Return socket
 	return socket, nil
+}
+
+// IsConnectionError detects whether a given error is one of the many types and sources of connectivity errors
+func IsConnectionError(err error) bool {
+
+	// Check if socket timeout error
+	if netError, ok := err.(net.Error); ok && netError.Timeout() {
+		return true
+	}
+
+	// Check if other connection error
+	switch t := err.(type) {
+	case *net.OpError:
+		if t.Op == "dial" {
+			return true
+		} else if t.Op == "read" {
+			return true
+		}
+	case syscall.Errno:
+		if errors.Is(t, syscall.ECONNREFUSED) {
+			return true
+		}
+	}
+
+	// Return false as it seems to be a different kind of error
+	return false
 }

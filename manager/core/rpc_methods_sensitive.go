@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2024.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -11,15 +11,15 @@
 package core
 
 import (
-	"errors"
 	"fmt"
+	"time"
+
 	"github.com/lithammer/shortuuid/v4"
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/Large-Scale-Discovery/log"
 	"github.com/siemens/Large-Scale-Discovery/manager/config"
 	"github.com/siemens/Large-Scale-Discovery/manager/database"
-	"gorm.io/gorm"
-	"time"
+	"github.com/siemens/Large-Scale-Discovery/utils"
 )
 
 var ErrInvalidPrivilege = fmt.Errorf("invalid privilege secret")
@@ -38,6 +38,17 @@ var ErrInvalidPrivilege = fmt.Errorf("invalid privilege secret")
 //	log messages.
 func (s *Manager) GetScopeFull(rpcArgs *ArgsScopeFull, rpcReply *ReplyScanScope) error {
 
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
+
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
 
@@ -54,19 +65,21 @@ func (s *Manager) GetScopeFull(rpcArgs *ArgsScopeFull, rpcReply *ReplyScanScope)
 	conf := config.GetConfig()
 
 	// Check whether client is allowed to request full scope details
-	if !scanUtils.StrContained(rpcArgs.PrivilegeSecret, conf.PrivilegeSecrets) {
+	if !scanUtils.StrContained(rpcArgs.SecretPrivilege, conf.PrivilegeSecrets) {
 		logger.Warningf("Client requested sensitive scope details with invalid privilege token!")
 		return ErrInvalidPrivilege // Error message returned to agent
 	}
 
 	// Get scan scope for given secret
 	scopeEntry, errScopeEntry := database.GetScopeEntryBySecret(rpcArgs.ScopeSecret)
-	if errors.Is(errScopeEntry, gorm.ErrRecordNotFound) { // Check if entry didn't exist
-		logger.Infof("Could not query scan scope with secret '%s...'.", rpcArgs.ScopeSecret[0:5])
-		return nil // No error, the client just didn't have a valid scope secret
-	}
 	if errScopeEntry != nil {
 		return fmt.Errorf("could not query scan scope: %s", errScopeEntry)
+	}
+
+	// Check if scan scope exists
+	if scopeEntry == nil {
+		logger.Infof("Could not query scan scope with secret '%s...'.", rpcArgs.ScopeSecret[0:5])
+		return nil // No error, the client just didn't have a valid scope secret
 	}
 
 	// Log action

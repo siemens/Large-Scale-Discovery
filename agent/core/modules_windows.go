@@ -12,6 +12,8 @@ package core
 
 import (
 	"fmt"
+	"time"
+
 	"github.com/siemens/GoScans/filecrawler"
 	"github.com/siemens/GoScans/smb"
 	"github.com/siemens/GoScans/ssl"
@@ -20,7 +22,6 @@ import (
 	broker "github.com/siemens/Large-Scale-Discovery/broker/core"
 	"github.com/siemens/Large-Scale-Discovery/log"
 	"github.com/siemens/Large-Scale-Discovery/utils"
-	"time"
 )
 
 func launchSmb(
@@ -34,7 +35,7 @@ func launchSmb(
 	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-%d", label, scanTask.Id))
 	logger.Debugf("Initializing scan.")
 
-	// Catch potential panics to gracefully log issue with stacktrace
+	// Catch potential panics to gracefully log issue
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -44,27 +45,24 @@ func launchSmb(
 	}()
 
 	// Decrease the module usage counter
-	defer decreaseUsageModule(label)
+	defer DecrementModuleCount(scanTask.Secret, label)
 
 	// Get config
 	conf := config.GetConfig()
 
 	// Prepare result template that can be returned to the broker
 	rpcArgs := broker.ArgsSaveScanResult{
-		AgentInfo: broker.AgentInfo{
-			Name: instanceName,
-			Host: instanceHostname,
-			Ip:   instanceIp,
-		},
-		ScopeSecret: scopeSecret,
+		AgentInfo:   instanceInfo,
+		ScopeSecret: scanTask.Secret,
 		Id:          scanTask.Id,
 	}
 
 	// Prepare variables
 	scanTimeout := time.Minute * time.Duration(scanTask.ScanSettings.SmbScanTimeoutMinutes)
-	excludedShares := utils.ToSlice(scanTask.ScanSettings.SmbExcludeShares, ",")
-	excludedFolders := utils.ToSlice(scanTask.ScanSettings.SmbExcludeFolders, ",")
-	excludedExtensions := utils.ToSlice(scanTask.ScanSettings.SmbExcludeExtensions, ",")
+	forcedShares := utils.SanitizeToSlice(scanTask.ScanSettings.SmbForcedShares, ",")
+	excludedShares := utils.SanitizeToSlice(scanTask.ScanSettings.SmbExcludeShares, ",")
+	excludedFolders := utils.SanitizeToSlice(scanTask.ScanSettings.SmbExcludeFolders, ",")
+	excludedExtensions := utils.SanitizeToSlice(scanTask.ScanSettings.SmbExcludeExtensions, ",")
 
 	// Initiate scanner
 	scan, errScan := smb.NewScanner(
@@ -72,6 +70,7 @@ func launchSmb(
 		scanTask.Target,
 		scanTask.ScanSettings.SmbDepth,
 		scanTask.ScanSettings.SmbThreads,
+		forcedShares,
 		excludedShares,
 		excludedFolders,
 		excludedExtensions,
@@ -83,7 +82,11 @@ func launchSmb(
 		conf.Authentication.Smb.Password,
 	)
 	if errScan != nil {
-		logger.Warningf("%s scan initialization failed: %s", label, errScan)
+
+		// Log issue
+		logger.Errorf("%s scan initialization failed: %s", label, errScan)
+
+		// Forward issue to broker
 		rpcArgs.Result = &smb.Result{
 			Result: filecrawler.Result{
 				Exception: true,
@@ -91,6 +94,11 @@ func launchSmb(
 			},
 		}
 		chResults <- rpcArgs
+
+		// Shutdown agent as this is a critical issue
+		Shutdown()
+
+		// Return
 		return
 	}
 

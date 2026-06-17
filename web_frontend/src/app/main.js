@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -33,8 +33,10 @@ define(["knockout", "globals", './router', "postbox", "jquery", "hasher", "momen
         ko.components.register("configuration-views", {require: "pages/configuration/views/views"});
         ko.components.register("admin-users", {require: "pages/admin/users/users"});
         ko.components.register("admin-groups", {require: "pages/admin/groups/groups"});
+        ko.components.register("admin-databases", {require: "pages/admin/databases/databases"});
+        ko.components.register("admin-logs", {require: "pages/admin/logs/logs"});
+        ko.components.register("page-api", {require: "pages/api/api"});
         ko.components.register("installation", {require: "pages/installation/installation"});
-        ko.components.register("profile", {require: "pages/profile/profile"});
 
         // Register regular components. While technically equal to pages, components are functional units can be
         // included everywhere. They usually focus on functionality and (e.g.) don't take care of authentication or
@@ -46,13 +48,15 @@ define(["knockout", "globals", './router', "postbox", "jquery", "hasher", "momen
         ko.components.register("footer", {require: "components/footer/footer"});
         ko.components.register("groups-add", {require: "components/groups/add/add"});
         ko.components.register("groups-owners", {require: "components/groups/owners/owners"});
-        ko.components.register("nav-top", {require: "components/nav-top/nav-top"});
-        ko.components.register("nav-side", {require: "components/nav-side/nav-side"});
+        ko.components.register("nav-top", {require: "components/nav/nav-top"});
+        ko.components.register("nav-side", {require: "components/nav/nav-side"});
+        ko.components.register("databases-add", {require: "components/databases/add/add"});
         ko.components.register("scopes-list", {require: "components/scopes/list/list"});
         ko.components.register("scopes-add-custom", {require: "components/scopes/add/custom/custom"});
         ko.components.register("scopes-add-assets", {require: "components/scopes/add/assets/assets"});
         ko.components.register("scopes-add-networks", {require: "components/scopes/add/networks/networks"});
         ko.components.register("scopes-settings", {require: "components/scopes/settings/settings"});
+        ko.components.register("scopes-settings-timespan", {require: "components/scopes/settings/timespan/timespan"});
         ko.components.register("views-list", {require: "components/views/list/list"});
         ko.components.register("views-add", {require: "components/views/add/add"});
         ko.components.register("views-edit", {require: "components/views/edit/edit"});
@@ -81,6 +85,7 @@ define(["knockout", "globals", './router', "postbox", "jquery", "hasher", "momen
                 currentUser["admin"],
                 currentUser["owner"],
                 currentUser["access"],
+                currentUser["demo"],
                 currentUser["created"]
             );
         }
@@ -113,6 +118,7 @@ define(["knockout", "globals", './router', "postbox", "jquery", "hasher", "momen
                     response["body"]["admin"],
                     response["body"]["owner"],
                     response["body"]["access"],
+                    response["body"]["demo"],
                     response["body"]["created"]
                 );
 

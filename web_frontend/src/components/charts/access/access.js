@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -22,22 +22,18 @@ define(["knockout", "text!./access.html", "postbox", "jquery", "chartjs"],
             // Prepare default company value
             var company = user.company
 
-            // For Siemens, split by business unit
-            if (company === "SIEMENS") {
-                var dep = user.department.split(" ")[0]
-                company = company + " (" + dep + ")"
-            }
-
             // Return result
             return company
         }
 
+        /////////////////////////
         // VIEWMODEL CONSTRUCTION
+        /////////////////////////
         function ViewModel(params) {
 
             // Initialize observables
             this.dataset = ko.observable(null);
-            this.datasetAggregate = ko.observable(false)
+            this.datasetAccumulate = ko.observable(false)
             this.datasetOrder = ko.observable("company") // data key
 
             // Keep reference THIS view model context
@@ -47,7 +43,7 @@ define(["knockout", "text!./access.html", "postbox", "jquery", "chartjs"],
             this.subscriptions = []
 
             // Subscribe to data or configuration changes to build updated chart
-            this.subscriptions.push(this.datasetAggregate.subscribe(function (data) {
+            this.subscriptions.push(this.datasetAccumulate.subscribe(function (data) {
                 ctx.buildChart();
             }));
             this.subscriptions.push(this.datasetOrder.subscribe(function (data) {
@@ -116,8 +112,8 @@ define(["knockout", "text!./access.html", "postbox", "jquery", "chartjs"],
         };
 
         // VIEWMODEL ACTION
-        ViewModel.prototype.toggleAggregate = function (data, event) {
-            this.datasetAggregate(!this.datasetAggregate())
+        ViewModel.prototype.toggleAccumulate = function (data, event) {
+            this.datasetAccumulate(!this.datasetAccumulate())
         }
 
         // VIEWMODEL ACTION
@@ -202,8 +198,8 @@ define(["knockout", "text!./access.html", "postbox", "jquery", "chartjs"],
                             var val = dataCompanyInterval[company][interval] + previous // Aggregate data with each interval
                             d.push(val)
 
-                            // Aggregate data values if desired
-                            if (this.datasetAggregate() === true) {
+                            // Accumulate data values if desired
+                            if (this.datasetAccumulate() === true) {
                                 previous = val
                             }
                         }
@@ -241,7 +237,7 @@ define(["knockout", "text!./access.html", "postbox", "jquery", "chartjs"],
                     function (a, b) {
                         var sumA
                         var sumB
-                        if (ctx.datasetAggregate() === true) {
+                        if (ctx.datasetAccumulate() === true) {
                             sumA = a.data[a.data.length - 1]
                             sumB = b.data[b.data.length - 1]
                         } else {

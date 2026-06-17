@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2024.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -14,7 +14,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/go-co-op/gocron"
+	"path/filepath"
+	"strconv"
+	"sync"
+	"time"
+
+	"github.com/go-co-op/gocron/v2"
 	"github.com/lithammer/shortuuid/v4"
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/Large-Scale-Discovery/_build"
@@ -24,17 +29,13 @@ import (
 	managerdb "github.com/siemens/Large-Scale-Discovery/manager/database"
 	"github.com/siemens/Large-Scale-Discovery/utils"
 	"github.com/vburenin/nsync"
-	"path/filepath"
-	"strconv"
-	"sync"
-	"time"
 )
 
 var coreCtx, coreCtxCancelFunc = context.WithCancel(context.Background()) // Importer context and context cancellation function. Importer should terminate when context is closed
 var shutdownOnce sync.Once                                                // Helper variable to prevent shutdown from doing its work multiple times
 var rpcClient *utils.Client                                               // RPC client struct handling RPC connections and requests
 var rpcScopeLock = nsync.NewNamedMutex()                                  // Named mutex to prevent parallel synchronization for the same scan scope
-var scheduler *gocron.Scheduler                                           // Scheduler with synchronization tasks that run in intervals (remote scan targets), rather than on-change (custom scan targets)
+var scheduler gocron.Scheduler                                            // Scheduler with synchronization tasks that run in intervals (remote scan targets), rather than on-change (custom scan targets)
 
 func Init() error {
 
@@ -46,10 +47,14 @@ func Init() error {
 
 	// Initialize scheduler for synchronizations that do not run on-change, but in certain intervals (e.g. scan
 	// scopes with remote data sources, where changes happen unattended)
-	scheduler = gocron.NewScheduler(time.UTC)
+	var errScheduler error
+	scheduler, errScheduler = gocron.NewScheduler(gocron.WithLocation(time.UTC))
+	if errScheduler != nil {
+		return fmt.Errorf("could not initialize scheduler: %w", errScheduler)
+	}
 
 	// Start scheduler
-	scheduler.StartAsync()
+	scheduler.Start()
 
 	// Initialize registered importers
 	for type_, importer := range importers {
@@ -72,10 +77,11 @@ func Init() error {
 	// Register gob structures that will be sent via interface{}
 	manager.RegisterGobs()
 
-	// Initialize RPC client manager facing
-	rpcClient = utils.NewRpcClient(conf.ManagerAddress, rpcRemoteCrt)
+	// Initialize RPC client manager facing.
+	// The manager requires a shared secret to authorize the RPC connection.
+	rpcClient = utils.NewRpcClient(conf.ManagerAddress, conf.ManagerSsl, rpcRemoteCrt, conf.ManagerSecret)
 
-	// Connect to manager but don't wait to start answering client requests. Connection attempts continue in background.
+	// Connect to manager but don't wait to start answering client requests. Connection attempt continues in background.
 	_ = rpcClient.Connect(logger, true)
 
 	// Return as everything went fine
@@ -124,8 +130,8 @@ func Run() error {
 						logger.Errorf("Could not parse scheduler job tag to scope ID '%s'.", tag)
 					}
 					if !utils.Uint64Contained(id, notificationReply.RemainingScopeIds) {
-						logger.Infof("Un-scheduling deleted scan scope '%d'.", id)
-						_ = scheduler.RemoveByTag(tag)
+						logger.Infof("Un-scheduling deleted scan scope %d.", id)
+						scheduler.RemoveByTags(tag)
 					}
 				}
 			}
@@ -145,7 +151,10 @@ func Shutdown() {
 		coreCtxCancelFunc()
 
 		// Stop scheduler
-		scheduler.Stop()
+		errScheduler := scheduler.Shutdown()
+		if errScheduler != nil {
+			logger.Errorf("Could not shutdown scheduler: %s", errScheduler)
+		}
 
 		// Disconnect from manager
 		if rpcClient != nil {
@@ -155,7 +164,7 @@ func Shutdown() {
 		// Close the scope db connections.
 		errs := managerdb.CloseScopeDbs()
 		for _, err := range errs {
-			logger.Errorf("Could not close scope db connection: %s", err)
+			logger.Errorf("Could not close scope DB connection: %s", err)
 		}
 	})
 }
@@ -243,7 +252,7 @@ func scheduleSynchronizeScanScope(scanScope managerdb.T_scan_scope) {
 	tag := strconv.FormatUint(scanScope.Id, 10)
 
 	// Remove potentially existing task
-	_ = scheduler.RemoveByTag(tag)
+	scheduler.RemoveByTags(tag)
 
 	// Check if scan scope has sync flag
 	val, okVal := scanScope.Attributes["sync"]
@@ -262,7 +271,11 @@ func scheduleSynchronizeScanScope(scanScope managerdb.T_scan_scope) {
 	}
 
 	// Schedule synchronization interval and task
-	_, errSchedule := scheduler.Every(1).Saturday().At("18:00").Tag(tag).Do(task)
+	_, errSchedule := scheduler.NewJob(
+		gocron.WeeklyJob(1, gocron.NewWeekdays(time.Saturday), gocron.NewAtTimes(gocron.NewAtTime(18, 0, 0))),
+		gocron.NewTask(task),
+		gocron.WithTags(tag),
+	)
 	if errSchedule != nil {
 		logger.Errorf(
 			"Could not schedule scan task '%s' (ID %d) for synchronization.", scanScope.Name, scanScope.Id)
@@ -349,7 +362,7 @@ func synchronizeScanScope(scanScope managerdb.T_scan_scope) {
 		true,
 	)
 	if errRpc != nil && errRpc.Error() == manager.ErrScopeUpdateOngoing.Error() { // Errors received from RPC lose their original type!!
-		logger.Errorf("Could not synchronize scan scope '%s' (ID %d), previous synchronization still ongoing.", scanScope.Name, scanScope.Id)
+		logger.Errorf("Could not synchronize scan scope '%s' (ID %d), another synchronization still ongoing.", scanScope.Name, scanScope.Id)
 		return
 	} else if errors.Is(errRpc, utils.ErrRpcConnectivity) {
 		logger.Errorf("Could not synchronize scan scope '%s' (ID %d), manager not reachable.", scanScope.Name, scanScope.Id)

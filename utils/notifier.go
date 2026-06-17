@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -27,7 +27,6 @@ type Notifier struct {
 	listener  chan interface{}
 	receivers chan chan []interface{}
 	ticker    *time.Ticker
-	close     chan struct{}
 	ctx       context.Context
 	ctxCancel context.CancelFunc
 	fnSkip    func(interface{}, interface{}) bool // Function to compare if two values are equal
@@ -110,9 +109,6 @@ func (b *Notifier) listenMessages() {
 
 				// Broadcast collected messages
 				b.sendMessages(messages)
-
-				// Clean cache
-				messages = []interface{}{}
 			}
 
 			// Close channels to indicate shutdown

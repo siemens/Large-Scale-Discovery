@@ -18,9 +18,9 @@ import (
 )
 
 // Gracy handles our graceful shutdown procedure. Fortunately, Gracy is more capable in doing so then Golang itself.
-// Unfortunately, Golang does not execute registered deferred statements after an interrupt. Instead it aborts affected
+// Unfortunately, Golang does not execute registered deferred statements after an interrupt. Instead, it aborts affected
 // Goroutines right away and jumps into the signal handling function. So, Gracy will keep track of everything you want
-// to cleanup instead.
+// to clean up instead.
 type Gracy struct {
 	shutdownFns   []func()
 	registerOnce  sync.Once

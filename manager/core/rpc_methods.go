@@ -12,26 +12,32 @@ package core
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
+	"math"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/glebarez/go-sqlite"
 	"github.com/lithammer/shortuuid/v4"
+	"github.com/siemens/GoScans/discovery"
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/Large-Scale-Discovery/log"
 	"github.com/siemens/Large-Scale-Discovery/manager/config"
 	"github.com/siemens/Large-Scale-Discovery/manager/database"
 	"github.com/siemens/Large-Scale-Discovery/utils"
 	"github.com/vburenin/nsync"
-	"math"
-	"strconv"
-	"strings"
-	"time"
 )
 
 var scopeTargetsUpdating = nsync.NewNamedMutex() // Block subsequent scan scope targets updates while previous is active
 
+var ErrDatabaseInUse = fmt.Errorf("database in use")
+var ErrDatabaseDuplicate = fmt.Errorf("duplicate database entry")
 var ErrScopeUpdateOngoing = fmt.Errorf("synchronization of scan targets still ongoing")
 var ErrViewNameExisting = fmt.Errorf("view name already existing")
 
-// desensitize cleans sensitive data from a scan scope struct and it's db server struct, before data is
+// desensitize cleans sensitive data from a scan scope and db server struct, before data is
 // returned to the RPC client. Such sensitive data may not leave the manager by default.
 func desensitize(scanScope *database.T_scan_scope) {
 
@@ -56,6 +62,17 @@ type Manager struct{}
 // receive subsequent/future notifications. The notifier will notify in intervals, so the client has a few seconds
 // to process and re-subscribe.
 func (s *Manager) SubscribeNotification(rpcArgs struct{}, rpcReply *ReplyNotification) error {
+
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
 
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
@@ -117,8 +134,250 @@ func (s *Manager) SubscribeNotification(rpcArgs struct{}, rpcReply *ReplyNotific
 	return nil
 }
 
+// GetDatabases returns all available database servers (without their password!!) to an RPC client
+func (s *Manager) GetDatabases(rpcArgs *struct{}, rpcReply *ReplyDatabases) error {
+
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
+
+	// Generate UUID for context
+	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
+
+	// Get tagged logger
+	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-GetDatabases", uuid))
+
+	// Log RPC call benchmark to be able to identify bottlenecks later on
+	start := time.Now()
+	defer func() {
+		logger.Debugf("RPC call took %s.", time.Since(start))
+	}()
+
+	// Log action
+	logger.Debugf("Client requesting databases.")
+
+	// Find all database servers
+	dbEntries, errDbEntries := database.GetDatabaseEntries()
+	if errDbEntries != nil {
+		logger.Errorf("Could not query database servers: %s", errDbEntries)
+		return errDbEntries
+	}
+
+	// IMPORTANT: Clean sensitive server data from return data
+	for i, dbEntry := range dbEntries {
+		dbEntry.Password = ""
+		dbEntries[i] = dbEntry
+	}
+
+	// Attach list of database servers to RPC response
+	rpcReply.Databases = dbEntries
+
+	// Log completion
+	logger.Debugf("Database server returned.")
+
+	// Return nil to indicate successful RPC call
+	return nil
+}
+
+// AddUpdateDatabase creates a database server entry or edits it if an existing DB server ID is supplied
+func (s *Manager) AddUpdateDatabase(rpcArgs *ArgsDatabaseDetails, rpcReply *struct{}) error {
+
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
+
+	// Generate UUID for context
+	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
+
+	// Get tagged logger
+	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-AddUpdateDatabase", uuid))
+
+	// Log RPC call benchmark to be able to identify bottlenecks later on
+	start := time.Now()
+	defer func() {
+		logger.Debugf("RPC call took %s.", time.Since(start))
+	}()
+
+	// Decide whether create or update is desired
+	if rpcArgs.DbServerId <= 0 {
+
+		// Log action
+		logger.Debugf("Client requesting database server addition.")
+
+		// Prepare server entry
+		dbServer := &database.T_db_server{
+			Name:       rpcArgs.Name,
+			Dialect:    rpcArgs.Dialect,
+			Host:       rpcArgs.Host,
+			HostPublic: rpcArgs.HostPublic,
+			Port:       rpcArgs.Port,
+			Admin:      rpcArgs.Admin,
+			Password:   rpcArgs.Password,
+			Args:       rpcArgs.Args,
+		}
+
+		// Execute create or update
+		errDb := database.UpdateDatabaseEntry(dbServer)
+
+		// Extract SQLite error if existing
+		var errSqlite *sqlite.Error
+		errors.As(errDb, &errSqlite)
+
+		// Handle error
+		if errSqlite != nil && errSqlite.Code() == 2067 { // Code for SQLite's unique constraint violation
+			return ErrDatabaseDuplicate
+		} else if errDb != nil {
+			logger.Errorf("Could not create database server: %s", errDb)
+			return errDb
+		}
+
+		// Log completion
+		logger.Debugf("Database server added.")
+
+	} else {
+
+		// Log action
+		logger.Debugf("Client requesting database server update.")
+
+		// Load existing server entry
+		dbEntry, errDbEntry := database.GetDatabaseEntry(rpcArgs.DbServerId)
+		if errDbEntry != nil {
+			logger.Errorf("Could not query database server %d for update: %s", rpcArgs.DbServerId, errDbEntry)
+			return errDbEntry
+		}
+
+		// Check if database exists
+		if dbEntry == nil {
+			logger.Errorf("Could not find database server %d for update.", rpcArgs.DbServerId)
+			return fmt.Errorf("could not find database server %d for update", rpcArgs.DbServerId)
+		}
+
+		// Update values
+		dbEntry.Name = rpcArgs.Name
+		dbEntry.Dialect = rpcArgs.Dialect
+		dbEntry.Host = rpcArgs.Host
+		dbEntry.HostPublic = rpcArgs.HostPublic
+		dbEntry.Port = rpcArgs.Port
+		dbEntry.Admin = rpcArgs.Admin
+		dbEntry.Password = rpcArgs.Password
+		dbEntry.Args = rpcArgs.Args
+
+		// Execute create or update
+		errDb := database.UpdateDatabaseEntry(dbEntry)
+
+		// Extract SQLite error if existing
+		var errSqlite *sqlite.Error
+		errors.As(errDb, &errSqlite)
+
+		// Handle database errors
+		if errSqlite != nil && errSqlite.Code() == 2067 { // Code for SQLite's unique constraint violation
+			return ErrDatabaseDuplicate
+		} else if errDb != nil {
+			logger.Errorf("Could not update database server: %s", errDb)
+			return errDb
+		}
+
+		// Create notifications about updated database server for associated scan scope clients
+		for _, scopeEntry := range dbEntry.ScanScopes {
+			scopeChangeNotifier.Send(scopeEntry.Id)
+		}
+
+		// Log completion
+		logger.Debugf("Database server updated.")
+	}
+
+	// Return nil to indicate successful RPC call
+	return nil
+}
+
+// RemoveDatabase removes a database server from the manager db, if no scan scope is currently using it
+func (s *Manager) RemoveDatabase(rpcArgs *ArgsDbServerId, rpcReply *struct{}) error {
+
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
+
+	// Generate UUID for context
+	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
+
+	// Get tagged logger
+	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-RemoveDatabase", uuid))
+
+	// Log RPC call benchmark to be able to identify bottlenecks later on
+	start := time.Now()
+	defer func() {
+		logger.Debugf("RPC call took %s.", time.Since(start))
+	}()
+
+	// Log action
+	logger.Debugf("Client requesting database server deletion.")
+
+	// Get server entry
+	dbEntry, errDbEntry := database.GetDatabaseEntry(rpcArgs.DbServerId)
+	if errDbEntry != nil {
+		logger.Errorf("Could not query database server %d to remove: %s", rpcArgs.DbServerId, errDbEntry)
+		return errDbEntry
+	}
+
+	// Check if database exists
+	if dbEntry == nil {
+		logger.Errorf("Could not find database server %d to remove.", rpcArgs.DbServerId)
+		return fmt.Errorf("could not find database server %d to remove", rpcArgs.DbServerId)
+	}
+
+	// Check if there are any scan scopes associated still
+	if len(dbEntry.ScanScopes) > 0 {
+		return ErrDatabaseInUse
+	}
+
+	// Delete entry
+	errDelete := database.RemoveDatabaseEntry(dbEntry.Id)
+	if errDelete != nil {
+		logger.Errorf("Could not delete server entry %d: %s", dbEntry.Id, errDelete)
+		return errDelete
+	}
+
+	// Log completion
+	logger.Debugf("Database server deleted.")
+
+	// Return nil to indicate successful RPC call
+	return nil
+}
+
 // GetScope returns a specific scan scope to an RPC client
 func (s *Manager) GetScope(rpcArgs *ArgsScopeId, rpcReply *ReplyScanScope) error {
+
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
 
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
@@ -133,13 +392,19 @@ func (s *Manager) GetScope(rpcArgs *ArgsScopeId, rpcReply *ReplyScanScope) error
 	}()
 
 	// Log action
-	logger.Debugf("Client requesting scope '%d'.", rpcArgs.ScopeId)
+	logger.Debugf("Client requesting scope %d.", rpcArgs.ScopeId)
 
 	// Get scan scope for given secret
 	scopeEntry, errScopeEntry := database.GetScopeEntry(rpcArgs.ScopeId)
 	if errScopeEntry != nil {
-		logger.Errorf("Could not query scan scope '%d.", rpcArgs.ScopeId)
+		logger.Errorf("Could not query scan scope %d: %s", rpcArgs.ScopeId, errScopeEntry)
 		return errScopeEntry
+	}
+
+	// Check if scan scope exists
+	if scopeEntry == nil {
+		logger.Errorf("Could not find scan scope %d.", rpcArgs.ScopeId)
+		return fmt.Errorf("could not find scan scope %d", rpcArgs.ScopeId)
 	}
 
 	// IMPORTANT: Clean sensitive scan scope data from return data
@@ -157,6 +422,17 @@ func (s *Manager) GetScope(rpcArgs *ArgsScopeId, rpcReply *ReplyScanScope) error
 
 // GetScopes returns all available scan scopes to an RPC client
 func (s *Manager) GetScopes(rpcArgs *struct{}, rpcReply *ReplyScanScopes) error {
+
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
 
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
@@ -199,6 +475,17 @@ func (s *Manager) GetScopes(rpcArgs *struct{}, rpcReply *ReplyScanScopes) error 
 // GetScopesOf returns scan scopes for a given group ID
 func (s *Manager) GetScopesOf(rpcArgs *ArgsGroupIds, rpcReply *ReplyScanScopes) error {
 
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
+
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
 
@@ -240,6 +527,17 @@ func (s *Manager) GetScopesOf(rpcArgs *ArgsGroupIds, rpcReply *ReplyScanScopes) 
 // CreateScope creates a scan scope
 func (s *Manager) CreateScope(rpcArgs *ArgsScopeDetails, rpcReply *ReplyScopeId) error {
 
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
+
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
 
@@ -259,16 +557,22 @@ func (s *Manager) CreateScope(rpcArgs *ArgsScopeDetails, rpcReply *ReplyScopeId)
 	logger.Debugf("Client requesting scan scope creation.")
 
 	// Get scope database entry
-	serverEntry, errServerEntry := database.GetServerEntry(rpcArgs.DbServerId)
-	if errServerEntry != nil {
-		logger.Errorf("Could not get database server details to create scan scope: %s", errServerEntry)
-		return errServerEntry
+	dbEntry, errDbEntry := database.GetDatabaseEntry(rpcArgs.DbServerId)
+	if errDbEntry != nil {
+		logger.Errorf("Could not query database server %d to create scan scope: %s", rpcArgs.DbServerId, errDbEntry)
+		return errDbEntry
+	}
+
+	// Check if database exists
+	if dbEntry == nil {
+		logger.Errorf("Could not find database server %d to create scan scope.", rpcArgs.DbServerId)
+		return fmt.Errorf("could not find database server %d to create scan scope", rpcArgs.DbServerId)
 	}
 
 	// Open server database
-	serverDb, errServerHandle := database.GetServerDbHandle(logger, serverEntry)
+	serverDb, errServerHandle := database.GetServerDbHandle(logger, dbEntry)
 	if errServerHandle != nil {
-		logger.Errorf("Could not get database server handle to create scan scope: %s", errServerHandle)
+		logger.Errorf("Could not query database server handle to create scan scope: %s", errServerHandle)
 		return errServerHandle
 	}
 
@@ -282,10 +586,30 @@ func (s *Manager) CreateScope(rpcArgs *ArgsScopeDetails, rpcReply *ReplyScopeId)
 		return errSecret
 	}
 
+	// Chose scan settings defaults
+	scanSettings := conf.ScanDefaults
+	if rpcArgs.OtSettings {
+		scanSettings.Ot = true
+		scanSettings.DiscoveryNmapArgs = conf.ScanDefaults.DiscoveryNmapArgsOt
+		scanSettings.DiscoveryNmapArgsPrescan = ""
+		scanSettings.MaxInstancesDiscovery = 1
+		scanSettings.MaxInstancesBanner = 0
+		scanSettings.MaxInstancesNfs = 0
+		scanSettings.MaxInstancesNuclei = 0
+		scanSettings.MaxInstancesSmb = 0
+		scanSettings.MaxInstancesSsh = 0
+		scanSettings.MaxInstancesSsl = 0
+		scanSettings.MaxInstancesWebcrawler = 0
+		scanSettings.MaxInstancesWebenum = 0
+	}
+
+	// Unset Nmap OT args, they were copied into NmapArgs and should be applied from there, if necessary
+	scanSettings.DiscoveryNmapArgsOt = ""
+
 	// Create scope database and manager db entry
 	scopeEntry, errCreateScope := database.XCreateScope(
 		serverDb,
-		serverEntry,
+		dbEntry,
 		rpcArgs.Name,
 		dbName,
 		rpcArgs.GroupId,
@@ -295,7 +619,7 @@ func (s *Manager) CreateScope(rpcArgs *ArgsScopeDetails, rpcReply *ReplyScopeId)
 		rpcArgs.Cycles,
 		rpcArgs.CyclesRetention,
 		rpcArgs.Attributes,
-		conf.ScanDefaults,
+		scanSettings,
 	)
 	if errCreateScope != nil {
 		logger.Errorf("Could not create scan scope: %s", errCreateScope)
@@ -306,7 +630,7 @@ func (s *Manager) CreateScope(rpcArgs *ArgsScopeDetails, rpcReply *ReplyScopeId)
 	scopeDb, errScopeHandle := database.GetScopeDbHandle(logger, scopeEntry)
 	if errScopeHandle != nil {
 		logger.Errorf(
-			"Could not get database scope handle to initialize new scan scope '%s' (ID %d): %s",
+			"Could not query database scope handle '%s' (ID %d) to initialize: %s",
 			scopeEntry.Name,
 			scopeEntry.Id,
 			errScopeHandle,
@@ -364,6 +688,17 @@ func (s *Manager) CreateScope(rpcArgs *ArgsScopeDetails, rpcReply *ReplyScopeId)
 // DeleteScope removes a scan scope including associated views and access grants from the scope db and the manager db
 func (s *Manager) DeleteScope(rpcArgs *ArgsScopeId, rpcReply *struct{}) error {
 
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
+
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
 
@@ -382,15 +717,21 @@ func (s *Manager) DeleteScope(rpcArgs *ArgsScopeId, rpcReply *struct{}) error {
 	// Get scope entry
 	scopeEntry, errScopeEntry := database.GetScopeEntry(rpcArgs.ScopeId)
 	if errScopeEntry != nil {
-		logger.Errorf("Could not get scope entry to delete scan scope: %s", errScopeEntry)
+		logger.Errorf("Could not query scan scope %d to delete: %s", rpcArgs.ScopeId, errScopeEntry)
 		return errScopeEntry
+	}
+
+	// Check if scan scope exists
+	if scopeEntry == nil {
+		logger.Errorf("Could not find scan scope %d to delete.", rpcArgs.ScopeId)
+		return fmt.Errorf("could not find scan scope %d to delete", rpcArgs.ScopeId)
 	}
 
 	// Open server database
 	serverDb, errServerHandle := database.GetServerDbHandle(logger, &scopeEntry.DbServer)
 	if errServerHandle != nil {
 		logger.Errorf(
-			"Could not get database server handle to delete scan scope '%s' (ID %d): %s",
+			"Could not query database server handle to delete scan scope '%s' (ID %d): %s",
 			scopeEntry.Name,
 			scopeEntry.Id,
 			errServerHandle,
@@ -402,7 +743,7 @@ func (s *Manager) DeleteScope(rpcArgs *ArgsScopeId, rpcReply *struct{}) error {
 	scopeDb, errScopeHandle := database.GetScopeDbHandle(logger, scopeEntry)
 	if errScopeHandle != nil {
 		logger.Errorf(
-			"Could not get database scope handle to delete scan scope '%s' (ID %d): %s",
+			"Could not query database scope handle '%s' (ID %d) to delete scan scope: %s",
 			scopeEntry.Name,
 			scopeEntry.Id,
 			errScopeHandle,
@@ -422,7 +763,7 @@ func (s *Manager) DeleteScope(rpcArgs *ArgsScopeId, rpcReply *struct{}) error {
 		return errDelete
 	}
 
-	// Create notification about updated scan scope for clients The remaining scan scope IDs are sent along with
+	// Create notification about updated scan scope for clients. The remaining scan scope IDs are sent along with
 	// every notification, so it is just necessary to trigger an empty one.
 	scopeChangeNotifier.Send(uint64(0))
 
@@ -435,6 +776,17 @@ func (s *Manager) DeleteScope(rpcArgs *ArgsScopeId, rpcReply *struct{}) error {
 
 // GetScopeTargets queries the current list of scan targets from a scan scope
 func (s *Manager) GetScopeTargets(rpcArgs *ArgsScopeId, rpcReply *ReplyScopeTargets) error {
+
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
 
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
@@ -454,8 +806,14 @@ func (s *Manager) GetScopeTargets(rpcArgs *ArgsScopeId, rpcReply *ReplyScopeTarg
 	// Get scope entry
 	scopeEntry, errScopeEntry := database.GetScopeEntry(rpcArgs.ScopeId)
 	if errScopeEntry != nil {
-		logger.Errorf("Could not get scope entry to query scan scope targets: %s", errScopeEntry)
+		logger.Errorf("Could not query scan scope %d to get targets: %s", rpcArgs.ScopeId, errScopeEntry)
 		return errScopeEntry
+	}
+
+	// Check if scan scope exists
+	if scopeEntry == nil {
+		logger.Errorf("Could not find scan scope %d to get targets.", rpcArgs.ScopeId)
+		return fmt.Errorf("could not find scan scope %d to get targets", rpcArgs.ScopeId)
 	}
 
 	// Check whether previous scope synchronization is still ongoing
@@ -477,7 +835,7 @@ func (s *Manager) GetScopeTargets(rpcArgs *ArgsScopeId, rpcReply *ReplyScopeTarg
 	scopeDb, errScopeHandle := database.GetScopeDbHandle(logger, scopeEntry)
 	if errScopeHandle != nil {
 		logger.Errorf(
-			"Could not get database scope handle to delete scan scope '%s' (ID %d): %s",
+			"Could not query database scope handle '%s' (ID %d) to get targets: %s",
 			scopeEntry.Name,
 			scopeEntry.Id,
 			errScopeHandle,
@@ -511,6 +869,17 @@ func (s *Manager) GetScopeTargets(rpcArgs *ArgsScopeId, rpcReply *ReplyScopeTarg
 // agents will be able to complete running scan tasks, but not receive new ones.
 func (s *Manager) ToggleScope(rpcArgs *ArgsScopeId, rpcReply *struct{}) error {
 
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
+
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
 
@@ -529,8 +898,14 @@ func (s *Manager) ToggleScope(rpcArgs *ArgsScopeId, rpcReply *struct{}) error {
 	// Get scope entry
 	scopeEntry, errScopeEntry := database.GetScopeEntry(rpcArgs.ScopeId)
 	if errScopeEntry != nil {
-		logger.Errorf("Could not get scope entry to delete scan scope: %s", errScopeEntry)
+		logger.Errorf("Could not query scan scope %d to toggle scope: %s", rpcArgs.ScopeId, errScopeEntry)
 		return errScopeEntry
+	}
+
+	// Check if scan scope exists
+	if scopeEntry == nil {
+		logger.Errorf("Could not find scan scope %d to toggle.", rpcArgs.ScopeId)
+		return fmt.Errorf("could not find scan scope %d to toggle", rpcArgs.ScopeId)
 	}
 
 	// Toggle scan scope enabled attribute to enable/disable scan scope
@@ -560,6 +935,17 @@ func (s *Manager) ToggleScope(rpcArgs *ArgsScopeId, rpcReply *struct{}) error {
 // UpdateScope updates scan scope details
 func (s *Manager) UpdateScope(rpcArgs *ArgsScopeUpdate, rpcReply *struct{}) error {
 
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
+
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
 
@@ -578,8 +964,14 @@ func (s *Manager) UpdateScope(rpcArgs *ArgsScopeUpdate, rpcReply *struct{}) erro
 	// Get scope entry
 	scopeEntry, errScopeEntry := database.GetScopeEntry(rpcArgs.IdTScanScopes)
 	if errScopeEntry != nil {
-		logger.Errorf("Could not get scope entry '%d' to update: %s", rpcArgs.IdTScanScopes, errScopeEntry)
+		logger.Errorf("Could not query scan scope %d to update: %s", rpcArgs.IdTScanScopes, errScopeEntry)
 		return errScopeEntry
+	}
+
+	// Check if scan scope exists
+	if scopeEntry == nil {
+		logger.Errorf("Could not find scan scope %d to update.", rpcArgs.IdTScanScopes)
+		return fmt.Errorf("could not find scan scope %d to update", rpcArgs.IdTScanScopes)
 	}
 
 	// Update scope database comment if necessary
@@ -589,7 +981,7 @@ func (s *Manager) UpdateScope(rpcArgs *ArgsScopeUpdate, rpcReply *struct{}) erro
 		serverDb, errServerHandle := database.GetServerDbHandle(logger, &scopeEntry.DbServer)
 		if errServerHandle != nil {
 			logger.Errorf(
-				"Could not get database server handle to update database comment '%s' (ID %d): %s",
+				"Could not query database server handle to update database comment '%s' (ID %d): %s",
 				scopeEntry.Name,
 				scopeEntry.Id,
 				errServerHandle,
@@ -643,7 +1035,7 @@ func (s *Manager) UpdateScope(rpcArgs *ArgsScopeUpdate, rpcReply *struct{}) erro
 	// Save updated attributes
 	saved, errSave := scopeEntry.Save("name", "cycles", "cycles_retention", "attributes")
 	if errSave != nil {
-		logger.Errorf("Could not update scan scope '%d': %s", rpcArgs.IdTScanScopes, errSave)
+		logger.Errorf("Could not update scan scope %d: %s", rpcArgs.IdTScanScopes, errSave)
 		return errSave
 	}
 
@@ -665,6 +1057,17 @@ func (s *Manager) UpdateScope(rpcArgs *ArgsScopeUpdate, rpcReply *struct{}) erro
 // UpdateScopeTargets updates scan scope details
 func (s *Manager) UpdateScopeTargets(rpcArgs *ArgsTargetsUpdate, rpcReply *ReplyTargetsUpdate) error {
 
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
+
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
 
@@ -683,8 +1086,14 @@ func (s *Manager) UpdateScopeTargets(rpcArgs *ArgsTargetsUpdate, rpcReply *Reply
 	// Get scope entry
 	scopeEntry, errScopeEntry := database.GetScopeEntry(rpcArgs.IdTScanScopes)
 	if errScopeEntry != nil {
-		logger.Errorf("Could not get scope entry '%d' to update: %s", rpcArgs.IdTScanScopes, errScopeEntry)
+		logger.Errorf("Could not query scan scope %d to update targets: %s", rpcArgs.IdTScanScopes, errScopeEntry)
 		return errScopeEntry
+	}
+
+	// Check if scan scope exists
+	if scopeEntry == nil {
+		logger.Errorf("Could not find scan scope %d to update targets.", rpcArgs.IdTScanScopes)
+		return fmt.Errorf("could not find scan scope %d to update targets", rpcArgs.IdTScanScopes)
 	}
 
 	// Calculate amount of target addresses contained in target list (might be a mix of IPs/hostnames/network ranges)
@@ -692,15 +1101,45 @@ func (s *Manager) UpdateScopeTargets(rpcArgs *ArgsTargetsUpdate, rpcReply *Reply
 	var targets []database.T_discovery
 	for _, target := range rpcArgs.Targets {
 
+		// Calculate and set input size
+		count, errCount := utils.CountIpsInInput(target.Input)
+		if errCount != nil {
+			logger.Errorf("Could not calculate input size of '%s': %s", target.Input, errCount)
+			return errCount
+		}
+
+		// Don't trust the RPC client, set input target size before inserting it into the database
+		target.InputSize = count
+
+		// Don't trust the RPC client, reset scan timestamps to null (for new targets they should be null, for existing targets they should not change)
+		target.ScanStarted = sql.NullTime{}
+		target.ScanFinished = sql.NullTime{}
+
 		// Check if input is actually valid
 		if target.Input == "" {
+
+			// OT discovery scans only have a single generic scan target. The actual target depend on the agents
+			// local network interfaces and is selected by the scan agent. Nevertheless, a generic target entry
+			// is generated for OT discovery scans, so that users can enter other target attributes, such as
+			// location information, etc. The input column is filled in later by the broker with data fed back
+			// by the agent.
+			if scopeEntry.ScanSettings.Ot {
+				totalTargets += target.InputSize
+				targets = append(targets, target)
+				break
+			}
+
+			// Do not allow empty targets in normal scan scopes
 			logger.Warningf(
 				"Empty input target dropped from inputs for '%s' (ID %d).",
 				scopeEntry.Name,
 				scopeEntry.Id,
 			)
 			continue
-		} else if !scanUtils.IsValidAddress(target.Input) && !scanUtils.IsValidIpRange(target.Input) {
+		}
+
+		// Check if input is actually valid
+		if !scanUtils.IsValidAddress(target.Input) && !scanUtils.IsValidIpRange(target.Input) {
 			logger.Warningf(
 				"Invalid input target '%s' dropped from inputs for '%s' (ID %d).",
 				target.Input,
@@ -710,21 +1149,9 @@ func (s *Manager) UpdateScopeTargets(rpcArgs *ArgsTargetsUpdate, rpcReply *Reply
 			continue
 		}
 
-		// Calculate and set input size
-		count, errCount := utils.CountIpsInInput(target.Input)
-		if errCount != nil {
-			logger.Errorf("Could not calculate input size of '%s': %s", target.Input, errCount)
-			return errCount
-		}
-
-		// Set input target size before inserting it into the database. Don't trust the RPC client
-		target.InputSize = count
-
 		// Append target to actual sanitized list
+		totalTargets += target.InputSize
 		targets = append(targets, target)
-
-		// Count
-		totalTargets += count
 	}
 
 	// Update scope size to new value
@@ -735,7 +1162,7 @@ func (s *Manager) UpdateScopeTargets(rpcArgs *ArgsTargetsUpdate, rpcReply *Reply
 	saved, errSave := scopeEntry.Save("size", "last_sync")
 	if errSave != nil {
 		logger.Errorf(
-			"Could not update size of scan scope %s ('%d'): %s", scopeEntry.Name, scopeEntry.Id, errSave)
+			"Could not update size of scan scope %s (%d): %s", scopeEntry.Name, scopeEntry.Id, errSave)
 		return errSave
 	}
 
@@ -748,7 +1175,7 @@ func (s *Manager) UpdateScopeTargets(rpcArgs *ArgsTargetsUpdate, rpcReply *Reply
 	scopeDb, errScopeHandle := database.GetScopeDbHandle(logger, scopeEntry)
 	if errScopeHandle != nil {
 		logger.Errorf(
-			"Could not get database scope handle to update scan scope '%s' (ID %d): %s",
+			"Could not query database scope handle '%s' (ID %d) to update scan scope: %s",
 			scopeEntry.Name,
 			scopeEntry.Id,
 			errScopeHandle,
@@ -776,7 +1203,12 @@ func (s *Manager) UpdateScopeTargets(rpcArgs *ArgsTargetsUpdate, rpcReply *Reply
 		// Execute update
 		created, removed, updated, errSetTargets := database.SetTargets(scopeDb, targets)
 		if errSetTargets != nil {
-			logger.Errorf("Could not set inputs of scan scope '%s' (ID %d)", scopeEntry.Name, scopeEntry.Id)
+			logger.Errorf(
+				"Could not set inputs of scan scope '%s' (ID %d): %s",
+				scopeEntry.Name,
+				scopeEntry.Id,
+				errSetTargets,
+			)
 			return fmt.Errorf("could not set scan scope inputs: %s", errSetTargets)
 		} else {
 			// Log some stats
@@ -803,8 +1235,15 @@ func (s *Manager) UpdateScopeTargets(rpcArgs *ArgsTargetsUpdate, rpcReply *Reply
 		}
 		logger.Debugf("Scope targets updated.")
 	} else {
-		// Don't wait for actual update
-		go func() { _ = setTargets() }()
+
+		// Track request so shutdown waits for it to complete
+		rpcInflight.Add(1)
+
+		// Don't wait for actual update, let goroutine signal completion to shutdown
+		go func() {
+			defer rpcInflight.Done()
+			_ = setTargets()
+		}()
 
 		// Log background activity
 		logger.Debugf("Synchronizing scope targets in the background.")
@@ -814,8 +1253,88 @@ func (s *Manager) UpdateScopeTargets(rpcArgs *ArgsTargetsUpdate, rpcReply *Reply
 	return nil
 }
 
+// UpdateScopeTargetOt updates the input and input_size of an OT discovery scope's single t_discovery
+// entry with data fed back by the scan agent after a scan. OT discovery scopes do not have a preset
+// scan target, so the scan agent selects its own targets based on local network interfaces. This data
+// is then back-filled into the scope's t_discovery entry for display purposes.
+func (s *Manager) UpdateScopeTargetOt(rpcArgs *ArgsScopeTargetUpdateOt, rpcReply *struct{}) error {
+
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
+
+	// Generate UUID for context
+	uuid := shortuuid.New()[0:10]
+
+	// Get tagged logger
+	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-UpdateScopeTargetOt", uuid))
+
+	// Log RPC call benchmark to be able to identify bottlenecks later on
+	start := time.Now()
+	defer func() {
+		logger.Debugf("RPC call took %s.", time.Since(start))
+	}()
+
+	// Log action
+	logger.Debugf("Client requesting OT target update for scope %d.", rpcArgs.IdTScanScopes)
+
+	// Get scope entry
+	scopeEntry, errScopeEntry := database.GetScopeEntry(rpcArgs.IdTScanScopes)
+	if errScopeEntry != nil {
+		return errScopeEntry
+	}
+	if scopeEntry == nil {
+		return fmt.Errorf("could not find scan scope %d", rpcArgs.IdTScanScopes)
+	}
+
+	// Open scope's database
+	scopeDb, errScopeHandle := database.GetScopeDbHandle(logger, scopeEntry)
+	if errScopeHandle != nil {
+		return errScopeHandle
+	}
+
+	// Update input and input_size on the single OT target row
+	errUpdate := scopeDb.
+		Model(&database.T_discovery{}).
+		Where("id = 1"). // In OT discovery mode there is only a single dummy entry
+		Updates(map[string]interface{}{
+			"input":      rpcArgs.Input,
+			"input_size": rpcArgs.InputSize,
+		}).Error
+	if errUpdate != nil {
+		return fmt.Errorf("could not update OT scope target: %s", errUpdate)
+	}
+
+	// Update scope size in manager DB
+	scopeEntry.Size = rpcArgs.InputSize
+	_, errSave := scopeEntry.Save("size")
+	if errSave != nil {
+		logger.Warningf("Could not update scope size: %s", errSave)
+	}
+
+	return nil
+}
+
 // UpdateSettings updates scan scope scan settings, depending on the arguments given
 func (s *Manager) UpdateSettings(rpcArgs *ArgsSettingsUpdate, rpcReply *struct{}) error {
+
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
 
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
@@ -835,14 +1354,20 @@ func (s *Manager) UpdateSettings(rpcArgs *ArgsSettingsUpdate, rpcReply *struct{}
 	// Get scope entry
 	scopeEntry, errScopeEntry := database.GetScopeEntry(rpcArgs.IdTScanScopes)
 	if errScopeEntry != nil {
-		logger.Errorf("Could not get scope settings entry '%d' to update: %s", rpcArgs.IdTScanScopes, errScopeEntry)
+		logger.Errorf("Could not query scan scope %d to update settings: %s", rpcArgs.IdTScanScopes, errScopeEntry)
 		return errScopeEntry
+	}
+
+	// Check if scan scope exists
+	if scopeEntry == nil {
+		logger.Errorf("Could not find scan scope %d to update settings.", rpcArgs.IdTScanScopes)
+		return fmt.Errorf("could not find scan scope %d to update settings", rpcArgs.IdTScanScopes)
 	}
 
 	// Update scope's scan settings
 	saved, errSave := scopeEntry.ScanSettings.SaveAll(&rpcArgs.ScanSettings)
 	if errSave != nil {
-		logger.Errorf("Could not update scope settings '%d': %s", rpcArgs.IdTScanScopes, errSave)
+		logger.Errorf("Could not update scope settings %d: %s", rpcArgs.IdTScanScopes, errSave)
 		return errSave
 	}
 
@@ -861,14 +1386,25 @@ func (s *Manager) UpdateSettings(rpcArgs *ArgsSettingsUpdate, rpcReply *struct{}
 	return nil
 }
 
-// UpdateAgents updates scan agent stats in the manager's db.
-func (s *Manager) UpdateAgents(rpcArgs *ArgsStatsUpdate, rpcReply *struct{}) error {
+// UpdateScopeStats updates scan agent stats and queue stats in the manager's db.
+func (s *Manager) UpdateScopeStats(rpcArgs *ArgsUpdateScopeStats, rpcReply *struct{}) error {
+
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
 
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
 
 	// Get tagged logger
-	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-UpdateAgents", uuid))
+	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-UpdateScopeStats", uuid))
 
 	// Log RPC call benchmark to be able to identify bottlenecks later on
 	start := time.Now()
@@ -885,11 +1421,19 @@ func (s *Manager) UpdateAgents(rpcArgs *ArgsStatsUpdate, rpcReply *struct{}) err
 		// Get scan scope for given secret
 		scopeEntry, errScopeEntry := database.GetScopeEntry(scopeId)
 		if errScopeEntry != nil {
-
-			// Add scope ID to RPC reply to notify about vanished scan scopes for cleanup
-			logger.Debugf("Scan scope '%d' does not exist anymore.", scopeId)
+			logger.Errorf("Could not query scan scope %d to update agent stats: %s", scopeId, errScopeEntry)
 			continue // Proceed with next scan stats entry
 		}
+
+		// Check if scan scope exists
+		if scopeEntry == nil {
+			// Add scope ID to RPC reply to notify about vanished scan scopes for cleanup
+			logger.Debugf("Scan scope %d does not exist anymore.", scopeId)
+			continue // Proceed with next scan stats entry
+		}
+
+		// Log action
+		logger.Debugf("Updating scan agents of scan scope '%s' (ID %d)", scopeEntry.Name, scopeId)
 
 		// Open scope's database
 		scopeDb, errScopeHandle := database.GetScopeDbHandle(logger, scopeEntry)
@@ -904,6 +1448,9 @@ func (s *Manager) UpdateAgents(rpcArgs *ArgsStatsUpdate, rpcReply *struct{}) err
 			logger.Warningf("Could not query scan progress: %s", errProgress)
 			return errProgress
 		}
+
+		// Log action
+		logger.Debugf("Calculating scan scope progress.")
 
 		// Prepare memory for percentage calculation
 		const decimalPlaces = 4 // The amount of decimal places the rate should be floored to
@@ -924,12 +1471,21 @@ func (s *Manager) UpdateAgents(rpcArgs *ArgsStatsUpdate, rpcReply *struct{}) err
 		scopeEntry.CycleActive = math.Floor(a*factor) / factor
 		scopeEntry.CycleFailed = math.Floor(f*factor) / factor
 
+		// Update queue stats if available for this scope
+		if scopeStats, exists := rpcArgs.ScopeStats[scopeId]; exists {
+			scopeStats[discovery.Label] = total - done // Inject the remaining main module count
+			scopeEntry.CycleQueue = scopeStats
+		}
+
 		// Save updated attributes
-		_, errSave := scopeEntry.Save("cycle_done", "cycle_active", "cycle_failed")
+		_, errSave := scopeEntry.Save("cycle_done", "cycle_active", "cycle_failed", "cycle_queue")
 		if errSave != nil {
 			logger.Errorf("Could not update scope progress: %s", errSave)
 			return errSave
 		}
+
+		// Log action
+		logger.Debugf("Updating %d agent states.", len(scanAgents))
 
 		// Update scan agent data. Existing scan agents are updated. Not existing ones created. None will be removed.
 		errAgentsUpdate := database.UpdateScanAgents(scopeId, scanAgents)
@@ -950,6 +1506,17 @@ func (s *Manager) UpdateAgents(rpcArgs *ArgsStatsUpdate, rpcReply *struct{}) err
 // but existing results will be kept.
 func (s *Manager) NewCycle(rpcArgs *ArgsScopeId, rpcReply *struct{}) error {
 
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
+
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
 
@@ -962,21 +1529,31 @@ func (s *Manager) NewCycle(rpcArgs *ArgsScopeId, rpcReply *struct{}) error {
 		logger.Debugf("RPC call took %s.", time.Since(start))
 	}()
 
-	// Log action
-	logger.Debugf("Client requesting initialization of new scan cycle.")
-
 	// Get scope entry
 	scopeEntry, errScopeEntry := database.GetScopeEntry(rpcArgs.ScopeId)
 	if errScopeEntry != nil {
-		logger.Errorf("Could not get scope entry '%d' to initialize scan cycle: %s", rpcArgs.ScopeId, errScopeEntry)
+		logger.Errorf("Could not query scan scope %d to initiate new cycle: %s", rpcArgs.ScopeId, errScopeEntry)
 		return errScopeEntry
 	}
+
+	// Check if scan scope exists
+	if scopeEntry == nil {
+		logger.Errorf("Could not find scan scope %d to initiate new cycle.", rpcArgs.ScopeId)
+		return fmt.Errorf("could not find scan scope %d to initiate new cycle", rpcArgs.ScopeId)
+	}
+
+	// Log action
+	logger.Debugf(
+		"Client requesting initialization of new scan cycle for '%s' (ID %d).",
+		scopeEntry.Name,
+		scopeEntry.Id,
+	)
 
 	// Open scope's database
 	scopeDb, errScopeHandle := database.GetScopeDbHandle(logger, scopeEntry)
 	if errScopeHandle != nil {
 		logger.Errorf(
-			"Could not get database scope handle to initialize new scan cycle for '%s' (ID %d): %s",
+			"Could not query database scope handle '%s' (ID %d) to initialize new scan cycle: %s",
 			scopeEntry.Name,
 			scopeEntry.Id,
 			errScopeHandle,
@@ -1006,8 +1583,92 @@ func (s *Manager) NewCycle(rpcArgs *ArgsScopeId, rpcReply *struct{}) error {
 	return nil
 }
 
+// ResetFailed resets the scan status of failed scan inputs in order to trigger a rescan within the current scan cycle
+func (s *Manager) ResetFailed(rpcArgs *ArgsScopeId, rpcReply *struct{}) error {
+
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
+
+	// Generate UUID for context
+	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
+
+	// Get tagged logger
+	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-ResetFailed", uuid))
+
+	// Log RPC call benchmark to be able to identify bottlenecks later on
+	start := time.Now()
+	defer func() {
+		logger.Debugf("RPC call took %s.", time.Since(start))
+	}()
+
+	// Log action
+	logger.Debugf("Client requesting reset of all failed scan targets.")
+
+	// Get scope entry
+	scopeEntry, errScopeEntry := database.GetScopeEntry(rpcArgs.ScopeId)
+	if errScopeEntry != nil {
+		logger.Errorf("Could not query scan scope %d to reset faled targets: %s", rpcArgs.ScopeId, errScopeEntry)
+		return errScopeEntry
+	}
+
+	// Check if scan scope exists
+	if scopeEntry == nil {
+		logger.Errorf("Could not find scan scope %d to reset faled targets.", rpcArgs.ScopeId)
+		return fmt.Errorf("could not find scan scope %d to reset faled targets", rpcArgs.ScopeId)
+	}
+
+	// Open scope's database
+	scopeDb, errScopeHandle := database.GetScopeDbHandle(logger, scopeEntry)
+	if errScopeHandle != nil {
+		logger.Errorf(
+			"Could not query database scope handle '%s' (ID %d) to reset failed scan targets: %s",
+			scopeEntry.Name,
+			scopeEntry.Id,
+			errScopeHandle,
+		)
+		return errScopeHandle
+	}
+
+	// Execute scan cycle initialization
+	errResetFailed := database.ResetFailed(scopeDb)
+	if errResetFailed != nil {
+		logger.Errorf(
+			"Could not reset failed scan targets for '%s' (ID %d): %s",
+			scopeEntry.Name,
+			scopeEntry.Id,
+			errResetFailed,
+		)
+		return errResetFailed
+	}
+
+	// Log completion
+	logger.Debugf("Reset failed scann targets.")
+
+	// Return nil to indicate successful RPC call
+	return nil
+}
+
 // ResetInput reset a scan scope's input target to put it back into queue
 func (s *Manager) ResetInput(rpcArgs *ArgsTargetReset, rpcReply *struct{}) error {
+
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
 
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
@@ -1027,15 +1688,21 @@ func (s *Manager) ResetInput(rpcArgs *ArgsTargetReset, rpcReply *struct{}) error
 	// Get scope entry
 	scopeEntry, errScopeEntry := database.GetScopeEntry(rpcArgs.ScopeId)
 	if errScopeEntry != nil {
-		logger.Errorf("Could not get scope entry to reset scope target: %s", errScopeEntry)
+		logger.Errorf("Could not query scan scope %d to reset inputs: %s", rpcArgs.ScopeId, errScopeEntry)
 		return errScopeEntry
+	}
+
+	// Check if scan scope exists
+	if scopeEntry == nil {
+		logger.Errorf("Could not find scan scope %d to reset inputs.", rpcArgs.ScopeId)
+		return fmt.Errorf("could not find scan scope %d to reset inputs", rpcArgs.ScopeId)
 	}
 
 	// Open scope's database
 	scopeDb, errScopeHandle := database.GetScopeDbHandle(logger, scopeEntry)
 	if errScopeHandle != nil {
 		logger.Errorf(
-			"Could not get database scope handle to initialize new scan scope '%s' (ID %d): %s",
+			"Could not query database scope handle '%s' (ID %d) to reset: %s",
 			scopeEntry.Name,
 			scopeEntry.Id,
 			errScopeHandle,
@@ -1068,6 +1735,17 @@ func (s *Manager) ResetInput(rpcArgs *ArgsTargetReset, rpcReply *struct{}) error
 // ResetSecret reset the secret of a given scan scope used to associate scan agents
 func (s *Manager) ResetSecret(rpcArgs *ArgsScopeId, rpcReply *ReplyScopeSecret) error {
 
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
+
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
 
@@ -1086,8 +1764,14 @@ func (s *Manager) ResetSecret(rpcArgs *ArgsScopeId, rpcReply *ReplyScopeSecret) 
 	// Get scope entry
 	scopeEntry, errScopeEntry := database.GetScopeEntry(rpcArgs.ScopeId)
 	if errScopeEntry != nil {
-		logger.Errorf("Could not get scope entry to reset scope secret: %s", errScopeEntry)
+		logger.Errorf("Could not query scan scope %d to reset secret: %s", rpcArgs.ScopeId, errScopeEntry)
 		return errScopeEntry
+	}
+
+	// Check if scan scope exists
+	if scopeEntry == nil {
+		logger.Errorf("Could not find scan scope %d to reset secret.", rpcArgs.ScopeId)
+		return fmt.Errorf("could not find scan scope %d to reset secret", rpcArgs.ScopeId)
 	}
 
 	// Generate new scope secret
@@ -1123,6 +1807,17 @@ func (s *Manager) ResetSecret(rpcArgs *ArgsScopeId, rpcReply *ReplyScopeSecret) 
 
 // GetViews returns all available scope views to an RPC client
 func (s *Manager) GetViews(rpcArgs *struct{}, rpcReply *ReplyScopeViews) error {
+
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
 
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
@@ -1168,6 +1863,17 @@ func (s *Manager) GetViews(rpcArgs *struct{}, rpcReply *ReplyScopeViews) error {
 // GetViewsOf returns views of scan scopes for given group ids
 func (s *Manager) GetViewsOf(rpcArgs *ArgsGroupIds, rpcReply *ReplyScopeViews) error {
 
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
+
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
 
@@ -1211,6 +1917,17 @@ func (s *Manager) GetViewsOf(rpcArgs *ArgsGroupIds, rpcReply *ReplyScopeViews) e
 
 // GetViewsGranted returns views a user has granted access to
 func (s *Manager) GetViewsGranted(rpcArgs *ArgsUsername, rpcReply *ReplyScopeViews) error {
+
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
 
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
@@ -1256,6 +1973,17 @@ func (s *Manager) GetViewsGranted(rpcArgs *ArgsUsername, rpcReply *ReplyScopeVie
 // GetView returns view for given view id
 func (s *Manager) GetView(rpcArgs *ArgsViewId, rpcReply *ReplyScopeView) error {
 
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
+
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
 
@@ -1269,13 +1997,19 @@ func (s *Manager) GetView(rpcArgs *ArgsViewId, rpcReply *ReplyScopeView) error {
 	}()
 
 	// Log action
-	logger.Debugf("Client requesting view '%d'.", rpcArgs.ViewId)
+	logger.Debugf("Client requesting view %d.", rpcArgs.ViewId)
 
 	// Get view entry based on view id
 	viewEntry, errViewEntry := database.GetViewEntry(rpcArgs.ViewId)
 	if errViewEntry != nil {
-		logger.Errorf("Could not query view %d.", rpcArgs.ViewId)
+		logger.Errorf("Could not query view %d: %s", rpcArgs.ViewId, errViewEntry)
 		return errViewEntry
+	}
+
+	// Check if view exists
+	if viewEntry == nil {
+		logger.Errorf("Could not find view %d.", rpcArgs.ViewId)
+		return fmt.Errorf("could not find view %d", rpcArgs.ViewId)
 	}
 
 	// IMPORTANT: Clean sensitive scan scope data from return data
@@ -1293,6 +2027,17 @@ func (s *Manager) GetView(rpcArgs *ArgsViewId, rpcReply *ReplyScopeView) error {
 
 // CreateView creates a view on a scan scope with optional filters. Users can be granted access to views only.
 func (s *Manager) CreateView(rpcArgs *ArgsViewDetails, rpcReply *struct{}) error {
+
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
 
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
@@ -1312,18 +2057,24 @@ func (s *Manager) CreateView(rpcArgs *ArgsViewDetails, rpcReply *struct{}) error
 	// Get scope entry
 	scopeEntry, errScopeEntry := database.GetScopeEntry(rpcArgs.ScopeId)
 	if errScopeEntry != nil {
-		logger.Errorf("Could not get scope entry to create view: %s", errScopeEntry)
+		logger.Errorf("Could not query scan scope %d to create view: %s", rpcArgs.ScopeId, errScopeEntry)
 		return errScopeEntry
+	}
+
+	// Check if scan scope exists
+	if scopeEntry == nil {
+		logger.Errorf("Could not find scan scope %d to create view.", rpcArgs.ScopeId)
+		return fmt.Errorf("could not find scan scope %d to create view", rpcArgs.ScopeId)
 	}
 
 	// Open scope's database
 	scopeDb, errScopeHandle := database.GetScopeDbHandle(logger, scopeEntry)
 	if errScopeHandle != nil {
 		logger.Errorf(
-			"Could not get database scope handle to create view '%s' on scope '%s' (ID %d): %s",
-			rpcArgs.ViewName,
+			"Could not query database scope handle '%s' (ID %d) to create view '%s': %s",
 			scopeEntry.Name,
 			scopeEntry.Id,
+			rpcArgs.ViewName,
 			errScopeHandle,
 		)
 		return errScopeHandle
@@ -1368,6 +2119,17 @@ func (s *Manager) CreateView(rpcArgs *ArgsViewDetails, rpcReply *struct{}) error
 // DeleteView removes a scope view including associated access grants from the scope db and the manager db
 func (s *Manager) DeleteView(rpcArgs *ArgsViewId, rpcReply *struct{}) error {
 
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
+
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
 
@@ -1386,19 +2148,25 @@ func (s *Manager) DeleteView(rpcArgs *ArgsViewId, rpcReply *struct{}) error {
 	// Get view entry
 	viewEntry, errViewEntry := database.GetViewEntry(rpcArgs.ViewId)
 	if errViewEntry != nil {
-		logger.Errorf("Could not get view entry to delete view: %s", errViewEntry)
+		logger.Errorf("Could not query view %d to delete: %s", rpcArgs.ViewId, errViewEntry)
 		return errViewEntry
+	}
+
+	// Check if view exists
+	if viewEntry == nil {
+		logger.Errorf("Could not find view %d to delete.", rpcArgs.ViewId)
+		return fmt.Errorf("could not find view %d to delete", rpcArgs.ViewId)
 	}
 
 	// Open scope's database
 	scopeDb, errScopeHandle := database.GetScopeDbHandle(logger, &viewEntry.ScanScope)
 	if errScopeHandle != nil {
 		logger.Errorf(
-			"Could not get database scope handle to delete view tables '%s' (ID %s) of scope '%s' (ID %d): %s",
-			viewEntry.Name,
-			rpcArgs.ViewId,
+			"Could not query database scope handle '%s' (ID %d) to delete view tables '%s' (ID %d): %s",
 			viewEntry.ScanScope.Name,
 			viewEntry.ScanScope.Id,
+			viewEntry.Name,
+			rpcArgs.ViewId,
 			errScopeHandle,
 		)
 		return errScopeHandle
@@ -1428,6 +2196,17 @@ func (s *Manager) DeleteView(rpcArgs *ArgsViewId, rpcReply *struct{}) error {
 // UpdateView updates scope view details
 func (s *Manager) UpdateView(rpcArgs *ArgsViewUpdate, rpcReply *struct{}) error {
 
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
+
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
 
@@ -1446,8 +2225,14 @@ func (s *Manager) UpdateView(rpcArgs *ArgsViewUpdate, rpcReply *struct{}) error 
 	// Get view entry
 	viewEntry, errViewEntry := database.GetViewEntry(rpcArgs.ViewId)
 	if errViewEntry != nil {
-		logger.Errorf("Could not get view entry to update view: %s", errViewEntry)
+		logger.Errorf("Could not query view %d to update: %s", rpcArgs.ViewId, errViewEntry)
 		return errViewEntry
+	}
+
+	// Check if view exists
+	if viewEntry == nil {
+		logger.Errorf("Could not find view %d to update.", rpcArgs.ViewId)
+		return fmt.Errorf("could not find view %d to update", rpcArgs.ViewId)
 	}
 
 	// Update view name
@@ -1457,11 +2242,11 @@ func (s *Manager) UpdateView(rpcArgs *ArgsViewUpdate, rpcReply *struct{}) error 
 	scopeDb, errScopeHandle := database.GetScopeDbHandle(logger, &viewEntry.ScanScope)
 	if errScopeHandle != nil {
 		logger.Errorf(
-			"Could not get database scope handle to update view tables '%s' (ID %s) of scope '%s' (ID %d): %s",
-			viewEntry.Name,
-			rpcArgs.ViewId,
+			"Could not query database scope handle '%s' (ID %d) to update view '%s' (ID %d): %s",
 			viewEntry.ScanScope.Name,
 			viewEntry.ScanScope.Id,
+			viewEntry.Name,
+			rpcArgs.ViewId,
 			errScopeHandle,
 		)
 		return errScopeHandle
@@ -1492,6 +2277,17 @@ func (s *Manager) UpdateView(rpcArgs *ArgsViewUpdate, rpcReply *struct{}) error 
 // the username and password representing the access token
 func (s *Manager) GrantToken(rpcArgs *ArgsGrantToken, rpcReply *ReplyCredentials) error {
 
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
+
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
 
@@ -1509,15 +2305,21 @@ func (s *Manager) GrantToken(rpcArgs *ArgsGrantToken, rpcReply *ReplyCredentials
 
 	// Log action
 	logger.Debugf(
-		"Client requesting to generate access token for scope view '%d'.",
+		"Client requesting to generate access token for scope view %d.",
 		rpcArgs.ViewId,
 	)
 
 	// Get requested view entry
 	viewEntry, errViewEntry := database.GetViewEntry(rpcArgs.ViewId)
 	if errViewEntry != nil {
-		logger.Errorf("Could not get view entry to generate access token: %s", errViewEntry)
+		logger.Errorf("Could not query view %d to grant token: %s", rpcArgs.ViewId, errViewEntry)
 		return errViewEntry
+	}
+
+	// Check if view exists
+	if viewEntry == nil {
+		logger.Errorf("Could not find view %d to grant token.", rpcArgs.ViewId)
+		return fmt.Errorf("could not find view %d to grant token", rpcArgs.ViewId)
 	}
 
 	// Validate expiry date for maximum allowed value
@@ -1532,7 +2334,7 @@ func (s *Manager) GrantToken(rpcArgs *ArgsGrantToken, rpcReply *ReplyCredentials
 	scopeDb, errScopeHandle := database.GetScopeDbHandle(logger, &viewEntry.ScanScope)
 	if errScopeHandle != nil {
 		logger.Errorf(
-			"Could not get database scope handle to generate access token for scope view '%s' (ID %d): %s",
+			"Could not query database scope handle to generate access token for scope view '%s' (ID %d): %s",
 			viewEntry.Name,
 			viewEntry.Id,
 			errScopeHandle,
@@ -1573,6 +2375,17 @@ func (s *Manager) GrantToken(rpcArgs *ArgsGrantToken, rpcReply *ReplyCredentials
 // GrantUsers adds necessary access rights to a scope view (leaves existing ones)
 func (s *Manager) GrantUsers(rpcArgs *ArgsGrantUsers, rpcReply *struct{}) error {
 
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
+
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
 
@@ -1590,7 +2403,7 @@ func (s *Manager) GrantUsers(rpcArgs *ArgsGrantUsers, rpcReply *struct{}) error 
 
 	// Log action
 	logger.Debugf(
-		"Client requesting to grant access to scope view '%d' for '%d' additional users.",
+		"Client requesting to grant access to scope view %d for %d additional users.",
 		rpcArgs.ViewId,
 		len(rpcArgs.DbCredentials),
 	)
@@ -1598,15 +2411,21 @@ func (s *Manager) GrantUsers(rpcArgs *ArgsGrantUsers, rpcReply *struct{}) error 
 	// Get view entry
 	viewEntry, errViewEntry := database.GetViewEntry(rpcArgs.ViewId)
 	if errViewEntry != nil {
-		logger.Errorf("Could not get view entry to grant access for user: %s", errViewEntry)
+		logger.Errorf("Could not query view %d to grant user: %s", rpcArgs.ViewId, errViewEntry)
 		return errViewEntry
+	}
+
+	// Check if view exists
+	if viewEntry == nil {
+		logger.Errorf("Could not find view %d to grant user.", rpcArgs.ViewId)
+		return fmt.Errorf("could not find view %d to grant user", rpcArgs.ViewId)
 	}
 
 	// Open scope's database
 	scopeDb, errScopeHandle := database.GetScopeDbHandle(logger, &viewEntry.ScanScope)
 	if errScopeHandle != nil {
 		logger.Errorf(
-			"Could not get database scope handle to grant access for users to scope view '%s' (ID %d): %s",
+			"Could not query database scope handle to grant access for users to scope view '%s' (ID %d): %s",
 			viewEntry.Name,
 			viewEntry.Id,
 			errScopeHandle,
@@ -1655,6 +2474,17 @@ func (s *Manager) GrantUsers(rpcArgs *ArgsGrantUsers, rpcReply *struct{}) error 
 // from the scope db and the manager db
 func (s *Manager) RevokeGrants(rpcArgs *ArgsRevokeGrants, rpcReply *struct{}) error {
 
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
+
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
 
@@ -1669,7 +2499,7 @@ func (s *Manager) RevokeGrants(rpcArgs *ArgsRevokeGrants, rpcReply *struct{}) er
 
 	// Log action
 	logger.Debugf(
-		"Client requesting to revoke access from scope view '%d' for user '%s'.",
+		"Client requesting to revoke access from scope view %d for user '%s'.",
 		rpcArgs.ViewId,
 		rpcArgs.Usernames,
 	)
@@ -1677,15 +2507,21 @@ func (s *Manager) RevokeGrants(rpcArgs *ArgsRevokeGrants, rpcReply *struct{}) er
 	// Get view entry
 	viewEntry, errViewEntry := database.GetViewEntry(rpcArgs.ViewId)
 	if errViewEntry != nil {
-		logger.Errorf("Could not get view entry to revoke access: %s", errViewEntry)
+		logger.Errorf("Could not query view %d to revoke grants: %s", rpcArgs.ViewId, errViewEntry)
 		return errViewEntry
+	}
+
+	// Check if view exists
+	if viewEntry == nil {
+		logger.Errorf("Could not find view %d to revoke grants.", rpcArgs.ViewId)
+		return fmt.Errorf("could not find view %d to revoke grants", rpcArgs.ViewId)
 	}
 
 	// Open scope's database
 	scopeDb, errScopeHandle := database.GetScopeDbHandle(logger, &viewEntry.ScanScope)
 	if errScopeHandle != nil {
 		logger.Errorf(
-			"Could not get database scope handle to revoke access for user '%s' from scope view '%s' (ID %d): %s",
+			"Could not query database scope handle to revoke access for user '%s' from scope view '%s' (ID %d): %s",
 			rpcArgs.Usernames,
 			viewEntry.Name,
 			viewEntry.Id,
@@ -1709,14 +2545,25 @@ func (s *Manager) RevokeGrants(rpcArgs *ArgsRevokeGrants, rpcReply *struct{}) er
 	return nil
 }
 
-// UpdateServerCredentials iterates database servers the user has access rights to and updates the user's password
-func (s *Manager) UpdateServerCredentials(rpcArgs *ArgsCredentials, rpcReply *struct{}) error {
+// UpdateDatabaseCredentials iterates database servers the user has access rights to and updates the user's password
+func (s *Manager) UpdateDatabaseCredentials(rpcArgs *ArgsCredentials, rpcReply *struct{}) error {
+
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
 
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
 
 	// Get tagged logger
-	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-UpdateServerCredentials", uuid))
+	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-UpdateDatabaseCredentials", uuid))
 
 	// Log RPC call benchmark to be able to identify bottlenecks later on
 	start := time.Now()
@@ -1730,7 +2577,7 @@ func (s *Manager) UpdateServerCredentials(rpcArgs *ArgsCredentials, rpcReply *st
 	// Get view grants of user to find out which database servers are affected
 	viewEntries, errViewEntries := database.GetViewsGranted(rpcArgs.Username)
 	if errViewEntries != nil {
-		logger.Errorf("Could not get view entries of the users: %s", errViewEntries)
+		logger.Errorf("Could not query view entries of the users: %s", errViewEntries)
 		return errViewEntries
 	}
 
@@ -1738,7 +2585,7 @@ func (s *Manager) UpdateServerCredentials(rpcArgs *ArgsCredentials, rpcReply *st
 	var executedDbServers []uint64
 	for _, scopeView := range viewEntries {
 
-		// Skip if DB server was already updated
+		// Skip if database server was already updated
 		if utils.Uint64Contained(scopeView.ScanScope.DbServer.Id, executedDbServers) {
 			continue
 		}
@@ -1746,7 +2593,7 @@ func (s *Manager) UpdateServerCredentials(rpcArgs *ArgsCredentials, rpcReply *st
 		// Open server database
 		serverDb, errServerHandle := database.GetServerDbHandle(logger, &scopeView.ScanScope.DbServer)
 		if errServerHandle != nil {
-			logger.Errorf("Could not get database server handle to update user password: %s", errServerHandle)
+			logger.Errorf("Could not query database server handle to update user password: %s", errServerHandle)
 			return errServerHandle
 		}
 
@@ -1754,7 +2601,7 @@ func (s *Manager) UpdateServerCredentials(rpcArgs *ArgsCredentials, rpcReply *st
 		expiryTime := time.Now().Add(conf.Database.PasswordExpiry)
 
 		// Update password with limited validity time frame
-		errSet := database.UpdateServerCredentials(serverDb, rpcArgs.Username, rpcArgs.Password, expiryTime)
+		errSet := database.UpdateDatabaseCredentials(serverDb, rpcArgs.Username, rpcArgs.Password, expiryTime)
 		if errSet != nil {
 			logger.Errorf(
 				"Could not update user password on database server '%s' (ID %d): %s",
@@ -1765,14 +2612,14 @@ func (s *Manager) UpdateServerCredentials(rpcArgs *ArgsCredentials, rpcReply *st
 			return errSet
 		}
 
-		// Remember DB server
+		// Remember database server
 		executedDbServers = append(executedDbServers, scopeView.ScanScope.DbServer.Id)
 
 		// No need to update the view in the slice, as we haven't modified anything
 	}
 
 	// Log completion
-	logger.Debugf("Updated user password on DB servers.")
+	logger.Debugf("Updated user password on database servers.")
 
 	// Return nil to indicate successful RPC call
 	return nil
@@ -1780,6 +2627,17 @@ func (s *Manager) UpdateServerCredentials(rpcArgs *ArgsCredentials, rpcReply *st
 
 // DisableDbCredentials iterates database servers the user has access rights to and disables it's account
 func (s *Manager) DisableDbCredentials(rpcArgs *ArgsUsername, rpcReply *struct{}) error {
+
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
 
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
@@ -1796,7 +2654,7 @@ func (s *Manager) DisableDbCredentials(rpcArgs *ArgsUsername, rpcReply *struct{}
 	// Get view grants of user to find out which database servers are affected
 	viewEntries, errViewEntries := database.GetViewsGranted(rpcArgs.Username)
 	if errViewEntries != nil {
-		logger.Errorf("Could not get view entries of the users: %s", errViewEntries)
+		logger.Errorf("Could not query view entries of the users: %s", errViewEntries)
 		return errViewEntries
 	}
 
@@ -1804,7 +2662,7 @@ func (s *Manager) DisableDbCredentials(rpcArgs *ArgsUsername, rpcReply *struct{}
 	var executedDbServers []uint64
 	for _, scopeView := range viewEntries {
 
-		// Skip if DB server was already updated
+		// Skip if database server was already updated
 		if utils.Uint64Contained(scopeView.ScanScope.DbServer.Id, executedDbServers) {
 			continue
 		}
@@ -1812,12 +2670,12 @@ func (s *Manager) DisableDbCredentials(rpcArgs *ArgsUsername, rpcReply *struct{}
 		// Open server database
 		serverDb, errServerHandle := database.GetServerDbHandle(logger, &scopeView.ScanScope.DbServer)
 		if errServerHandle != nil {
-			logger.Errorf("Could not get database server handle to disable user: %s", errServerHandle)
+			logger.Errorf("Could not query database server handle to disable user: %s", errServerHandle)
 			return errServerHandle
 		}
 
 		// Disable user
-		errSet := database.DisableServerCredentials(serverDb, rpcArgs.Username)
+		errSet := database.DisableDatabaseCredentials(serverDb, rpcArgs.Username)
 		if errSet != nil {
 			logger.Errorf(
 				"Could not disable user on database server '%s' (ID %d): %s",
@@ -1828,14 +2686,14 @@ func (s *Manager) DisableDbCredentials(rpcArgs *ArgsUsername, rpcReply *struct{}
 			return errSet
 		}
 
-		// Remember DB server
+		// Remember database server
 		executedDbServers = append(executedDbServers, scopeView.ScanScope.DbServer.Id)
 
 		// No need to update the view in the slice, as we haven't modified anything
 	}
 
 	// Log completion
-	logger.Debugf("User disabled on DB servers.")
+	logger.Debugf("User disabled on database servers.")
 
 	// Return nil to indicate successful RPC call
 	return nil
@@ -1843,6 +2701,17 @@ func (s *Manager) DisableDbCredentials(rpcArgs *ArgsUsername, rpcReply *struct{}
 
 // EnableDbCredentials iterates database servers the user has access rights to and enables it's account
 func (s *Manager) EnableDbCredentials(rpcArgs *ArgsUsername, rpcReply *struct{}) error {
+
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
 
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
@@ -1859,7 +2728,7 @@ func (s *Manager) EnableDbCredentials(rpcArgs *ArgsUsername, rpcReply *struct{})
 	// Get view grants of user to find out which database servers are affected
 	viewEntries, errViewEntries := database.GetViewsGranted(rpcArgs.Username)
 	if errViewEntries != nil {
-		logger.Errorf("Could not get view entries of the users: %s", errViewEntries)
+		logger.Errorf("Could not query view entries of the users: %s", errViewEntries)
 		return errViewEntries
 	}
 
@@ -1867,7 +2736,7 @@ func (s *Manager) EnableDbCredentials(rpcArgs *ArgsUsername, rpcReply *struct{})
 	var executedDbServers []uint64
 	for _, scopeView := range viewEntries {
 
-		// Skip if DB server was already updated
+		// Skip if database server was already updated
 		if utils.Uint64Contained(scopeView.ScanScope.DbServer.Id, executedDbServers) {
 			continue
 		}
@@ -1875,12 +2744,12 @@ func (s *Manager) EnableDbCredentials(rpcArgs *ArgsUsername, rpcReply *struct{})
 		// Open server database
 		serverDb, errServerHandle := database.GetServerDbHandle(logger, &scopeView.ScanScope.DbServer)
 		if errServerHandle != nil {
-			logger.Errorf("Could not get database server handle to enable user: %s", errServerHandle)
+			logger.Errorf("Could not query database server handle to enable user: %s", errServerHandle)
 			return errServerHandle
 		}
 
 		// Enable user
-		errSet := database.EnableServerCredentials(serverDb, rpcArgs.Username)
+		errSet := database.EnableDatabaseCredentials(serverDb, rpcArgs.Username)
 		if errSet != nil {
 			logger.Errorf(
 				"Could not enable user on database server '%s' (ID %d): %s",
@@ -1891,14 +2760,14 @@ func (s *Manager) EnableDbCredentials(rpcArgs *ArgsUsername, rpcReply *struct{})
 			return errSet
 		}
 
-		// Remember DB server
+		// Remember database server
 		executedDbServers = append(executedDbServers, scopeView.ScanScope.DbServer.Id)
 
 		// No need to update the view in the slice, as we haven't modified anything
 	}
 
 	// Log completion
-	logger.Debugf("User enabled on DB servers.")
+	logger.Debugf("User enabled on database servers.")
 
 	// Return nil to indicate successful RPC call
 	return nil
@@ -1906,6 +2775,17 @@ func (s *Manager) EnableDbCredentials(rpcArgs *ArgsUsername, rpcReply *struct{})
 
 // GetAgents returns all available scan agents, referencing their associated scan scope
 func (s *Manager) GetAgents(rpcArgs *struct{}, rpcReply *ReplyScanAgents) error {
+
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
 
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
@@ -1949,6 +2829,17 @@ func (s *Manager) GetAgents(rpcArgs *struct{}, rpcReply *ReplyScanAgents) error 
 // DeleteAgent removes a scan agent stats entry from the manager db
 func (s *Manager) DeleteAgent(rpcArgs *ArgsAgentId, rpcReply *struct{}) error {
 
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
+
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
 
@@ -1979,5 +2870,137 @@ func (s *Manager) DeleteAgent(rpcArgs *ArgsAgentId, rpcReply *struct{}) error {
 	logger.Debugf("Scan agent deleted.")
 
 	// Return nil to indicate successful RPC call
+	return nil
+}
+
+// CreateSqlLog creates an SQL log entry in the associated scan scope database
+func (s *Manager) CreateSqlLog(rpcArgs *ArgsSqlLogCreate, rpcReply *struct{}) error {
+
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
+
+	// Generate UUID for context
+	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
+
+	// Get tagged logger
+	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-CreateSqlLog", uuid))
+
+	// Log RPC call benchmark to be able to identify bottlenecks later on
+	start := time.Now()
+	defer func() {
+		logger.Debugf("RPC call took %s.", time.Since(start))
+	}()
+
+	// Log action
+	logger.Debugf("Client requesting to create SQL logs for '%s' on '%s'.", rpcArgs.DbTable, rpcArgs.DbName)
+
+	// Write SQL log to database
+	_, errCreate := database.CreateSqlLog(
+		logger,
+		rpcArgs.DbName,
+		rpcArgs.DbUser,
+		rpcArgs.DbTable,
+		rpcArgs.Query,
+		rpcArgs.QueryResults,
+		rpcArgs.QueryTimestamp,
+		rpcArgs.QueryDuration,
+		rpcArgs.TotalDuration,
+		rpcArgs.ClientName,
+	)
+	if errCreate != nil {
+		logger.Errorf("Could not create SQL log entry: %s", errCreate)
+		return errCreate
+	}
+
+	// Return nil as everything went fine
+	return nil
+}
+
+// GetSqlLogs returns a list of SQL logs from a given scan scope database based on a given filter
+func (s *Manager) GetSqlLogs(rpcArgs *ArgsSqlLogsFilter, rpcReply *ReplySqlLogs) error {
+
+	// Track request so shutdown waits for it to complete
+	rpcInflight.Add(1)
+	defer rpcInflight.Done()
+
+	// Reject request if shutdown is already in progress, the client can retry later
+	select {
+	case <-coreCtx.Done():
+		return utils.ErrRpcConnectivity
+	default:
+	}
+
+	// Generate UUID for context
+	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
+
+	// Get tagged logger
+	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-GetSqlLogs", uuid))
+
+	// Log RPC call benchmark to be able to identify bottlenecks later on
+	start := time.Now()
+	defer func() {
+		logger.Debugf("RPC call took %s.", time.Since(start))
+	}()
+
+	// Log action
+	logger.Debugf("Client requesting SQL logs for '%s' since '%s'.", rpcArgs.DbName, rpcArgs.Since)
+
+	// Get scan scope entries to search through
+	var scopeEntries []database.T_scan_scope
+	if rpcArgs.DbName == "" {
+
+		// Get specific scan scope entry
+		var errScopeEntries error
+		scopeEntries, errScopeEntries = database.GetScopeEntries()
+		if errScopeEntries != nil {
+			logger.Errorf("could not get scan scope entries: %s", errScopeEntries)
+			return errScopeEntries
+		}
+	} else {
+
+		// Get list of scopes
+		scopeEntry, errScopeEntry := database.GetScopeEntryByName(rpcArgs.DbName)
+		if errScopeEntry != nil {
+			logger.Errorf("could not query scan scope entry for '%s': %s", rpcArgs.DbName, errScopeEntry)
+			return errScopeEntry
+		}
+
+		// Check if scan scope exists
+		if scopeEntry == nil {
+			logger.Errorf("Invalid scan scop name '%s'.", rpcArgs.DbName)
+			return fmt.Errorf("invalid scan scop name '%s'", rpcArgs.DbName)
+		}
+
+		// Append to list of scan scopes
+		scopeEntries = append(scopeEntries, *scopeEntry)
+	}
+
+	// Prepare variable for result
+	var entriesAll []database.T_sql_log
+
+	// Iterate scan scopes and collect log entries
+	for _, scopeEntry := range scopeEntries {
+
+		// Get SQL logs from database
+		entries, errEntries := database.GetSqlLogs(logger, &scopeEntry, rpcArgs.Since)
+		if errEntries != nil {
+			logger.Errorf("Could not query SQL log entries from '%s': %s", scopeEntry.Name, errEntries)
+			return errEntries
+		}
+		entriesAll = append(entriesAll, entries...)
+	}
+
+	// Prepare response
+	rpcReply.Logs = entriesAll
+
+	// Return nil as everything went fine
 	return nil
 }

@@ -12,6 +12,7 @@ package utils
 
 import (
 	"bytes"
+	"crypto/sha1"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
@@ -26,16 +27,25 @@ func TlsConfigFactory() *tls.Config {
 	// are doing: https://github.com/golang/go/issues/41068. Just make sure to always compile wit a current Golang
 	// version.
 	return &tls.Config{
-		MinVersion:               tls.VersionTLS12,
-		MaxVersion:               tls.VersionTLS13,
-		CurvePreferences:         []tls.CurveID{tls.CurveP521, tls.CurveP384, tls.CurveP256},
+		MinVersion:       tls.VersionTLS12,
+		MaxVersion:       tls.VersionTLS13,
+		CurvePreferences: []tls.CurveID{tls.CurveP521, tls.CurveP384, tls.CurveP256},
+		CipherSuites: []uint16{
+			// Limit cipher suites to secure ones https://ciphersuite.info/cs/
+			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+			tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+		},
 		PreferServerCipherSuites: true,
 	}
 }
 
-// PinnedTlsConfigFactory returns an SSL client configuration that is verified by fingerprint matching
+// TlsConfigFactoryPinned returns an SSL client configuration that is verified by fingerprint matching
 // against a provided public key file. This way a secure SSL connection can be established without relying on PKI.
-func PinnedTlsConfigFactory(publicKeyPath string) (*tls.Config, error) {
+func TlsConfigFactoryPinned(publicKeyPath string) (*tls.Config, error) {
 
 	// Read public key
 	b, errRead := os.ReadFile(publicKeyPath)
@@ -49,6 +59,12 @@ func PinnedTlsConfigFactory(publicKeyPath string) (*tls.Config, error) {
 		return nil, fmt.Errorf("could not prepare fingerprint from '%s'", publicKeyPath)
 	}
 
+	// Parse certificate
+	cert, err := x509.ParseCertificate(fingerprint.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse fingerprint from '%s'", publicKeyPath)
+	}
+
 	// Define certificate fingerprint checking routine
 	checkFingerprintFunc := func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
 		for _, rawCert := range rawCerts {
@@ -56,7 +72,7 @@ func PinnedTlsConfigFactory(publicKeyPath string) (*tls.Config, error) {
 				return nil
 			}
 		}
-		return fmt.Errorf("invalid certificate fingerprint") // Fingerprint not matching
+		return fmt.Errorf("invalid certificate fingerprint '%x'", sha1.Sum(cert.Raw)) // Fingerprint not matching
 	}
 
 	// Create the tls conf

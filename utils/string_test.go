@@ -27,10 +27,10 @@ func TestRemoveFromSlice(t *testing.T) {
 		args args
 		want []string
 	}{
-		{"empty", args{[]string{}, "3"}, nil},
-		{"no-occurrence", args{[]string{"1", "2"}, "3"}, []string{"1", "2"}},
-		{"one-occurrence", args{[]string{"1", "2", "3"}, "3"}, []string{"1", "2"}},
-		{"multiple-occurrences", args{[]string{"3", "1", "3", "3", "2", "3"}, "3"}, []string{"1", "2"}},
+		{name: "empty", args: args{[]string{}, "3"}, want: nil},
+		{name: "no-occurrence", args: args{[]string{"1", "2"}, "3"}, want: []string{"1", "2"}},
+		{name: "one-occurrence", args: args{[]string{"1", "2", "3"}, "3"}, want: []string{"1", "2"}},
+		{name: "multiple-occurrences", args: args{[]string{"3", "1", "3", "3", "2", "3"}, "3"}, want: []string{"1", "2"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -42,6 +42,8 @@ func TestRemoveFromSlice(t *testing.T) {
 }
 
 func TestToValidUtf8String(t *testing.T) {
+
+	// Prepare and run test cases
 	type args struct {
 		b []byte
 	}
@@ -70,7 +72,106 @@ func TestToValidUtf8String(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := ToValidUtf8String(tt.args.b); got != tt.want {
-				t.Errorf("ToValidUtf8String() = %v, want %v", got, tt.want)
+				t.Errorf("ToValidUtf8String() = '%v', want = '%v'", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSanitizeCommaSeparated(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "basic-commas",
+			input:    "foo,bar,baz",
+			expected: "foo, bar, baz",
+		},
+		{
+			name:     "spaces-around-commas",
+			input:    "foo,   bar , baz",
+			expected: "foo, bar, baz",
+		},
+		{
+			name:     "newlines-and-tabs",
+			input:    "foo\nbar\tbaz",
+			expected: "foo, bar, baz",
+		},
+		{
+			name:     "duplicate-commas",
+			input:    "foo,,,bar,,,,baz",
+			expected: "foo, bar, baz",
+		},
+		{
+			name:     "leading-and-trailing-commas",
+			input:    ",,,foo,bar,,,",
+			expected: "foo, bar",
+		},
+		{
+			name:     "mixed-malformed-input",
+			input:    " foo,\n bar\t\tbaz,,, test ",
+			expected: "foo, bar, baz, test",
+		},
+		{
+			name:     "preserve-spaces-inside-values",
+			input:    "New York, Los Angeles",
+			expected: "New York, Los Angeles",
+		},
+		{
+			name:     "empty-input",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "only-separators",
+			input:    ",,\n\t,,",
+			expected: "",
+		},
+		{
+			name:     "only-separators",
+			input:    ",,\n\t,,",
+			expected: "",
+		},
+		{
+			name: "many-mixed",
+			input: `,,,    New York,LA,,,, ,,			,	,	Test Phrase, Test	Phrase,Test	,
+New York
+    NewYork,`,
+			expected: "New York, LA, Test Phrase, Test, Phrase, Test, New York, NewYork",
+		},
+		{
+			name: "many-mixed-2",
+			input: ` ,,,    New York,LA,,,, ,,			,	,	Test Phrase, Test	Phrase,Test	,
+New York
+    NewYork,`,
+			expected: "New York, LA, Test Phrase, Test, Phrase, Test, New York, NewYork",
+		},
+		{
+			name: "many-mixed-3",
+			input: `	,,,    New York,LA,,,, ,,			,	,	Test Phrase, Test	Phrase,Test	,
+New York
+    NewYork,`,
+			expected: "New York, LA, Test Phrase, Test, Phrase, Test, New York, NewYork",
+		},
+		{
+			name: "many-mixed-2",
+			input: `
+,,,    New York,LA,,,, ,,			,	,	Test Phrase, Test	Phrase,Test	,
+New York
+    NewYork,`,
+			expected: "New York, LA, Test Phrase, Test, Phrase, Test, New York, NewYork",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := SanitizeCommaSeparated(tt.input)
+
+			if result != tt.expected {
+				t.Errorf("sanitizeIntoCSV(%q) = %q, want %q",
+					tt.input, result, tt.expected)
 			}
 		})
 	}

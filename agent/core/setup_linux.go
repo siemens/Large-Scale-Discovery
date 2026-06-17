@@ -12,12 +12,13 @@ package core
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+
 	"github.com/siemens/GoScans/ssl"
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/Large-Scale-Discovery/agent/config"
 	"github.com/siemens/Large-Scale-Discovery/log"
-	"os"
-	"path/filepath"
 )
 
 var osTruststorePaths = []string{
@@ -41,7 +42,7 @@ func checkConfigDependant() error {
 	// Decide truststore for SSL test
 	var sslyzeAdditionalTruststore string
 	if len(conf.Modules.Ssl.CustomTruststoreFile) == 0 {
-		sslyzeAdditionalTruststore = SslOsTruststoreFile
+		sslyzeAdditionalTruststore = pathSslOsTruststoreFile
 	} else {
 		sslyzeAdditionalTruststore = conf.Modules.Ssl.CustomTruststoreFile
 	}

@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2024.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -12,9 +12,10 @@ package core
 
 import (
 	"fmt"
+	"strings"
+
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/Large-Scale-Discovery/web_backend/database"
-	"strings"
 )
 
 var loaders []Loader                // List of registered loaders to be initialized
@@ -23,7 +24,7 @@ var loadersLookup map[string]Loader // Map of initialized loader module, referen
 type Loader interface {
 	Domains() []string
 	Init(conf map[string]interface{}) error
-	RefreshUser(logger scanUtils.Logger, user *database.T_user) (errTemporary error, errInternal error, errPublic string) // May update the passed user struct, but does not yet commit changes
+	RefreshUser(logger scanUtils.Logger, user *database.T_user) (errTemporary error, errPublic string, errInternal error) // May update the passed user struct, but does not yet commit changes
 }
 
 // GetLoader retrieves the appropriate loader for the given domain or falls back to the default loader
@@ -47,7 +48,7 @@ func GetLoader(logger scanUtils.Logger, userEmail string) Loader {
 
 	// Get default loader
 	logger.Debugf("Using default loader.")
-	l, _ := loadersLookup[""]
+	l := loadersLookup[""]
 
 	// Return selected loader
 	return l
@@ -101,7 +102,7 @@ func initLoaders(confLoaders map[string]interface{}) error {
 					return fmt.Errorf("multiple '%s' loaders configured", loaderDomains)
 				}
 
-				// Register user domain with reference to this loaer
+				// Register user domain with reference to this loader
 				loadersLookup[loaderDomains] = loader
 			}
 		}

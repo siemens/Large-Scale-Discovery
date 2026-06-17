@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2024.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -13,12 +13,14 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
+
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/Large-Scale-Discovery/_build"
 	"github.com/siemens/Large-Scale-Discovery/log"
 	"go.uber.org/zap/zapcore"
-	"os"
-	"sync"
 )
 
 var brokerConfig = &BrokerConfig{} // Global configuration
@@ -61,7 +63,7 @@ func Load(path string) error {
 		return errLoad
 	}
 
-	// Parse Json
+	// Parse JSON
 	errUnmarshal := json.Unmarshal(rawJson, newConfig)
 	if errUnmarshal != nil {
 		return errUnmarshal
@@ -92,13 +94,13 @@ func Save(conf *BrokerConfig, path string) error {
 	brokerConfigLock.Lock()
 	defer brokerConfigLock.Unlock()
 
-	// Serialize to Json
+	// Serialize to JSON
 	file, errMarshal := json.MarshalIndent(conf, "", "    ")
 	if errMarshal != nil {
 		return errMarshal
 	}
 
-	// Write Json to file
+	// Write JSON to file
 	errWrite := os.WriteFile(path, file, 0644)
 	if errWrite != nil {
 		return errWrite
@@ -123,21 +125,26 @@ func defaultBrokerConfigFactory() BrokerConfig {
 
 	// Prepare default logging settings and adapt for broker
 	logging := log.DefaultLogSettingsFactory()
-	logging.File.Path = "./logs/broker.log"
+	logging.File.Path = filepath.Join("logs", "broker.log")
 	logging.Smtp.Connector.Subject = "Broker Error Log"
 
 	// Prepare default settings for development
-	privilegeSecret := ""
+	secret := ""
+	secretPrivilege := ""
 	if _build.DevMode {
-		privilegeSecret = "dev_secret"
+		secret = "dev_secret"
+		secretPrivilege = "dev_secret"
 		logging.Console.Level = zapcore.DebugLevel
 	}
 
 	// Prepare default broker config
 	conf := BrokerConfig{
 		ListenAddress:          "localhost:3333",
+		ListenSsl:              true, // Encrypted endpoint be used, unless within a secure network or with a TLS load balancer is in front.
 		ManagerAddress:         "localhost:2222",
-		ManagerPrivilegeSecret: privilegeSecret,
+		ManagerSsl:             true, // Encrypted endpoint be used, unless within a secure network or with a TLS load balancer is in front.
+		ManagerSecret:          secret,
+		ManagerSecretPrivilege: secretPrivilege,
 		DbConnections:          30,
 		Logging:                logging,
 	}
@@ -153,8 +160,11 @@ func defaultBrokerConfigFactory() BrokerConfig {
 type BrokerConfig struct {
 	// The root configuration object tying all configuration segments together.
 	ListenAddress          string       `json:"listen_address"`
+	ListenSsl              bool         `json:"listen_ssl"` // Encrypted endpoint be used, unless within a secure network or with a TLS load balancer is in front.
 	ManagerAddress         string       `json:"manager_address"`
-	ManagerPrivilegeSecret string       `json:"manager_privilege_secret"` // Token granting the privilege to query full scope details, including scope secret and the scope's database credentials
+	ManagerSsl             bool         `json:"manager_ssl"`              // Encrypted endpoint be used, unless within a secure network or with a TLS load balancer is in front.
+	ManagerSecret          string       `json:"manager_secret"`           // Token to authorize RPC connections to invoke manager RPC methods.
+	ManagerSecretPrivilege string       `json:"manager_secret_privilege"` // Tokens to authorize sensitive RPC requests, to query full scope details, including scope secret and the scope's database credentials.
 	DbConnections          int          `json:"db_connections"`
 	Logging                log.Settings `json:"logging"`
 }
@@ -162,22 +172,25 @@ type BrokerConfig struct {
 // UnmarshalJSON reads a JSON file, validates values and populates the configuration struct
 func (c *BrokerConfig) UnmarshalJSON(b []byte) error {
 
-	// Prepare temporary auxiliary data structure to load raw Json data
+	// Prepare temporary auxiliary data structure to load raw JSON data
 	type aux BrokerConfig
 	var raw aux
 
-	// Unmarshal serialized Json into temporary auxiliary structure
+	// Unmarshal serialized JSON into temporary auxiliary structure
 	err := json.Unmarshal(b, &raw)
 	if err != nil {
 		return err
 	}
 
 	// Do input validation
-	if len(raw.ManagerPrivilegeSecret) == 0 {
-		return fmt.Errorf("manager privilege secret required to request database credentials")
+	if len(raw.ManagerSecret) == 0 {
+		return fmt.Errorf("manager secret required")
+	}
+	if len(raw.ManagerSecretPrivilege) == 0 {
+		return fmt.Errorf("manager privilege secret required")
 	}
 
-	// Copy loaded Json values to actual config
+	// Copy loaded JSON values to actual config
 	*c = BrokerConfig(raw)
 
 	// Return nil as everything is valid

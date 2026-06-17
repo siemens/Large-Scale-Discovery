@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2024.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -14,6 +14,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/mail"
+
 	"github.com/gin-gonic/gin"
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/Large-Scale-Discovery/_build"
@@ -22,7 +24,6 @@ import (
 	"github.com/siemens/Large-Scale-Discovery/web_backend/core"
 	"github.com/siemens/Large-Scale-Discovery/web_backend/database"
 	"github.com/siemens/ZapSmtp/smtp"
-	"net/mail"
 )
 
 // Groups returns a list of groups the requesting user is owner of
@@ -35,13 +36,13 @@ var Groups = func() gin.HandlerFunc {
 	}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Prepare memory for list of groups
 		var groupEntries = make([]database.T_group, 0, 3) // Initialize empty slice to avoid returning nil to frontend
@@ -54,7 +55,7 @@ var Groups = func() gin.HandlerFunc {
 			groupEntries, errGroupEntries = database.GetGroups()
 			if errGroupEntries != nil {
 				logger.Errorf("Could not query existing groups: %s", errGroupEntries)
-				core.RespondInternalError(context) // Return generic error information
+				core.RespondInternalError(ctx) // Return generic error information
 				return
 			}
 
@@ -64,7 +65,7 @@ var Groups = func() gin.HandlerFunc {
 			groupEntries, errGroupEntries = database.GetGroupsOfUser(contextUser.Id)
 			if errGroupEntries != nil {
 				logger.Errorf("Could not query user's groups: %s", errGroupEntries)
-				core.RespondInternalError(context) // Return generic error information
+				core.RespondInternalError(ctx) // Return generic error information
 				return
 			}
 		}
@@ -75,11 +76,11 @@ var Groups = func() gin.HandlerFunc {
 		}
 
 		// Return response
-		core.Respond(context, false, "Groups of user retrieved.", body)
+		core.Respond(ctx, false, "Groups of user retrieved.", body)
 	}
 }
 
-// GroupCreate creates a user group, if the requesting user has has admin rights
+// GroupCreate creates a user group, if the requesting user has admin rights
 var GroupCreate = func() gin.HandlerFunc {
 
 	// Define expected request structure
@@ -88,6 +89,7 @@ var GroupCreate = func() gin.HandlerFunc {
 		// - Use pointer types to represent optional request arguments. Pointer types allow modelling ternary states
 		//   (e.g. not set, empty string, string), but need to be handled carefully to avoid nil pointer panics.
 		Name       string `json:"name"`
+		DbServerId uint64 `json:"db_server_id"`
 		MaxScopes  int    `json:"max_scopes"`
 		MaxViews   int    `json:"max_views"`
 		MaxTargets int    `json:"max_targets"`
@@ -102,17 +104,17 @@ var GroupCreate = func() gin.HandlerFunc {
 	type responseBody struct{}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Check if user has rights (is admin) to perform action
 		if !contextUser.Admin {
-			core.RespondAuthError(context)
+			core.RespondAuthError(ctx)
 			return
 		}
 
@@ -120,16 +122,23 @@ var GroupCreate = func() gin.HandlerFunc {
 		var req requestBody
 
 		// Decode JSON request into struct
-		errReq := context.BindJSON(&req)
+		errReq := ctx.BindJSON(&req)
 		if errReq != nil {
 			logger.Errorf("Could not decode request: %s", errReq)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
+			return
+		}
+
+		// Check if database server ID is set
+		if req.DbServerId == 0 {
+			core.Respond(ctx, true, "Invalid DB ID.", responseBody{})
 			return
 		}
 
 		// Prepare new group object
 		newGroup := database.T_group{
 			Name:         req.Name,
+			DbServerId:   req.DbServerId,
 			CreatedBy:    contextUser.Email,
 			MaxScopes:    req.MaxScopes,
 			MaxViews:     req.MaxViews,
@@ -144,16 +153,16 @@ var GroupCreate = func() gin.HandlerFunc {
 		err := newGroup.Create()
 		if err != nil {
 			logger.Errorf("Could not create group: %s", err)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Return response
-		core.Respond(context, false, "Group created.", responseBody{})
+		core.Respond(ctx, false, "Group created.", responseBody{})
 	}
 }
 
-// GroupUpdate updates group details of a certain group, if the requesting user has has admin rights
+// GroupUpdate updates group details of a certain group, if the requesting user has admin rights
 var GroupUpdate = func() gin.HandlerFunc {
 
 	// Define expected request structure
@@ -163,6 +172,7 @@ var GroupUpdate = func() gin.HandlerFunc {
 		//   (e.g. not set, empty string, string), but need to be handled carefully to avoid nil pointer panics.
 		Id         uint64  `json:"id"` // PK of the DB element to identify associated entry for update
 		Name       *string `json:"name"`
+		DbServerId *uint64 `json:"db_server_id"`
 		MaxScopes  *int    `json:"max_scopes"`
 		MaxViews   *int    `json:"max_views"`
 		MaxTargets *int    `json:"max_targets"`
@@ -177,17 +187,17 @@ var GroupUpdate = func() gin.HandlerFunc {
 	type responseBody struct{}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Check if user has rights (is admin) to perform action
 		if !contextUser.Admin {
-			core.RespondAuthError(context)
+			core.RespondAuthError(ctx)
 			return
 		}
 
@@ -195,16 +205,16 @@ var GroupUpdate = func() gin.HandlerFunc {
 		var req requestBody
 
 		// Decode JSON request into struct
-		errReq := context.BindJSON(&req)
+		errReq := ctx.BindJSON(&req)
 		if errReq != nil {
 			logger.Errorf("Could not decode request: %s", errReq)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Check if primary key is defined, otherwise gorm cannot update specific item
 		if req.Id == 0 {
-			core.Respond(context, true, "Invalid ID.", responseBody{})
+			core.Respond(ctx, true, "Invalid ID.", responseBody{})
 			return
 		}
 
@@ -212,19 +222,22 @@ var GroupUpdate = func() gin.HandlerFunc {
 		groupEntry, errGroupEntry := database.GetGroup(req.Id)
 		if errGroupEntry != nil {
 			logger.Errorf("Could not query group: %s", errGroupEntry)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Check if group exists
 		if groupEntry == nil {
-			core.Respond(context, true, "Invalid ID.", responseBody{})
+			core.Respond(ctx, true, "Invalid ID.", responseBody{})
 			return
 		}
 
 		// Update attributes, if contained in the request
 		if req.Name != nil {
 			groupEntry.Name = *req.Name
+		}
+		if req.DbServerId != nil {
+			groupEntry.DbServerId = *req.DbServerId
 		}
 		if req.MaxScopes != nil {
 			if *req.MaxScopes < 0 {
@@ -265,10 +278,10 @@ var GroupUpdate = func() gin.HandlerFunc {
 		}
 
 		// Save updated attributes
-		saved, errSave := groupEntry.Save("name", "max_scopes", "max_views", "max_targets", "max_owners", "allow_custom", "allow_network", "allow_asset")
+		saved, errSave := groupEntry.Save("name", "db_server_id", "max_scopes", "max_views", "max_targets", "max_owners", "allow_custom", "allow_network", "allow_asset")
 		if errSave != nil {
 			logger.Errorf("Could not update group entry: %s", errSave)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
@@ -284,11 +297,11 @@ var GroupUpdate = func() gin.HandlerFunc {
 		}
 
 		// Return response
-		core.Respond(context, reqErr, reqMsg, responseBody{})
+		core.Respond(ctx, reqErr, reqMsg, responseBody{})
 	}
 }
 
-// GroupDelete deletes a certain group, if the requesting user has has admin rights
+// GroupDelete deletes a certain group, if the requesting user has admin rights
 var GroupDelete = func() gin.HandlerFunc {
 
 	// Define expected request structure
@@ -303,17 +316,17 @@ var GroupDelete = func() gin.HandlerFunc {
 	type responseBody struct{}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Check if user has rights (is admin) to perform action
 		if !contextUser.Admin {
-			core.RespondAuthError(context)
+			core.RespondAuthError(ctx)
 			return
 		}
 
@@ -321,16 +334,16 @@ var GroupDelete = func() gin.HandlerFunc {
 		var req requestBody
 
 		// Decode JSON request into struct
-		errReq := context.BindJSON(&req)
+		errReq := ctx.BindJSON(&req)
 		if errReq != nil {
 			logger.Errorf("Could not decode request: %s", errReq)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Check if primary key is defined, otherwise gorm cannot update specific group
 		if req.Id == 0 {
-			core.Respond(context, true, "Invalid ID.", responseBody{})
+			core.Respond(ctx, true, "Invalid ID.", responseBody{})
 			return
 		}
 
@@ -338,23 +351,23 @@ var GroupDelete = func() gin.HandlerFunc {
 		groupEntry, errGroupEntry := database.GetGroup(req.Id)
 		if errGroupEntry != nil {
 			logger.Errorf("Could not query group: %s", errGroupEntry)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Check if group exists
 		if groupEntry == nil {
-			core.Respond(context, true, "Invalid ID.", responseBody{})
+			core.Respond(ctx, true, "Invalid ID.", responseBody{})
 			return
 		}
 
 		// Request owned scan scopes from manager
 		scanScopes, errScanScopes := manager.RpcGetScopesOf(logger, core.RpcClient(), []uint64{groupEntry.Id})
 		if errors.Is(errScanScopes, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
 		} else if errScanScopes != nil {
-			core.RespondInternalError(context) // Return generic error information. Situation already logged!
+			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
@@ -364,10 +377,10 @@ var GroupDelete = func() gin.HandlerFunc {
 			// Request manager to delete scan scope and associated data
 			errRpc := manager.RpcDeleteScope(logger, core.RpcClient(), groupScope.Id)
 			if errors.Is(errRpc, utils.ErrRpcConnectivity) {
-				core.RespondTemporaryError(context) // Return temporary error because of connection issues. Situation already logged!
+				core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 				return
 			} else if errRpc != nil {
-				core.RespondInternalError(context) // Return generic error information. Situation already logged!
+				core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 				return
 			}
 		}
@@ -376,20 +389,17 @@ var GroupDelete = func() gin.HandlerFunc {
 		errDelete := groupEntry.Delete()
 		if errDelete != nil {
 			logger.Errorf("Could not delete group: %s", errDelete)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Return response
-		core.Respond(context, false, "Group deleted.", responseBody{})
+		core.Respond(ctx, false, "Group deleted.", responseBody{})
 	}
 }
 
 // GroupAssign sets the owners (administrators) of a given group, if the requesting user has admin rights
-var GroupAssign = func(
-	frontendUrl string,
-	smtpConnection *utils.Smtp,
-) gin.HandlerFunc {
+var GroupAssign = func(smtpConnection *utils.Smtp) gin.HandlerFunc {
 
 	// Define expected request structure
 	type requestBody struct {
@@ -404,17 +414,17 @@ var GroupAssign = func(
 	type responseBody struct{}
 
 	// Return request handling function
-	return func(context *gin.Context) {
+	return func(ctx *gin.Context) {
 
 		// Get logger for current request context
-		logger := core.GetContextLogger(context)
+		logger := core.GetContextLogger(ctx)
 
 		// Get user from context storage
-		contextUser := core.GetContextUser(context)
+		contextUser := core.GetContextUser(ctx)
 
 		// Check if user has rights (is admin) to perform action
 		if !contextUser.Admin {
-			core.RespondAuthError(context)
+			core.RespondAuthError(ctx)
 			return
 		}
 
@@ -422,16 +432,16 @@ var GroupAssign = func(
 		var req requestBody
 
 		// Decode JSON request into struct
-		errReq := context.BindJSON(&req)
+		errReq := ctx.BindJSON(&req)
 		if errReq != nil {
 			logger.Errorf("Could not decode request: %s", errReq)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Check if primary key is defined, otherwise gorm cannot update specific group
 		if req.Id == 0 {
-			core.Respond(context, true, "Invalid ID.", responseBody{})
+			core.Respond(ctx, true, "Invalid ID.", responseBody{})
 			return
 		}
 
@@ -439,13 +449,13 @@ var GroupAssign = func(
 		groupEntry, errGroupEntry := database.GetGroup(req.Id)
 		if errGroupEntry != nil {
 			logger.Errorf("Could not query group: %s", errGroupEntry)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Check if group exists
 		if groupEntry == nil {
-			core.Respond(context, true, "Invalid ID.", responseBody{})
+			core.Respond(ctx, true, "Invalid ID.", responseBody{})
 			return
 		}
 
@@ -460,15 +470,15 @@ var GroupAssign = func(
 
 			// Check if input is valid e-mail address
 			if !utils.IsPlausibleEmail(ownerEmail) {
-				core.Respond(context, true, "Invalid owner.", responseBody{})
+				core.Respond(ctx, true, "Invalid owner.", responseBody{})
 				return
 			}
 
 			// Query given owner from DB
 			userEntry, errUserEntry := database.GetUserByMail(ownerEmail)
 			if errUserEntry != nil {
-				logger.Errorf("Could not query existing user: %s", errUserEntry)
-				core.RespondInternalError(context) // Return generic error information
+				logger.Errorf("Could not query user '%s': %s", ownerEmail, errUserEntry)
+				core.RespondInternalError(ctx) // Return generic error information
 				return
 			}
 
@@ -484,27 +494,26 @@ var GroupAssign = func(
 
 				// Prepare user object for creation
 				// ATTENTION: RefreshUser might update user attributes, but does not yet commit them!
-				errTemporary, errInternal, errPublic := loader.RefreshUser(logger, newUser)
+				errTemporary, errPublic, errInternal := loader.RefreshUser(logger, newUser)
 
 				// Abort if there was an error and return response based on error kind
 				if len(errPublic) > 0 {
 					logger.Debugf("Could not auto-load user '%s' from source: %s", ownerEmail, errPublic)
-					core.Respond(context, true, errPublic, responseBody{})
+					core.Respond(ctx, true, errPublic, responseBody{})
 					return
 				} else if errTemporary != nil {
 					logger.Warningf("Could not auto-load user '%s' from source: %s", ownerEmail, errTemporary)
-					core.RespondTemporaryError(context)
+					core.RespondTemporaryError(ctx)
 					return
 				} else if errInternal != nil {
 					logger.Errorf("Could not auto-load user '%s' from source: %s", ownerEmail, errInternal)
-					core.RespondInternalError(context) // Return generic error information
+					core.RespondInternalError(ctx) // Return generic error information
 					return
 				}
 
-				// If the loader did neither set a password, nor a SSO ID, make the user a credentials type of user,
-				// by setting a (non-functional) password. The user will need to do a password reset to activate
-				// its account.
-				if len(newUser.Password.String) == 0 && len(newUser.SsoId.String) == 0 {
+				// Make user password user, by setting a (non-functional) password, if there is no dedicated
+				// authenticator configured. The user will need to do a password reset to activate its account.
+				if core.EntryUrl(newUser.Email) == "" {
 					newUser.Password = sql.NullString{
 						String: "-",
 						Valid:  true,
@@ -515,12 +524,12 @@ var GroupAssign = func(
 				err := newUser.Create()
 				if err != nil {
 					logger.Errorf("Could not auto-create user: %s", err)
-					core.RespondInternalError(context) // Return generic error information
+					core.RespondInternalError(ctx) // Return generic error information
 					return
 				}
 
 				// Prepare mail values
-				subject := fmt.Sprintf("Large-Scale Discovery - Ownership")
+				subject := "Large-Scale Discovery - Ownership"
 				message := fmt.Sprintf("You were granted ownership of some scan group.\n"+
 					"For details please visit %s.\n\n"+
 					"Via the web interface, you can:\n"+
@@ -529,12 +538,13 @@ var GroupAssign = func(
 					"   - Find database connection details to access scan results\n"+
 					"   - Request your personal and momentary database password\n"+
 					"   - See the scan progress of a certain scan scope\n",
-					frontendUrl)
+					ctx.Request.Host, // Prepare dynamically, website might be accessed via different domains
+				)
 
 				// Enable encryption by setting user certificate, if available
-				var encCert [][]byte
+				var recipientCerts [][]byte
 				if len(newUser.Certificate) > 0 {
-					encCert = [][]byte{newUser.Certificate}
+					recipientCerts = [][]byte{newUser.Certificate}
 				}
 
 				// Send new token to user via encrypted e-mail
@@ -542,28 +552,29 @@ var GroupAssign = func(
 					logger.Infof("Skipping user e-mail notification during development.")
 				} else {
 					logger.Debugf("Sending scope ownership notification to user via e-mail.")
-					errMail := smtp.SendMail3(
+					errMail := smtp.SendMail(
 						smtpConnection.Server,
 						smtpConnection.Port,
 						smtpConnection.Username,
 						smtpConnection.Password,
 						smtpConnection.Sender,
 						[]mail.Address{{Name: newUser.Name + " " + newUser.Surname, Address: newUser.Email}},
+						recipientCerts,
 						subject,
-						message,
+						[]byte(message),
+						nil,
 						smtpConnection.OpensslPath,
 						smtpConnection.SignatureCert,
 						smtpConnection.SignatureKey,
-						encCert,
-						"",
+						false,
 					)
 					if errMail != nil {
 						logger.Errorf(
-							"Could not send initial database credentials to user '%s': %s",
+							"Could not send scope ownership notification to user '%s': %s",
 							newUser.Email,
 							errMail,
 						)
-						core.Respond(context, true, "Could not e-mail initial database credentials.", responseBody{})
+						core.Respond(ctx, true, "Could not e-mail scope ownership notification.", responseBody{})
 						return
 					}
 				}
@@ -581,7 +592,7 @@ var GroupAssign = func(
 
 		// Check if total amount of group owners would not exceed maximum
 		if groupEntry.MaxOwners >= 0 && len(groupEntry.Ownerships)+len(newOwners) > groupEntry.MaxOwners {
-			core.Respond(context, true, "Maximum group owners exceeded.", responseBody{})
+			core.Respond(ctx, true, "Maximum group owners exceeded.", responseBody{})
 			return
 		}
 
@@ -589,11 +600,11 @@ var GroupAssign = func(
 		errUpdate := groupEntry.UpdateOwners(newOwners)
 		if errUpdate != nil {
 			logger.Errorf("Could not update owners: %s", errUpdate)
-			core.RespondInternalError(context) // Return generic error information
+			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Return response
-		core.Respond(context, false, "Owners updated.", responseBody{})
+		core.Respond(ctx, false, "Owners updated.", responseBody{})
 	}
 }

@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -11,7 +11,9 @@
 define(["knockout", "text!./installation.html", "postbox", "semantic-ui-accordion"],
     function (ko, template, postbox) {
 
+        /////////////////////////
         // VIEWMODEL CONSTRUCTION
+        /////////////////////////
         function ViewModel(params) {
 
             // Initialize observables
@@ -30,6 +32,16 @@ define(["knockout", "text!./installation.html", "postbox", "semantic-ui-accordio
                     "linuxSupport": 1,
                     "windowsSupport": 1,
                     "domainSupport": 1,
+                    "comment": "",
+                },
+                {
+                    "title": "OT Discovery",
+                    "subEntry": true,
+                    "linuxSupport": 1,
+                    "windowsSupport": 2,
+                    "windowsSupportComment": "Only network-based protocols (NDP, mDNS/SSDP) are supported. L2 protocols (PROFINET DCP, EtherCAT, LLDP) require raw Ethernet sockets which are not available on Windows.",
+                    "domainSupport": 2,
+                    "domainSupportComment": "Only network-based protocols (NDP, mDNS/SSDP) are supported. L2 protocols (PROFINET DCP, EtherCAT, LLDP) require raw Ethernet sockets which are not available on Windows.",
                     "comment": "",
                 },
                 {
@@ -77,12 +89,12 @@ define(["knockout", "text!./installation.html", "postbox", "semantic-ui-accordio
                 {
                     "title": "Active Directory Lookup",
                     "subEntry": true,
-                    "linuxSupport": 2,
-                    "linuxSupportComment": "With explicit credentials a configured domain can be queried. No cross-domain authentication possible.",
-                    "windowsSupport": 2,
-                    "windowsSupportComment": "With explicit credentials a configured domain can be queried. No cross-domain authentication possible.",
+                    "linuxSupport": 1,
+                    "linuxSupportComment": "You can configure explicit credentials. Cross-domain authentication is possible via GSSAPI. By default the discovered target's domain is queried, but you can define a static LDAP server.",
+                    "windowsSupport": 1,
+                    "windowsSupportComment": "You can configure explicit credentials. Cross-domain authentication is possible via GSSAPI. By default the discovered target's domain is queried, but you can define a static LDAP server.",
                     "domainSupport": 1,
-                    "domainSupportComment": "Implicit authentication is used to query the target's domain. Cross-domain authentication is possible. You can configure explicit credentials to query a specific domain.",
+                    "domainSupportComment": "Implicit authentication without credentials can be used. You can configure explicit credentials. Cross-domain authentication is possible via GSSAPI. By default the discovered target's domain is queried, but you can define a static LDAP server.",
                     "comment": "",
                 },
                 {
@@ -174,6 +186,14 @@ define(["knockout", "text!./installation.html", "postbox", "semantic-ui-accordio
                     "comment": "",
                 },
                 {
+                    "title": "Nuclei Scanning",
+                    "subEntry": false,
+                    "linuxSupport": 1,
+                    "windowsSupport": 1,
+                    "domainSupport": 1,
+                    "comment": "The Nuclei module leverages the large list of community-curated templates at ProjectDiscovery to find security vulnerabilities.",
+                },
+                {
                     "title": "Web Crawling",
                     "subEntry": false,
                     "linuxSupport": 1,
@@ -210,6 +230,12 @@ define(["knockout", "text!./installation.html", "postbox", "semantic-ui-accordio
             // Check authentication and redirect to login if necessary
             if (!authenticated()) {
                 postbox.publish("redirect", "login");
+                return;
+            }
+
+            // Check privileges and redirect to home if necessary
+            if (userAdmin() === false && userOwner() === false) {
+                postbox.publish("redirect", home());
                 return;
             }
 

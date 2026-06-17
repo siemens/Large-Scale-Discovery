@@ -12,11 +12,12 @@ package database
 
 import (
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/siemens/Large-Scale-Discovery/utils"
 	"gorm.io/gorm"
-	"strings"
-	"time"
 )
 
 type Event string
@@ -26,8 +27,11 @@ const (
 	EventLogin       Event = "Login"
 	EventDbPassword  Event = "Database Password"
 	EventScopeCreate Event = "Scope Created"
+	EventScopeSecret Event = "Scope Secret"
 	EventViewGrant   Event = "User Granted"
 	EventViewToken   Event = "Token Generated"
+	EventDatabaseAdd Event = "Database Added"
+	EventApiToken    Event = "API Token"
 )
 
 type T_event struct {
@@ -42,7 +46,7 @@ type T_event struct {
 	Event       Event     `gorm:"column:event;not null" json:"event"`
 	EventDetail string    `gorm:"column:event_detail;default:''" json:"event_detail"`
 
-	User *T_user `gorm:"foreignKey:IdTUser;constraint:OnUpdate:CASCADE,OnDelete:SET NULL" json:"user"`
+	User *T_user `gorm:"foreignKey:IdTUser;constraint:OnUpdate:CASCADE,OnDelete:SET NULL" json:"user"` // User must be pointer *T_user, because it can be null OnDelete
 }
 
 // NewEvent creates an event log entry in the database.
@@ -109,7 +113,7 @@ func GetEvents(eventType Event, since time.Time) ([]T_event, error) {
 		return nil, err
 	}
 
-	// Prepare query result
+	// Prepare memory for result
 	var events []T_event
 
 	// Query related events form database
@@ -138,7 +142,7 @@ func validEvent(event Event) error {
 
 	// Check whether event type value is valid
 	switch event {
-	case EventLogin, EventDbPassword, EventScopeCreate, EventViewGrant, EventViewToken:
+	case EventLogin, EventDbPassword, EventScopeCreate, EventScopeSecret, EventViewGrant, EventViewToken, EventDatabaseAdd, EventApiToken:
 		// Ok
 	default:
 		return fmt.Errorf("invalid event type '%s'", event)

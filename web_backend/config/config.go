@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2024.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -13,14 +13,16 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/Large-Scale-Discovery/_build"
 	"github.com/siemens/Large-Scale-Discovery/log"
 	"github.com/siemens/Large-Scale-Discovery/utils"
 	"go.uber.org/zap/zapcore"
-	"os"
-	"sync"
-	"time"
 )
 
 var webConfig = &WebConfig{} // Global configuration
@@ -63,7 +65,7 @@ func Load(path string) error {
 		return errLoad
 	}
 
-	// Parse Json
+	// Parse JSON
 	errUnmarshal := json.Unmarshal(rawJson, newConfig)
 	if errUnmarshal != nil {
 		return errUnmarshal
@@ -94,13 +96,13 @@ func Save(conf *WebConfig, path string) error {
 	webConfigLock.Lock()
 	defer webConfigLock.Unlock()
 
-	// Serialize to Json
+	// Serialize to JSON
 	file, errMarshal := json.MarshalIndent(conf, "", "    ")
 	if errMarshal != nil {
 		return errMarshal
 	}
 
-	// Write Json to file
+	// Write JSON to file
 	errWrite := os.WriteFile(path, file, 0644)
 	if errWrite != nil {
 		return errWrite
@@ -125,40 +127,84 @@ func defaultWebConfigFactory() WebConfig {
 
 	// Prepare default logging settings and adapt web
 	logging := log.DefaultLogSettingsFactory()
-	logging.File.Path = "./logs/backend.log"
+	logging.File.Path = filepath.Join("logs", "backend.log")
 	logging.Smtp.Connector.Subject = "Backend Error Log"
 
 	// Define default values
-	frontendUrl := "https://domain.tld"
+	frontendLinks := map[string][]Link{
+		"menu": {},
+		"repositories": {
+			Link{
+				Icon:   "",
+				Text:   "Active Directory",
+				Href:   "#",
+				Target: "",
+			},
+			Link{
+				Icon:   "",
+				Text:   "Asset Inventory",
+				Href:   "#",
+				Target: "",
+			},
+			Link{
+				Icon:   "",
+				Text:   "Network Inventory",
+				Href:   "#",
+				Target: "",
+			},
+		},
+		"tooling": {
+			Link{
+				Icon:   "",
+				Text:   "Nmap Port Scanner",
+				Href:   "https://nmap.org/",
+				Target: "_blank",
+			},
+			Link{
+				Icon:   "",
+				Text:   "SSLyze SSL Scanner",
+				Href:   "https://github.com/nabla-c0d3/sslyze",
+				Target: "_blank",
+			},
+		},
+	}
 	jwtLifetime := time.Minute * 20  // 20 minutes
-	jwtJifetimeMax := time.Hour * 12 // 12 hours until fresh authentication is required
+	jwtLifetimeMax := time.Hour * 12 // 12 hours until fresh authentication is required
 	jwtSecret, _ := utils.GenerateToken(utils.AlphaNumCaseSymbol, 64)
 
 	// Prepare default settings for development
+	managerSecret := ""
 	if _build.DevMode {
-		frontendUrl = "https://localhost"
+		managerSecret = "dev_secret"
 		logging.Console.Level = zapcore.DebugLevel
 	}
 
 	// Prepare default web config
 	conf := WebConfig{
-		ManagerAddress: "localhost:2222",
-		ListenAddress:  "localhost:443",
-		FrontendUrl:    frontendUrl,
+		ListenAddressHttps: "localhost:443",
+		ListenAddressHttp:  "", // Leave empty to disable HTTP endpoint
+		ManagerAddress:     "localhost:2222",
+		ManagerSsl:         true, // Encrypted endpoint be used, unless within a secure network or with a TLS load balancer is in front.
+		ManagerSecret:      managerSecret,
+		FrontendLinks:      frontendLinks,
+		RateLimit: RateLimit{
+			AuthRequestsPerMinute: 10,
+			ApiRequestsPerMinute:  120,
+		},
 		Jwt: Jwt{
 			Secret:         jwtSecret,
 			Algorithm:      "HS256",
 			ExpiryMinutes:  int(jwtLifetime.Minutes()),
 			Expiry:         jwtLifetime,
-			RefreshMinutes: int(jwtJifetimeMax.Minutes()),
-			Refresh:        jwtJifetimeMax,
+			RefreshMinutes: int(jwtLifetimeMax.Minutes()),
+			Refresh:        jwtLifetimeMax,
+			ExpiryApiDays:  365,
 		},
 		Authenticator: map[string]interface{}{ // Flexible map of arguments as needed by integrated authenticators
 			"credentials_registration": false,
 			"oauth": map[string]interface{}{ // A name for the oauth authenticator so that there can be multiple ones initialized for different customers
 				"oauth_public_key_url": "https://sso.domain.tld/ext/oauth/jwks",
 				"oauth_config_url":     "https://sso.domain.tld/.well-known/openid-configuration",
-				"oauth_redirect_url":   "https://application.domain.tld/api/v1/auth/oauth/callback",
 				"oauth_client_id":      "",
 				"oauth_client_secret":  "",
 				"oauth_scope":          "",
@@ -166,7 +212,7 @@ func defaultWebConfigFactory() WebConfig {
 					"user_mail":       "mail",
 					"user_name":       "given_name",
 					"user_surname":    "family_name",
-					"user_company":    "employee_id",
+					"user_company":    "company",
 					"user_department": "org_code",
 				},
 			},
@@ -192,62 +238,85 @@ func defaultWebConfigFactory() WebConfig {
 
 type WebConfig struct {
 	// The root configuration object tying all configuration segments together.
-	ManagerAddress string                 `json:"manager_address"`
-	ListenAddress  string                 `json:"listen_address"`
-	FrontendUrl    string                 `json:"frontend_url"` // Valid URL that can be used by users to access the web interface. Will also be included e.g. in e-mails sent by the backend.
-	Jwt            Jwt                    `json:"jwt"`
-	Logging        log.Settings           `json:"logging"`
-	Authenticator  map[string]interface{} `json:"authenticator"` // Arbitrary arguments passed to authenticators. Flexible for own authenticator integrations.
-	Loader         map[string]interface{} `json:"loader"`        // Arbitrary arguments passed to connectors. Flexible for own connector integrations.
+	ListenAddressHttps string                 `json:"listen_address_https"` // Leave empty to disable TLS endpoint
+	ListenAddressHttp  string                 `json:"listen_address_http"`  // Leave empty to disable unencrypted endpoint. Encrypted endpoint be used, unless a TLS load balancer is in front.
+	ManagerAddress     string                 `json:"manager_address"`
+	ManagerSsl         bool                   `json:"manager_ssl"`    // Encrypted endpoint be used, unless within a secure network or with a TLS load balancer is in front.
+	ManagerSecret      string                 `json:"manager_secret"` // Token to authorize RPC connections to invoke manager RPC methods.
+	FrontendLinks      map[string][]Link      `json:"frontend_links"`
+	RateLimit          RateLimit              `json:"rate_limit"`
+	Jwt                Jwt                    `json:"jwt"`
+	Authenticator      map[string]interface{} `json:"authenticator"` // Arbitrary arguments passed to authenticators. Flexible for own authenticator integrations.
+	Loader             map[string]interface{} `json:"loader"`        // Arbitrary arguments passed to connectors. Flexible for own connector integrations.
+	Logging            log.Settings           `json:"logging"`
 }
 
 func (c *WebConfig) UnmarshalJSON(b []byte) error {
 
-	// Prepare temporary auxiliary data structure to load raw Json data
+	// Prepare temporary auxiliary data structure to load raw JSON data
 	type aux WebConfig
 	var raw aux
 
-	// Unmarshal serialized Json into temporary auxiliary structure
+	// Unmarshal serialized JSON into temporary auxiliary structure
 	err := json.Unmarshal(b, &raw)
 	if err != nil {
 		return err
 	}
 
-	// Copy loaded Json values to actual config
+	// Do input validation
+	if len(raw.ManagerSecret) == 0 {
+		return fmt.Errorf("manager secret required")
+	}
+
+	// Copy loaded JSON values to actual config
 	*c = WebConfig(raw)
 
 	// Return nil as everything is valid
 	return nil
 }
 
+type Link struct {
+	Icon   string `json:"icon"`
+	Text   string `json:"text"`
+	Href   string `json:"href"`
+	Target string `json:"target"`
+}
+
+type RateLimit struct {
+	AuthRequestsPerMinute int `json:"auth_requests_per_minute"` // AuthRequestsPerMinute limits login/auth endpoint requests per source IP. Zero disables the limit.
+	ApiRequestsPerMinute  int `json:"api_requests_per_minute"`  // ApiRequestsPerMinute limits general authenticated API requests per user. Zero disables the limit.
+}
+
 type Jwt struct {
-	// LDAP connection information
 	Secret         string        `json:"secret"`          // Secret to encrypt JWT token with
 	Algorithm      string        `json:"algorithm"`       // Algorithm to encrypt JWT token with
 	ExpiryMinutes  int           `json:"expiry_minutes"`  // Max time a JWT token is valid
 	Expiry         time.Duration `json:"-"`               //
 	RefreshMinutes int           `json:"refresh_minutes"` // Max time a JWT token can be refreshed
 	Refresh        time.Duration `json:"-"`               //
+	ExpiryApiDays  int           `json:"expiry_api_days"` // Max time a user-issued API token is valid
+	ExpiryApi      time.Duration `json:"-"`               //
 }
 
 func (j *Jwt) UnmarshalJSON(b []byte) error {
 
-	// Prepare temporary auxiliary data structure to load raw Json data
+	// Prepare temporary auxiliary data structure to load raw JSON data
 	type aux Jwt
 	var raw aux
 
-	// Unmarshal serialized Json into temporary auxiliary structure
+	// Unmarshal serialized JSON into temporary auxiliary structure
 	err := json.Unmarshal(b, &raw)
 	if err != nil {
 		return err
 	}
 
-	// Copy loaded Json values to actual config
+	// Copy loaded JSON values to actual config
 	*j = Jwt(raw)
 
 	// Set unserializable values
 	j.Expiry = time.Duration(raw.ExpiryMinutes) * time.Minute
 	j.Refresh = time.Duration(raw.RefreshMinutes) * time.Minute
+	j.ExpiryApi = time.Duration(raw.ExpiryApiDays) * 24 * time.Hour
 
 	// Return nil as everything is valid
 	return nil

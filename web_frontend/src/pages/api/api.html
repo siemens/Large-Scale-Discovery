@@ -1,0 +1,295 @@
+<div id="divApiDoc" class="sixteen wide column">
+
+    <h2 class="ui dividing header" style="display: flex; align-items: center;">
+        <span>
+            API Documentation
+            <span data-html="Browse every available endpoint, fill example values into the parameters and copy the ready-to-use snippet for curl, Python, JavaScript or HTTPie."
+                  data-position="right center" data-variation="tiny wide">
+                <i class="small question circle outline icon" style="margin-right: 0;"></i>
+            </span>
+        </span>
+        <!-- ko ifnot: userDemo() -->
+        <button class="ui compact teal labeled icon button" style="margin-left: auto;"
+                data-bind="click: generateApiToken">
+            <i class="key icon"></i> Access Token
+        </button>
+        <!-- /ko -->
+    </h2>
+
+    <!-- ko if: loading -->
+    <div class="ui basic segment" style="text-align: center;">
+        <div class="ui active inline loader"></div>
+    </div>
+    <!-- /ko -->
+
+    <!-- ko if: error -->
+    <div class="ui tiny visible warning message">
+        <i class="exclamation triangle icon"></i>
+        <span data-bind="text: error"></span>
+    </div>
+    <!-- /ko -->
+
+    <!-- ko ifnot: loading -->
+
+    <div class="ui styled fluid accordion" data-bind="foreach: groups">
+        <div class="title" data-bind="css: { active: !collapsed() }, click: $parent.toggleGroup.bind($parent, $data)">
+            <i class="dropdown icon"></i>
+            <span style="font-weight: bold; text-transform: capitalize;" data-bind="text: tag"></span>
+            <div class="ui mini teal circular label" style="margin-left: 0.6em;"
+                 data-bind="text: endpoints.length"></div>
+        </div>
+        <div class="content" data-bind="css: { active: !collapsed() }">
+
+            <!-- ko foreach: endpoints -->
+            <div class="ui segment" style="padding: 0.4em 0.8em; margin-bottom: 0.6em;">
+
+                <!-- Endpoint header row -->
+                <div style="display: flex; align-items: center; cursor: pointer; padding: 0.4em 0;"
+                     data-bind="click: $parents[1].toggleEndpoint.bind($parents[1], $data)">
+                    <div class="ui mini label"
+                         style="min-width: 60px; text-align: center; margin-right: 0.8em;"
+                         data-bind="text: method,
+                                    css: {
+                                        teal:   method === 'POST' || method === 'GET',
+                                        orange: method === 'PUT',
+                                        red:    method === 'DELETE' || method === 'PATCH'
+                                    }"></div>
+                    <span style="flex: 1; color: #333;" data-bind="text: fullPath"></span>
+                    <span style="color: #888; font-size: 0.9em; margin-right: 0.8em;"
+                          data-bind="text: summary"></span>
+                    <i data-bind="attr: { 'class': (expanded() ? 'chevron up icon' : 'chevron down icon') }"
+                       style="color: #bbb; margin: 0;"></i>
+                </div>
+
+                <!-- Expanded detail panel -->
+                <!-- ko if: expanded -->
+                <div class="ui basic segment" style="padding: 0.6em 0.2em 0.2em 0.2em;">
+
+                    <!-- ko if: description -->
+                    <h3 class="ui dividing header">Description</h3>
+                    <p data-bind="text: description"></p>
+                    <!-- /ko -->
+
+                    <!-- Parameter schema table (read-only reference) -->
+                    <!-- ko if: inputFields.length > 0 -->
+                    <h3 class="ui dividing header">Request Parameters</h3>
+                    <table class="ui very compact celled table" style="margin-bottom: 1em;">
+                        <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>In</th>
+                            <th>Type</th>
+                            <th style="text-align: center;">Required</th>
+                            <th>Description</th>
+                        </tr>
+                        </thead>
+                        <tbody data-bind="foreach: inputFields">
+                        <tr>
+                            <td style="white-space: nowrap;">
+                                <span data-bind="style: { paddingLeft: (depth * 1.2) + 'em' }"></span>
+                                <!-- ko if: depth > 0 -->
+                                <i class="tiny angle right icon" style="color: #ccc;"></i>
+                                <!-- /ko -->
+                                <span data-bind="text: label"></span>
+                            </td>
+                            <td>
+                                <span class="ui mini label" data-bind="text: location"></span>
+                            </td>
+                            <td style="color: #666; font-family: monospace; font-size: 0.88em;"
+                                data-bind="text: typeLabel"></td>
+                            <td style="text-align: center;">
+                                <!-- ko if: required -->
+                                <i class="check icon" style="color: teal;"></i>
+                                <!-- /ko -->
+                                <!-- ko ifnot: required -->
+                                <span style="color: #ccc;">-</span>
+                                <!-- /ko -->
+                            </td>
+                            <td style="color: #666; font-size: 0.9em;" data-bind="text: description"></td>
+                        </tr>
+                        </tbody>
+                    </table>
+                    <!-- /ko -->
+
+                    <!-- Editable values form -->
+                    <!-- ko if: inputFields.length > 0 -->
+                    <h3 class="ui dividing header">Request Example</h3>
+                    <form class="ui form" style="margin-bottom: 1em;" data-bind="submit: function() { return false; }">
+                        <!-- ko foreach: inputFields -->
+                        <!-- ko ifnot: isObject -->
+                        <div class="field" data-bind="style: { marginLeft: (depth * 1.5) + 'em' }">
+                            <label>
+                                <span data-bind="text: label"></span>
+                                <!-- ko if: required -->
+                                <span style="color: teal;" title="Required">&nbsp;*</span>
+                                <!-- /ko -->
+                                <span style="font-weight: normal; color: #888; font-size: 0.85em;"
+                                      data-bind="text: ' (' + typeLabel + ')'"></span>
+                            </label>
+
+                            <!-- ko if: paramType === 'file' -->
+                            <input type="file"
+                                   data-bind="event: { change: function(d, e) { $parents[2].fileSelected(e, $parents[0], name); } }">
+                            <!-- /ko -->
+
+                            <!-- ko if: paramType === 'boolean' -->
+                            <select data-bind="value: value">
+                                <option value="false">false</option>
+                                <option value="true">true</option>
+                            </select>
+                            <!-- /ko -->
+
+                            <!-- ko if: paramType === 'integer' -->
+                            <input type="number"
+                                   data-bind="value: value, valueUpdate: 'input', attr: { placeholder: placeholder }">
+                            <!-- /ko -->
+
+                            <!-- ko if: paramType === 'array' && !isArrayOfObjects -->
+                            <input type="text"
+                                   data-bind="value: value, valueUpdate: 'input', attr: { placeholder: placeholder }">
+                            <div>
+                                <div class="ui pointing label"
+                                     style="background: transparent; color: #999; padding: 0.2em 0;">
+                                    Comma-separated list - will be sent as a JSON array.
+                                </div>
+                            </div>
+                            <!-- /ko -->
+
+                            <!-- ko if: paramType === 'array' && isArrayOfObjects -->
+                            <textarea rows="10"
+                                      style="font-family: monospace; font-size: 0.85em; white-space: pre; overflow-x: auto;"
+                                      data-bind="value: value, valueUpdate: 'input'"></textarea>
+                            <div>
+                                <div class="ui pointing label"
+                                     style="background: transparent; color: #999; padding: 0.2em 0;">
+                                    JSON array of objects - edit the template above.
+                                </div>
+                            </div>
+                            <!-- /ko -->
+
+                            <!-- ko if: paramType === 'string' -->
+                            <input type="text"
+                                   data-bind="value: value, valueUpdate: 'input', attr: { placeholder: placeholder }">
+                            <!-- ko if: typeLabel === 'string (date-time)' -->
+                            <div>
+                                <div class="ui pointing label"
+                                     style="background: transparent; color: #999; padding: 0.2em 0;">
+                                    Datetime in RFC3339 format.
+                                </div>
+                            </div>
+                            <!-- /ko -->
+                            <!-- /ko -->
+                        </div>
+                        <!-- /ko -->
+
+                        <!-- Object group header (for nested structs) -->
+                        <!-- ko if: isObject -->
+                        <div class="field" data-bind="style: { marginLeft: (depth * 1.5) + 'em' }">
+                            <div>
+                                <b><span data-bind="text: label"></span></b>
+                                <span style="color: #999; font-weight: normal; font-size: 0.85em;"
+                                      data-bind="text: ' (object) '"></span>
+                            </div>
+                            <div class="ui pointing label"
+                                 style="background: transparent; color: #999; padding: 0.2em 0;"
+                                 data-bind="text: description"></div>
+                        </div>
+                        <!-- /ko -->
+                        <!-- /ko -->
+                    </form>
+                    <!-- /ko -->
+
+                    <!-- Usage snippets -->
+                    <div class="ui secondary pointing menu" style="margin-bottom: 0;">
+                        <!-- ko foreach: ['curl', 'python', 'javascript', 'httpie'] -->
+                        <a class="item"
+                           data-bind="text: $data,
+                                      css: { active: $parent.usageTab() === $data },
+                                      click: function() { $parent.usageTab($data); }"></a>
+                        <!-- /ko -->
+                        <div class="right menu">
+                            <a class="item" data-bind="click: $parents[1].copyUsage.bind($parents[1], $data)">
+                                <i class="copy outline icon"></i>
+                                Copy
+                            </a>
+                        </div>
+                    </div>
+                    <pre style="background: #2b2b2b; color: #f0f0f0; padding: 1em; border-radius: 0 0 3px 3px;
+                                overflow-x: auto; font-size: 0.85em; margin: 0; max-height: 480px;"
+                         data-bind="text: $parents[1].renderUsage($data)"></pre>
+
+                    <!-- Responses -->
+                    <!-- ko if: responses.length > 0 -->
+                    <h3 class="ui dividing header">Response Codes</h3>
+                    <table class="ui very compact celled table" style="margin-bottom: 1em;">
+                        <thead>
+                        <tr>
+                            <th style="width: 80px;">Status</th>
+                            <th>Description</th>
+                        </tr>
+                        </thead>
+                        <tbody data-bind="foreach: responses">
+                        <tr>
+                            <td style="text-align: center;">
+                                <span class="ui mini label"
+                                      data-bind="text: code,
+                                                 css: {
+                                                     teal:   code === '200' || code === '202',
+                                                     orange: code.charAt(0) === '4',
+                                                     red:    code.charAt(0) === '5'
+                                                 }"></span>
+                            </td>
+                            <td style="color: #666; font-size: 0.9em;" data-bind="text: description"></td>
+                        </tr>
+                        </tbody>
+                    </table>
+
+                    <!-- 200 response body details -->
+                    <!-- ko foreach: responses -->
+                    <!-- ko if: fields.length > 0 && code === '200' -->
+                    <h3 class="ui dividing header">Response Parameters</h3>
+                    <table class="ui very compact celled table" style="margin-bottom: 1em;">
+                        <thead>
+                        <tr>
+                            <th>Field</th>
+                            <th>Type</th>
+                            <th>Description</th>
+                        </tr>
+                        </thead>
+                        <tbody data-bind="foreach: fields">
+                        <tr>
+                            <td style="white-space: nowrap;">
+                                <span data-bind="style: { paddingLeft: (depth * 1.2) + 'em' }"></span>
+                                <!-- ko if: depth > 0 -->
+                                <i class="tiny angle right icon" style="color: #ccc;"></i>
+                                <!-- /ko -->
+                                <span data-bind="text: name"></span>
+                            </td>
+                            <td style="color: #666; font-family: monospace; font-size: 0.88em;"
+                                data-bind="text: typeLabel"></td>
+                            <td style="color: #666; font-size: 0.9em;" data-bind="text: description"></td>
+                        </tr>
+                        </tbody>
+                    </table>
+                    <!-- /ko -->
+                    <!-- ko if: code === '200' && schema -->
+                    <h3 class="ui dividing header">Response Example</h3>
+                    <pre style="background: #2b2b2b; color: #f0f0f0; padding: 0.8em 1em; border-radius: 3px;
+                                overflow-x: auto; font-size: 0.82em; margin: 0 0 1em 0; max-height: 360px;"
+                         data-bind="text: $parents[2].buildExampleResponse($data)"></pre>
+                    <!-- /ko -->
+                    <!-- /ko -->
+                    <!-- /ko -->
+
+                </div>
+                <!-- /ko -->
+
+            </div>
+            <!-- /ko -->
+
+        </div>
+    </div>
+
+    <!-- /ko -->
+
+</div>

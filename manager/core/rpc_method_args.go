@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2024.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -11,19 +11,31 @@
 package core
 
 import (
+	"time"
+
 	"github.com/siemens/Large-Scale-Discovery/manager/database"
 	"github.com/siemens/Large-Scale-Discovery/utils"
-	"time"
 )
 
-type ArgsScopeFull struct {
-	PrivilegeSecret string
-	ScopeSecret     string
+type ArgsDbServerId struct {
+	DbServerId uint64
 }
 
-type ArgsScopeByIdFull struct {
-	PrivilegeSecret string
-	ScopeId         uint64
+type ArgsDatabaseDetails struct {
+	DbServerId uint64 // The ID of the database server to edit
+	Name       string
+	Dialect    string
+	Host       string
+	HostPublic string
+	Port       int
+	Admin      string
+	Password   string
+	Args       string
+}
+
+type ArgsScopeFull struct {
+	SecretPrivilege string // Token granting the privilege to query full scope details (sensitive). Checked per-call by GetScopeFull.
+	ScopeSecret     string
 }
 
 type ArgsScopeId struct {
@@ -40,6 +52,7 @@ type ArgsScopeDetails struct {
 	GroupId         uint64
 	CreatedBy       string
 	Type            string        // There might be different scope types in the future, e.g. initialized via remote repositories
+	OtSettings      bool          // Whether the scan scope should be created as an OT discovery scope (zero input targets, special scan settings, agent auto-detects subnets)
 	Cycles          bool          // Whether scan scope should run in cycles
 	CyclesRetention int           // Amount of previous scan cycles to keep. Older ones will be cleaned up.
 	Attributes      utils.JsonMap // Key value pairs of scan scope attributes to update
@@ -60,6 +73,12 @@ type ArgsTargetsUpdate struct {
 	Blocking      bool                   // Whether to wait for update result
 }
 
+type ArgsScopeTargetUpdateOt struct {
+	IdTScanScopes uint64 // The ID of the scan scope to update
+	Input         string
+	InputSize     uint
+}
+
 type ArgsTargetReset struct {
 	ScopeId uint64 // The ID of the scan scope to update target in
 	Input   string
@@ -67,11 +86,12 @@ type ArgsTargetReset struct {
 
 type ArgsSettingsUpdate struct {
 	IdTScanScopes uint64 // The ID of the scan scope to update
-	ScanSettings  database.T_scan_settings
+	ScanSettings  database.T_scan_setting
 }
 
-type ArgsStatsUpdate struct {
+type ArgsUpdateScopeStats struct {
 	ScanAgents map[uint64][]database.T_scan_agent
+	ScopeStats map[uint64]utils.JsonMap
 }
 
 type ArgsViewDetails struct {
@@ -119,4 +139,11 @@ type ArgsRevokeGrants struct {
 
 type ArgsAgentId struct {
 	AgentId uint64
+}
+
+type ArgsSqlLogCreate database.T_sql_log
+
+type ArgsSqlLogsFilter struct {
+	DbName string
+	Since  time.Time
 }

@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2024.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -12,21 +12,24 @@ package core
 
 import (
 	"fmt"
+	"time"
+
 	"github.com/siemens/GoScans/banner"
 	"github.com/siemens/GoScans/discovery"
 	"github.com/siemens/GoScans/nfs"
+	"github.com/siemens/GoScans/nuclei"
 	"github.com/siemens/GoScans/smb"
 	"github.com/siemens/GoScans/ssh"
 	"github.com/siemens/GoScans/ssl"
+	"github.com/siemens/GoScans/utils"
 	"github.com/siemens/GoScans/webcrawler"
 	"github.com/siemens/GoScans/webenum"
 	"github.com/siemens/Large-Scale-Discovery/agent/config"
 	"github.com/siemens/Large-Scale-Discovery/log"
-	"time"
 )
 
 // Setup executes the setup functions of required scan modules in order to prepare the system for scanning.
-func Setup() (error, string) {
+func Setup() (string, error) {
 
 	// Get tagged logger
 	logger := log.GetLogger().Tagged("Setup")
@@ -37,57 +40,63 @@ func Setup() (error, string) {
 	// Setup Banner
 	errBanner := banner.Setup(logger)
 	if errBanner != nil {
-		return errBanner, banner.Label
+		return banner.Label, errBanner
 	}
 
 	// Setup Discovery
 	errNmap := discovery.Setup(logger, conf.Paths.NmapDir, conf.Paths.Nmap)
 	if errNmap != nil {
-		return errNmap, discovery.Label
+		return discovery.Label, errNmap
 	}
 
 	// Setup Nfs
 	errNfs := nfs.Setup(logger)
 	if errNfs != nil {
-		return errNfs, nfs.Label
+		return nfs.Label, errNfs
+	}
+
+	// Setup Nuclei
+	errNuclei := nuclei.Setup(logger, pathNucleiTemplatesFolder)
+	if errNuclei != nil {
+		return nuclei.Label, errNuclei
 	}
 
 	// Setup Smb
 	errSmb := smb.Setup(logger)
 	if errSmb != nil {
-		return errSmb, smb.Label
+		return smb.Label, errSmb
 	}
 
 	// Setup Ssh
 	errSsh := ssh.Setup(logger)
 	if errSsh != nil {
-		return errSsh, ssh.Label
+		return ssh.Label, errSsh
 	}
 
 	// Setup Ssl
 	errSsl := ssl.Setup(logger)
 	if errSsl != nil {
-		return errSsl, ssl.Label
+		return ssl.Label, errSsl
 	}
 
 	// Setup Webcrawler
 	errWebcrawler := webcrawler.Setup(logger)
 	if errWebcrawler != nil {
-		return errWebcrawler, webcrawler.Label
+		return webcrawler.Label, errWebcrawler
 	}
 
 	// Setup Webenum
 	errWebenum := webenum.Setup(logger)
 	if errWebenum != nil {
-		return errWebenum, webenum.Label
+		return webenum.Label, errWebenum
 	}
 
 	// Return nil as everything went fine
-	return nil, ""
+	return "", nil
 }
 
 // CheckSetup tests whether the setup functions of requires scan modules were executed successfully.
-func CheckSetup() (error, string) {
+func CheckSetup(logger utils.Logger) (string, error) {
 
 	// Get config
 	conf := config.GetConfig()
@@ -95,80 +104,85 @@ func CheckSetup() (error, string) {
 	// Run Banner setup test
 	errBanner := banner.CheckSetup()
 	if errBanner != nil {
-		return errBanner, banner.Label
+		return banner.Label, errBanner
 	}
 
 	// Run Nfs setup test
 	errNfs := nfs.CheckSetup()
 	if errNfs != nil {
-		return errNfs, nfs.Label
+		return nfs.Label, errNfs
+	}
+
+	// Run Nuclei setup test
+	errNuclei := nuclei.CheckSetup(logger, pathNucleiTemplatesFolder)
+	if errNuclei != nil {
+		return nuclei.Label, errNuclei
 	}
 
 	// Run Smb setup test
 	errSmb := smb.CheckSetup()
 	if errSmb != nil {
-		return errSmb, smb.Label
+		return smb.Label, errSmb
 	}
 
 	// Run Discovery setup test
 	errNmap := discovery.CheckSetup(conf.Paths.NmapDir, conf.Paths.Nmap)
 	if errNmap != nil {
-		return errNmap, discovery.Label
+		return discovery.Label, errNmap
 	}
 
 	// Run Ssh setup test
 	errSsh := ssh.CheckSetup()
 	if errSsh != nil {
-		return errSsh, ssh.Label
+		return ssh.Label, errSsh
 	}
 
 	// Run Ssl setup test
 	errSsl := ssl.CheckSetup()
 	if errSsl != nil {
-		return errSsl, ssl.Label
+		return ssl.Label, errSsl
 	}
 
 	// Run Webcrawler setup test
 	errWebcrawler := webcrawler.CheckSetup()
 	if errWebcrawler != nil {
-		return errWebcrawler, webcrawler.Label
+		return webcrawler.Label, errWebcrawler
 	}
 
 	// Run Webenum setup test
 	errWebenum := webenum.CheckSetup()
 	if errWebenum != nil {
-		return errWebenum, webenum.Label
+		return webenum.Label, errWebenum
 	}
 
 	// Return nil as everything went fine
-	return nil, ""
+	return "", nil
 }
 
 // CheckConfig tests current configuration values by trying to initialize scan modules with them. This allows to
 // discover invalid configurations at startup, instead of during runtime. Dynamic target arguments are replaced by
 // dummy data.
-func CheckConfig() error {
+func CheckConfig(logger utils.Logger) error {
 
 	// Dummy scan target arguments
-	dummyLogger := log.GetLogger().Tagged("CheckConfig")
 	dummyTarget := "127.0.0.1"
 	dummyPort := 0
 	dummyOtherNames := []string{"a", "b"}
 	dummyNetworkTimeout := time.Second * 0
-	dummyHttpUserAgent := "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:112.0) Gecko/20100101 Firefox/112.0"
+	dummyHttpUserAgent := "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0"
 
 	// Get config
 	conf := config.GetConfig()
 
 	// Run Banner test
-	_, errBanner := banner.NewScanner(dummyLogger, dummyTarget, dummyPort, "tcp", dummyNetworkTimeout, dummyNetworkTimeout)
+	_, errBanner := banner.NewScanner(logger, dummyTarget, dummyPort, "tcp", dummyNetworkTimeout, dummyNetworkTimeout)
 	if errBanner != nil {
 		return fmt.Errorf("'%s': %s", banner.Label, errBanner)
 	}
 
 	// Run Discovery test
-	_, errNmap := discovery.NewScanner(
-		dummyLogger,
+	nmap, errNmap := discovery.NewScanner(
+		logger,
 		[]string{dummyTarget},
 		conf.Paths.Nmap,
 		[]string{
@@ -192,13 +206,14 @@ func CheckConfig() error {
 			"vmware-version,tls-ticketbleed,smb2-time,smb2-security-mode,smb2-capabilities,smb-vuln-ms17-010,smb-double-pulsar-backdoor,openwebnet-discovery,Http-vuln-cve2017-1001000,Http-security-headers,Http-cookie-flags,ftp-syst,cics-info",
 		},
 		true,
-		[]string{instanceIp}, // Exclude local IP from scans, scan would have extended privileges discovering content that isn't visible from the outside
+		[]string{instanceInfo.Ip}, // Exclude local IP from scans, scan would have extended privileges discovering content that isn't visible from the outside
 		conf.Modules.Discovery.BlacklistFile,
 		[]string{".local", "sub1.local", "sub2.local", "third-party.com"},
 		conf.Modules.Discovery.LdapServer,
 		conf.Authentication.Ldap.Domain,
 		conf.Authentication.Ldap.User,
 		conf.Authentication.Ldap.Password,
+		conf.Authentication.Ldap.DisableGssapi,
 		nil,
 		dummyNetworkTimeout,
 	)
@@ -206,9 +221,17 @@ func CheckConfig() error {
 		return fmt.Errorf("'%s': %s", discovery.Label, errNmap)
 	}
 
+	// Enable OT discovery
+	for _, otInterface := range conf.OtInterfaces {
+		errOt := nmap.EnableOtScanner(otInterface)
+		if errOt != nil {
+			return fmt.Errorf("'%s': %s", discovery.Label, errOt)
+		}
+	}
+
 	// Run NFS test
 	_, errNfs := nfs.NewScanner(
-		dummyLogger,
+		logger,
 		dummyTarget,
 		3,
 		3,
@@ -224,15 +247,37 @@ func CheckConfig() error {
 		return fmt.Errorf("'%s': %s", nfs.Label, errNfs)
 	}
 
+	// Run Nuclei test
+	_, errNuclei := nuclei.NewScanner(
+		logger,
+		dummyTarget,
+		&dummyPort,
+		pathNucleiTemplatesFolder,
+		"info",
+		"",
+		[]string{},
+		[]string{"xss"},
+		[]string{},
+		[]string{},
+		"dns",
+		"",
+		"test_user",
+		"test_password",
+		"",
+	)
+	if errNuclei != nil {
+		return fmt.Errorf("'%s': %s", nuclei.Label, errNuclei)
+	}
+
 	// Run Ssh test
-	_, errSsh := ssh.NewScanner(dummyLogger, dummyTarget, dummyPort, dummyNetworkTimeout)
+	_, errSsh := ssh.NewScanner(logger, dummyTarget, dummyPort, dummyNetworkTimeout)
 	if errSsh != nil {
 		return fmt.Errorf("'%s': %s", ssh.Label, errSsh)
 	}
 
 	// Prepare os-specific trust store for Ssl module
 	if len(conf.Modules.Ssl.CustomTruststoreFile) == 0 {
-		errGenOsTruststore := generateTruststoreOs(SslOsTruststoreFile)
+		errGenOsTruststore := generateTruststoreOs(pathSslOsTruststoreFile)
 		if errGenOsTruststore != nil {
 			return fmt.Errorf("'%s': %s", ssl.Label, errGenOsTruststore)
 		}
@@ -240,7 +285,7 @@ func CheckConfig() error {
 
 	// Run Webcrawler test
 	_, errWebcrawler := webcrawler.NewScanner(
-		dummyLogger,
+		logger,
 		dummyTarget,
 		dummyPort,
 		dummyOtherNames,
@@ -264,7 +309,7 @@ func CheckConfig() error {
 
 	// Run Webenum test
 	_, errWebenum := webenum.NewScanner(
-		dummyLogger,
+		logger,
 		dummyTarget,
 		dummyPort,
 		dummyOtherNames,
@@ -272,7 +317,7 @@ func CheckConfig() error {
 		conf.Authentication.Webenum.Domain,
 		conf.Authentication.Webenum.User,
 		conf.Authentication.Webenum.Password,
-		WebenumProbesFile,
+		pathWebenumProbesFile,
 		true,
 		dummyHttpUserAgent,
 		"",

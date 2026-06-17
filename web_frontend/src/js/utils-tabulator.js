@@ -29,7 +29,11 @@ function tabulatorFilterDatetime(headerValue, rowValue, rowData, filterParams) {
 /*
  * Tabulator configuration for scan scope target editor
  */
-function targetsTableConfig(targetsJson, fnToggleEditState, fnDataChanged, fnInputReset) {
+function targetsTableConfig(targetsJson, fnToggleEditState, fnDataChanged, fnInputReset, fnIsOtMode) {
+
+    var isOtMode = function () {
+        return typeof fnIsOtMode === "function" && fnIsOtMode();
+    };
 
     var fnMaintainEmptyRow = function (table) {
         var data = table.getData();
@@ -73,7 +77,7 @@ function targetsTableConfig(targetsJson, fnToggleEditState, fnDataChanged, fnInp
     }
 
     var fnCellEdited = function (cell) {
-        fnToggleEditState();
+        if (fnToggleEditState) fnToggleEditState();
         fnMaintainEmptyRow(cell.getTable());
     };
 
@@ -192,6 +196,14 @@ function targetsTableConfig(targetsJson, fnToggleEditState, fnDataChanged, fnInp
         button.classList.add("copy");
         button.classList.add("outline");
         button.classList.add("icon");
+
+        // Fomantic tooltip attributes
+        button.setAttribute("data-content", "Use the clipboard to copy this table between here and Excel. You can use CTRL+V to paste your Excel changes back here.");
+        button.setAttribute("data-position", "top center");
+        button.setAttribute("data-variation", "tiny wide");
+        onRendered(function () {
+            $(button).popup();
+        });
 
         // Keep reference to table
         var self = this;
@@ -338,8 +350,10 @@ function targetsTableConfig(targetsJson, fnToggleEditState, fnDataChanged, fnInp
         maxHeight: 300,
         headerSort: false,
         data: targetsJson,
-        cellEditing: fnToggleEditState,
-        cellEditCancelled: fnToggleEditState,
+        cellEditing: fnToggleEditState || function () {
+        },
+        cellEditCancelled: fnToggleEditState || function () {
+        },
         cellEdited: fnCellEdited,
         dataChanged: fnDataChanged,
         columns: [
@@ -371,7 +385,23 @@ function targetsTableConfig(targetsJson, fnToggleEditState, fnDataChanged, fnInp
                 width: 120,
                 headerFilter: true, headerFilterPlaceholder: "Filter...",
                 editor: "input",
-                formatter: fnInputCheck,
+                editable: function (cell) {
+                    return !isOtMode();
+                },
+                formatter: function (cell, formatterParams, onRendered) {
+                    if (isOtMode()) {
+                        var val = cell.getValue();
+                        if (val && val.trim() !== "") {
+                            cell.getElement().style.color = "#999";
+                            return val;
+                        }
+                        cell.getElement().style.color = "#999";
+                        return "Network auto-detected by the agent";
+                    }
+                    cell.getElement().style.color = "";
+                    cell.getElement().style.fontStyle = "";
+                    return fnInputCheck(cell, formatterParams, onRendered);
+                },
             },
             {
                 field: 'enabled',

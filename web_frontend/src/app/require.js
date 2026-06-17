@@ -2,6 +2,7 @@ var require = {
     baseUrl: "../src",
     paths: {
         "utils-app": "./js/utils-app",
+        "utils-api": "./js/utils-api",
         "utils-tabulator": "./js/utils-tabulator",
         "globals": "./app/globals",
         "crossroads": "../node_modules/crossroads/dist/crossroads.min",
@@ -34,7 +35,7 @@ var require = {
 
     shim: {
         "globals": {
-            deps: ["utils-app", "utils-tabulator"]
+            deps: ["utils-app", "utils-api", "utils-tabulator"]
         },
         "crossroads": {
             deps: ["signals"]

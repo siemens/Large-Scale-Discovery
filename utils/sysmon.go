@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -12,18 +12,25 @@ package utils
 
 import (
 	"context"
-	"github.com/shirou/gopsutil/v3/cpu"
-	"github.com/shirou/gopsutil/v3/host"
-	"github.com/shirou/gopsutil/v3/mem"
 	"time"
+
+	"github.com/shirou/gopsutil/v4/cpu"
+	"github.com/shirou/gopsutil/v4/host"
+	"github.com/shirou/gopsutil/v4/mem"
 )
 
 type SystemData struct {
 	Platform        string  `json:"platform"`
 	PlatformFamily  string  `json:"platform_family"`
 	PlatformVersion string  `json:"platform_version"`
-	CpuRate         float64 `json:"cpu_rate"`
-	MemoryRate      float64 `json:"memory_rate"`
+	CpuCores        int     `json:"cpu_cores"`
+	CpuMhz          float64 `json:"cpu_mhz"`
+	CpuRate         float64 `json:"cpu_rate"` // Usage in %
+	MemoryBytes     uint64  `json:"memory_bytes"`
+	MemoryRate      float64 `json:"memory_rate"` // Usage in %
+	VersionNmap     string  `json:"version_nmap"`
+	VersionNpcap    string  `json:"version_npcap"`
+	VersionSslyze   string  `json:"version_sslyze"`
 }
 
 type SystemMonitor struct {
@@ -53,19 +60,39 @@ func NewSystemMonitor(ctxParent context.Context) *SystemMonitor {
 // Run launches the system utilization monitor
 func (sm *SystemMonitor) Run(interval time.Duration) {
 
+	// Read static hardware characteristics once; these do not change across measurements
+	cpuCores, _ := cpu.Counts(true)
+	cpuInfos, errCpuInfo := cpu.Info()
+	memStatic, errMemStatic := mem.VirtualMemory()
+
+	// Extract CPU frequency
+	var cpuMhz float64
+	if errCpuInfo == nil && len(cpuInfos) > 0 {
+		cpuMhz = cpuInfos[0].Mhz
+	}
+
+	// Extract memory size
+	var memoryBytes uint64
+	if errMemStatic == nil {
+		memoryBytes = memStatic.Total
+	}
+
 	// Define measurement procedure
 	fnUpdate := func() {
 
 		// Get system information
 		platform, family, version, _ := host.PlatformInformation()
 
-		// Prepare memory for new measurement
+		// Prepare memory for new measurement; static hardware fields are included in every snapshot
 		measurement := SystemData{
 			Platform:        platform,
 			PlatformFamily:  family,
 			PlatformVersion: version,
 			CpuRate:         0,
 			MemoryRate:      0,
+			CpuCores:        cpuCores,
+			CpuMhz:          cpuMhz,
+			MemoryBytes:     memoryBytes,
 		}
 
 		// Measure for x amount of time (blocking)
@@ -77,11 +104,11 @@ func (sm *SystemMonitor) Run(interval time.Duration) {
 		}
 
 		// Get system memory usage
-		m, errMem := mem.VirtualMemory()
+		vmem, errMem := mem.VirtualMemory()
 		if errMem != nil {
 			measurement.MemoryRate = -1
 		} else {
-			measurement.MemoryRate = m.UsedPercent
+			measurement.MemoryRate = vmem.UsedPercent
 		}
 
 		// Update latest measurement data

@@ -1,0 +1,28 @@
+<div class="fourteen wide column">
+
+    <!-- ko if: actionComponent -->
+    <!-- ko component: { name: actionComponent, params: { parent: $data, args: actionArgs() } } --><!-- /ko -->
+    <!-- /ko -->
+
+    <div id="divDatabases">
+        <h2 class="ui dividing header">
+            Databases
+            <span data-html="This section lists database servers that can be used to store scan scopes on. The servers might belong to different customers. They can only be removed again if there are no remaining scan scopes stored on them."
+                  data-position="right center" data-variation="tiny wide">
+                <i class="small question circle outline icon" style="margin-right: 0;"></i>
+            </span>
+        </h2>
+
+        <div style="display: none">
+            <div id="divDataGridDatabases"></div>
+            <div class="ui teal right floated buttons">
+                <button class="ui button" type="button" data-bind="click: showDatabaseAdd"><i class="plus icon"></i>
+                    Database
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="two wide column right aligned"
+     data-bind='component: { name: "nav-side", params: { sideNavItems: sideNavItems }  }'></div>

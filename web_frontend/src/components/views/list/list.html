@@ -46,7 +46,7 @@
                 <th style="width: 150px;">Scope</th>
                 <th style="width: 180px;">Filter</th>
                 <th style="width: 310px;">Users</th>
-                <th class="no-sort" style="width:1%;"></th>
+                <th class="no-sort" style="min-width: 45px; width:160px;"></th>
             </tr>
             </thead>
             <tbody>
@@ -95,7 +95,8 @@
                     <div class="ui tiny horizontal label">No Users</div>
                 </td>
                 <!-- /ko -->
-                <td class="right aligned" style="background-color: #f9fafb; white-space:nowrap;">
+                <td class="right aligned" style="background-color: #f9fafb;">
+                    <div style="display: flex; flex-wrap: wrap; gap: 2px; justify-content: right">
                     <button class="ui teal mini icon button" type="button" data-tooltip="Edit"
                             data-position="top center"
                             data-variation="tiny"
@@ -120,6 +121,7 @@
                             data-bind="click: function(data, event) { $parents[1].deleteView(data, event)}">
                         <i class="trash alternate outline icon"></i>
                     </button>
+                    </div>
                 </td>
             </tr>
             <!-- /ko -->

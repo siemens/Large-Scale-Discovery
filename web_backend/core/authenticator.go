@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2024.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -12,13 +12,14 @@ package core
 
 import (
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/golang-jwt/jwt/v5"
 	scanUtils "github.com/siemens/GoScans/utils"
 	manager "github.com/siemens/Large-Scale-Discovery/manager/core"
 	"github.com/siemens/Large-Scale-Discovery/web_backend/config"
 	"github.com/siemens/Large-Scale-Discovery/web_backend/database"
-	"strings"
-	"time"
 )
 
 var authenticators []Authenticator                // List of registered authenticators to be initialized
@@ -42,7 +43,7 @@ func EntryUrl(authenticatingEmail string) string {
 
 	// Get default authenticator
 	if !hasAuthenticator {
-		authenticator, _ = authenticatorsLookup[""]
+		authenticator = authenticatorsLookup[""]
 	}
 
 	// Return authenticator's redirect URL if set
@@ -138,7 +139,7 @@ func authenticatorAllowed(userEmail string, authenticator Authenticator) error {
 	}
 
 	// Don't allow other than the default authenticator, if there is no dedicated authenticator
-	defaultAuthenticator, _ := authenticatorsLookup[""]
+	defaultAuthenticator := authenticatorsLookup[""]
 	if !hasDedicated && authenticator != defaultAuthenticator {
 		return fmt.Errorf("authenticator not responsible for '%s'", userEmail)
 	}
@@ -151,21 +152,48 @@ func authenticatorAllowed(userEmail string, authenticator Authenticator) error {
 // user struct.
 // Returns userError, if something is wrong with the user.
 // Returns internalError, if something else went wrong.
-func doLogin(logger scanUtils.Logger, user *database.T_user) (errUser, errInternal error) {
-
+func doLogin(
+	logger scanUtils.Logger,
+	user *database.T_user,
+	allowedDepartments []string,
+	vhost string,
+) (errUser, errInternal error) {
 	// Do some plausibility check
 	if user == nil || user.Email == "" || user.Id == 0 || user.Company == "" || user.Created.IsZero() {
-		return nil, fmt.Errorf("broken user struct")
+		return nil, fmt.Errorf("invalid user struct")
 	}
 
 	// Update attributes
 	user.LastLogin = time.Now()
 
+	// Check if user is member of an allowed company department
+	if len(allowedDepartments) > 0 {
+
+		// Check if user should be considered demo user currently
+		demo := true
+		for _, dep := range allowedDepartments {
+			dep = strings.ToUpper(dep)
+			depUser := strings.ToUpper(user.Department)
+			if depUser == dep || strings.HasPrefix(depUser, dep+" ") {
+				demo = false
+			}
+		}
+
+		// Revoke potentially active sessions and API token if user switches to demo user
+		if !user.Demo && demo {
+			user.LogoutCount += 1
+			user.ApiTokenRevision += 1
+		}
+
+		// Flip demo flag of user if necessary
+		user.Demo = demo
+	}
+
 	// Save updated attributes. Additional attributes outside of this function may have been updated by a loader
 	// plugin, so save should update all user attributes, except the sensitive/internal ones (ID, e-mail, password,
 	// admin, db password). A loader may also have set a user to inactive.
 	_, errSave := user.Save(
-		"ssoid", "company", "department", "last_login", "active", "name", "surname", "gender", "certificate")
+		"company", "department", "last_login", "active", "name", "surname", "gender", "demo", "certificate")
 	if errSave != nil {
 		return nil, errSave
 	}
@@ -184,7 +212,7 @@ func doLogin(logger scanUtils.Logger, user *database.T_user) (errUser, errIntern
 	}
 
 	// Log event
-	errEvent := database.NewEvent(user, database.EventLogin, "")
+	errEvent := database.NewEvent(user, database.EventLogin, vhost)
 	if errEvent != nil {
 		logger.Errorf("Could not create event log: %s", errEvent)
 		return nil, errEvent
@@ -194,7 +222,7 @@ func doLogin(logger scanUtils.Logger, user *database.T_user) (errUser, errIntern
 	return nil, nil
 }
 
-// createJwt generates a JWT access token for a given user
+// createJwt generates a JWT web access token for a given user
 func createJwt(userId uint64, revision uint) (string, time.Time) {
 
 	// Get config
@@ -212,6 +240,35 @@ func createJwt(userId uint64, revision uint) (string, time.Time) {
 		},
 		UserId:   userId,
 		Revision: revision, // Tag is not a secret
+		Kind:     JwtKindWeb,
+	}
+
+	// Sign JWT token
+	// ATTENTION: The signed token is NOT encrypted, it's just encoded and whatever is contained can be
+	//            recovered/read by the client!
+	token := jwt.NewWithClaims(jwt.GetSigningMethod(jwtAlgorithm), tk)
+	tokenSigned, _ := token.SignedString([]byte(jwtSecret))
+
+	// Return generated token
+	return tokenSigned, expires
+}
+
+// CreateApiJwt generates a long-lived JWT API access token for a given user
+func CreateApiJwt(userId uint64, apiRevision uint, expiryApi time.Duration) (string, time.Time) {
+
+	// Define token expiry
+	expires := time.Now().Add(expiryApi)
+
+	// Prepare JWT token
+	tk := &Jwt{
+		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			NotBefore: jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(expires),
+		},
+		UserId:   userId,
+		Revision: apiRevision,
+		Kind:     JwtKindApi,
 	}
 
 	// Sign JWT token

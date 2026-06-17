@@ -1,0 +1,63 @@
+<!-- ko template: {afterRender: initTimespan } -->
+<div class="timespan" style="display: flex; gap: 0; align-items: center;margin-bottom: 5px; ">
+    <div style="flex: 1;">
+
+        <div class="start_day ui  mini dropdown labeled icon button"
+             style="border: 0.05em solid lightgray; width: 11em; height:30px;">
+            <i class="hourglass start icon"></i>
+            <span class="text">Weekday</span>
+            <div class="menu">
+                <div class="item" data-value="1">Monday</div>
+                <div class="item" data-value="2">Tuesday</div>
+                <div class="item" data-value="3">Wednesday</div>
+                <div class="item" data-value="4">Thursday</div>
+                <div class="item" data-value="5">Friday</div>
+                <div class="item" data-value="6">Saturday</div>
+                <div class="item" data-value="0">Sunday</div>
+            </div>
+        </div>
+
+    </div>
+    <div style="flex: 1; margin-top: 5px; margin-right: 1rem;">
+
+        <div class="start_time ui mini calendar input left icon" style="border-radius: 0.28571429rem; height:30px;">
+            <i class="clock icon"></i>
+            <label for="inputStartTime"></label>
+            <input id="inputStartTime" type="text" placeholder="Start">
+        </div>
+
+    </div>
+    <div style="flex: 1;">
+
+        <div class="end_day ui mini dropdown labeled icon button"
+             style="border: 0.05em solid lightgray; width: 11em;; height:30px;">
+            <i class="hourglass end icon"></i>
+            <span class="text">Weekday</span>
+            <div class="menu">
+                <div class="item" data-value="1">Monday</div>
+                <div class="item" data-value="2">Tuesday</div>
+                <div class="item" data-value="3">Wednesday</div>
+                <div class="item" data-value="4">Thursday</div>
+                <div class="item" data-value="5">Friday</div>
+                <div class="item" data-value="6">Saturday</div>
+                <div class="item" data-value="0">Sunday</div>
+            </div>
+        </div>
+
+    </div>
+    <div style="flex: 1; margin-top: 5px; margin-right: 1rem;">
+
+        <div class="end_time ui mini calendar input left icon" style="border-radius: 0.28571429rem; height:30px;">
+            <i class="clock icon"></i>
+            <label for="inputEndTime"></label>
+            <input id="inputEndTime" type="text" placeholder="End">
+        </div>
+
+    </div>
+    <div style="width: 15px; margin-right: 15px;" data-tooltip="Remove" data-position="right center"
+         data-variation="mini">
+        <i class="trash alternate outline icon"
+           data-bind="click: function(data, event) { $parents[1].removeTimespan(data, event)}"></i>
+    </div>
+</div>
+<!-- /ko -->

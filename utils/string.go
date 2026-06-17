@@ -11,6 +11,7 @@
 package utils
 
 import (
+	"regexp"
 	"strings"
 )
 
@@ -41,15 +42,6 @@ func RemoveFromSlice(list []string, s string) []string {
 	return retList
 }
 
-// ToSlice splits a string by separator. In contrast to Golang's own split function, this one returns an empty slice
-// if the input string was empty. Golang's original function would return a slice with one entry being an empty string.
-func ToSlice(s, sep string) []string {
-	if len(s) == 0 {
-		return []string{}
-	}
-	return strings.Split(s, sep)
-}
-
 // ValidUtf8String returns a valid utf-8 string by replacing all invalid byte sequences with a hardcoded replacement
 // character. Additionally, it gets rid of trailing null bytes and replaces none-trailing null bytes.
 func ValidUtf8String(str string) string {
@@ -74,4 +66,74 @@ func ToValidUtf8String(b []byte) string {
 	// Insert a '�' for the invalid runes (aka. utf8.RuneError), remove trailing null bytes and replace none-trailing
 	// null bytes with "•".
 	return ValidUtf8String(str)
+}
+
+// SanitizeCommaSeparated normalizes user-provided text into a clean and beautified comma-separated string.
+// The comma separated values have a single whitespace after each comma, for beautified display and automatic
+// line breaks in graphical interfaces.
+//
+// It performs the following sanitization steps:
+//   - Replaces carriage returns, newlines, and tabs with commas
+//   - Removes whitespace surrounding commas
+//   - Collapses multiple consecutive commas into a single comma
+//   - Removes leading and trailing commas and whitespaces
+//
+// Examples:
+//
+//	"foo bar,\n bar\tbaz"    -> "foo bar,bar,baz"
+//	",,,foo , bar,,,"   -> "foo,bar"
+func SanitizeCommaSeparated(val string) string {
+
+	// Normalize line breaks/tabs into commas
+	val = strings.ReplaceAll(val, "\r", ",")
+	val = strings.ReplaceAll(val, "\n", ",")
+	val = strings.ReplaceAll(val, "\t", ",")
+
+	// Normalize spaces around commas
+	var spaceCommaRe = regexp.MustCompile(`\s*,\s*`)
+	val = spaceCommaRe.ReplaceAllString(val, ",")
+
+	// Collapse duplicate commas
+	var multiCommaRe = regexp.MustCompile(`,+`)
+	val = multiCommaRe.ReplaceAllString(val, ",")
+
+	// Remove leading/trailing commas
+	val = strings.Trim(val, ",")
+
+	// Remove leading/trailing spaces
+	val = strings.Trim(val, " ")
+
+	// Beautify into string with one nice space after a comma
+	vals := strings.Split(val, ",")
+	val = strings.Join(vals, ", ")
+
+	// Return result
+	return val
+}
+
+// SanitizeToSlice splits a string by separator and sanitizes single values by triming spaces.
+// Returns an empty slice if the input string was empty.
+// Golang's original function would return a slice with one entry being an empty string.
+func SanitizeToSlice(s, sep string) []string {
+
+	// Return empty slice if string is empty
+	if len(s) == 0 {
+		return []string{}
+	}
+
+	// Split by comma
+	parts := strings.Split(s, sep)
+
+	// Trim spaces that might have been used to beautify the comma separated string
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		result = append(result, p)
+	}
+
+	// Return result
+	return result
 }

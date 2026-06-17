@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -12,6 +12,7 @@ package utils
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -19,18 +20,16 @@ import (
 func UniqueInts(elements []int) []int {
 
 	// Use map to record duplicates as we find them.
-	encountered := map[int]bool{}
-	var result []int
+	var encountered = make(map[int]bool, len(elements))
+	var result = make([]int, 0, len(elements))
 
 	// Iterate elements and add them to the new slice if they were not seen before
-	for v := range elements {
-		if encountered[elements[v]] == true {
+	for _, v := range elements {
+		if encountered[v] {
 			// Do not add duplicate.
 		} else {
-			// Record this element as an encountered element.
-			encountered[elements[v]] = true
-			// Append to result slice.
-			result = append(result, elements[v])
+			encountered[v] = true      // Record this element as an encountered element.
+			result = append(result, v) // Append to result slice.
 		}
 	}
 
@@ -88,4 +87,33 @@ func JoinInt(ints []int, delimiter string) string {
 // JoinUint64 converts a slice of int64's into strings and concatenates them using the given delimiter
 func JoinUint64(uints []uint64, delimiter string) string {
 	return strings.Trim(strings.Join(strings.Split(fmt.Sprint(uints), " "), delimiter), "[]")
+}
+
+// GetIntValue safely converts an interface to int
+func GetIntValue(val interface{}) int {
+
+	// Handle nil case
+	if val == nil {
+		return 0
+	}
+
+	// Try to convert based on type
+	switch v := val.(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	case string:
+
+		// Parse string to integer
+		intVal, err := strconv.Atoi(v)
+		if err != nil {
+			return 0
+		}
+		return intVal
+	default:
+		return 0
+	}
 }

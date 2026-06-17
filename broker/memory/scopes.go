@@ -11,7 +11,7 @@
 package memory
 
 import (
-	cmap "github.com/orcaman/concurrent-map/v2"
+	"github.com/orcaman/concurrent-map/v2"
 	managerdb "github.com/siemens/Large-Scale-Discovery/manager/database"
 )
 

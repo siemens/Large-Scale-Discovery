@@ -1,0 +1,17 @@
+{
+  "web_frontend/src/components/agents/agents.html:82": {
+    "justification": "values escaped via escapeHtml() before concatenation"
+  },
+  "web_frontend/src/components/agents/agents.html:99": {
+    "justification": "values escaped via escapeHtml() before concatenation"
+  },
+  "web_frontend/src/components/views/granted/granted.html:72": {
+    "justification": "trusted timestamp string from moment().format()"
+  },
+  "web_frontend/src/components/scopes/list/list.html:74": {
+    "justification": "trusted timestamp string from moment().format()"
+  },
+  "web_frontend/src/components/scopes/list/list.html:112": {
+    "justification": "values escaped via escapeHtml() before concatenation"
+  }
+}

@@ -31,7 +31,7 @@
                 <th style="width: 76px;">Type</th>
                 <th style="width: 74px;">Config</th>
                 <th style="width: 150px;">Cycle Progress</th>
-                <th class="no-sort" style="width:1%;"></th>
+                <th class="no-sort" style="min-width: 90px; width:268px;"></th>
             </tr>
             </thead>
             <tbody>
@@ -61,6 +61,13 @@
                        data-position="top center" data-variation="tiny">
                         <i class="eraser icon"></i>
                     </i>
+                    <!-- ko if: type === 'custom' -->
+                    &nbsp;
+                    <i class="icons" data-bind="style: { color: scan_settings.ot ? 'teal' : '#bbbbbb' }"
+                       data-tooltip="OT discovery mode" data-position="top center" data-variation="tiny">
+                        <i class="network wired icon"></i>
+                    </i>
+                    <!-- /ko -->
                     <!-- ko if: attributes.hasOwnProperty('sync') -->
                     &nbsp;
                     <i class="icons"
@@ -73,7 +80,41 @@
                 </td>
                 <td style="white-space:nowrap;"
                     data-bind="attr: {'data-sort-value': cycle_progress[0] + cycle_progress[1] + cycle_progress[2]}">
-                    <div data-bind="attr: { 'data-html': '<i class=\'icons\'><i class=\'bullseye icon\'></i></i> ' + new Intl.NumberFormat().format(size) + ' IPs</br><i class=\'icons\'><i class=\'bullseye icon\'></i><i class=\'bottom right corner calendar outline icon\'></i></i> ' + (moment(last_sync, datetimeFormatGolang).isBefore(moment('0001-01-02', 'YYYY-MM-DD')) ? '<i>Targets not synchronized</i>' : moment(last_sync, datetimeFormatGolang).format(datetimeFormat)) + '</br><i class=\'icons\'><i class=\'redo icon\'></i></i> Cycle ' + new Intl.NumberFormat().format(cycle) + '</br><i class=\'icons\'><i class=\'redo icon\'></i><i class=\'bottom right corner calendar outline icon\'></i></i> ' + moment(cycle_started, datetimeFormatGolang).format(dateFormat) + ' | ' +  (moment().diff(moment(cycle_started, datetimeFormatGolang), 'days') === 1 ? ' 1 day ago' : moment().diff(moment(cycle_started, datetimeFormatGolang), 'days') +' days ago')}"
+                    <!-- ko let: {
+                        tooltipIps: '<i class=\'icons\'><i class=\'bullseye icon\'></i></i> '
+                            + escapeHtml(new Intl.NumberFormat().format(size)) + ' IPs',
+                        tooltipSync: '<i class=\'icons\'><i class=\'bullseye icon\'></i>'
+                            + '<i class=\'bottom right corner calendar outline icon\'></i></i> '
+                            + (moment(last_sync, datetimeFormatGolang).isBefore(moment('0001-01-02', 'YYYY-MM-DD'))
+                                ? '<i>Targets not synchronized</i>'
+                                : escapeHtml(moment(last_sync, datetimeFormatGolang).format(datetimeFormat))),
+                        tooltipCycle: '<i class=\'icons\'><i class=\'redo icon\'></i></i> Cycle '
+                            + escapeHtml(new Intl.NumberFormat().format(cycle)),
+                        tooltipCycleStarted: '<i class=\'icons\'><i class=\'redo icon\'></i>'
+                            + '<i class=\'bottom right corner calendar outline icon\'></i></i> '
+                            + escapeHtml(moment(cycle_started, datetimeFormatGolang).format(dateFormat)) + ' | '
+                            + (moment().diff(moment(cycle_started, datetimeFormatGolang), 'days') === 1
+                                ? '1 day ago'
+                                : escapeHtml(moment().diff(moment(cycle_started, datetimeFormatGolang), 'days') + ' days ago')),
+                        tooltipQueue: Object.keys(cycle_queue).length > 0
+                            ? '<i class=\'icons\'><i class=\'tasks icon\'></i></i> Queued:'
+                                + '<table style=\'margin: 2px 0 0 0; width: 100%; border-collapse: collapse;\'>'
+                                + Object.entries(cycle_queue).map(function(e){
+                                    return '<tr>'
+                                        + '<td style=\'text-align: right; padding: 0 4px 0 0; width: 50%;\'>' + escapeHtml(e[1]) + '</td>'
+                                        + '<td style=\'text-align: left; padding: 0; width: 50%;\'>' + escapeHtml(e[0]) + '</td>'
+                                        + '</tr>'
+                                }).join('')
+                                + '</table>'
+                            : ''
+                    } -->
+                    <div data-bind="attr: {
+                            'data-html': tooltipIps + '</br>'
+                                + tooltipSync + '</br>'
+                                + tooltipCycle + '</br>'
+                                + tooltipCycleStarted
+                                + (tooltipQueue ? '</br>' + tooltipQueue : '')
+                         }"
                          data-position="top center" data-variation="tiny">
                         <div class="ui small multiple progress" style="margin: 0;"
                              data-total="100"
@@ -89,8 +130,10 @@
                             </div>
                         </div>
                     </div>
+                    <!-- /ko -->
                 </td>
-                <td class="right aligned" style="background-color: #f9fafb; white-space:nowrap;">
+                <td class="right aligned" style="background-color: #f9fafb;">
+                    <div style="display: flex; flex-wrap: wrap; gap: 2px; justify-content: right">
                     <button class="ui teal mini icon button" type="button" data-tooltip="Scan Targets"
                             data-position="top center"
                             data-variation="tiny"
@@ -102,6 +145,12 @@
                             data-variation="tiny"
                             data-bind="click: function(data, event) { $parents[1].showScopeSettings(data, event)}">
                         <i class="wrench icon"></i>
+                    </button>
+                        <button class="ui teal mini icon button" type="button" data-tooltip="Rescan Failed Targets"
+                                data-position="top center"
+                                data-variation="tiny"
+                                data-bind="click: function(data, event) { $parents[1].rescanFailedTargets(data, event)}">
+                            <i class="reply all icon"></i>
                     </button>
                     <button class="ui teal mini icon button" type="button" data-tooltip="New Scan Cycle"
                             data-position="top center"
@@ -133,6 +182,7 @@
                             data-bind="click: function(data, event) { $parents[1].deleteScope(data, event)}">
                         <i class="trash alternate outline icon"></i>
                     </button>
+                    </div>
                 </td>
             </tr>
             <!-- /ko -->

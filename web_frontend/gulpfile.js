@@ -36,8 +36,10 @@ requireJsOptimizerConfig = merge(requireJsRuntimeConfig, {
         'pages/configuration/views/views',
         'pages/admin/users/users',
         'pages/admin/groups/groups',
+        'pages/admin/databases/databases',
+        'pages/admin/logs/logs',
         'pages/installation/installation',
-        'pages/profile/profile',
+        'pages/api/api',
         'components/activity/activity',
         'components/agents/agents',
         'components/charts/access/access',
@@ -45,12 +47,14 @@ requireJsOptimizerConfig = merge(requireJsRuntimeConfig, {
         'components/footer/footer',
         'components/groups/add/add',
         'components/groups/owners/owners',
-        'components/nav-side/nav-side',
-        'components/nav-top/nav-top',
+        'components/nav/nav-side',
+        'components/nav/nav-top',
+        'components/databases/add/add',
         'components/scopes/list/list',
         'components/scopes/add/custom/custom',
         'components/scopes/add/assets/assets',
         'components/scopes/add/networks/networks',
+        'components/scopes/settings/timespan/timespan',
         'components/scopes/settings/settings',
         'components/views/list/list',
         'components/views/add/add',
@@ -174,8 +178,19 @@ gulp.task('clean', function () {
         .pipe(clean());
 });
 
+gulp.task('lint:data-html', function () {
+    return new Promise(function (resolve, reject) {
+        try {
+            execSync('node scripts/lint-data-html.js', {stdio: 'inherit'});
+            resolve();
+        } catch (e) {
+            reject(new Error('data-html lint failed'));
+        }
+    });
+});
+
 // Runs a default set of tasks
-gulp.task('build', gulp.series('fonts', 'js', 'uglify', 'img', 'css', 'assemble', 'html', 'audit'));
+gulp.task('build', gulp.series('lint:data-html', 'fonts', 'js', 'uglify', 'img', 'css', 'assemble', 'html', 'audit'));
 
 // Sets up a webserver with live reload for development
 gulp.task('webserver', function () {
