@@ -18,9 +18,8 @@ import (
 	"sync"
 )
 
-// Settings necessary for some unit tests
-var settings *Settings
-var once sync.Once
+var settings *Settings // Settings necessary for some unit tests
+var once sync.Once     // Ensures test settings are loaded once
 
 type Settings struct {
 	LdapHost     string // LDAP host to test LDAP queries with
@@ -62,9 +61,9 @@ func GetSettings() *Settings {
 		///////////////////////////////////////////////////////////////////////
 
 		// Changes working directory to the bin folder.
-		err := os.Chdir(workingDir)
-		if err != nil {
-			panic(fmt.Sprintf("could not set working directory for unit tests: %s", err))
+		errChdir := os.Chdir(workingDir)
+		if errChdir != nil {
+			panic(fmt.Sprintf("could not set working directory for unit tests: %s", errChdir))
 		}
 
 		// Create a new instance of the unit test settings, that might need to be adapted before running unit tests

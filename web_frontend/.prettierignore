@@ -1,0 +1,9 @@
+dist/
+node_modules/
+tests/artifacts/
+.cache/
+.repo-edits/
+.agents/
+package-lock.json
+*.tsbuildinfo
+public/img/*.pdn

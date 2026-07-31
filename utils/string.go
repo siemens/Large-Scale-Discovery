@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2025.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -111,9 +111,9 @@ func SanitizeCommaSeparated(val string) string {
 	return val
 }
 
-// SanitizeToSlice splits a string by separator and sanitizes single values by triming spaces.
+// SanitizeToSlice splits a string by separator and sanitizes single values by trimming spaces.
 // Returns an empty slice if the input string was empty.
-// Golang's original function would return a slice with one entry being an empty string.
+// Go's original function would return a slice with one entry being an empty string.
 func SanitizeToSlice(s, sep string) []string {
 
 	// Return empty slice if string is empty

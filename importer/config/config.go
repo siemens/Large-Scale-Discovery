@@ -13,115 +13,34 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
-	"sync"
 
-	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/Large-Scale-Discovery/_build"
 	"github.com/siemens/Large-Scale-Discovery/log"
+	"github.com/siemens/Large-Scale-Discovery/utils/config"
 	"go.uber.org/zap/zapcore"
 )
 
-var importerConfig = &ImporterConfig{} // Global configuration
-var importerConfigLock sync.Mutex      // Lock required to avoid simultaneous requesting/updating of config
+// configImporter stores the loaded importer configuration
+var configImporter = config.NewConfig[Importer]()
 
-// Init initializes the configuration module and loads a JSON configuration. If JSON is not existing, a default
-// configuration will be generated.
-func Init(configFile string) error {
-	if errFile := scanUtils.IsValidFile(configFile); errFile != nil {
-		defaultConf := defaultImporterConfigFactory()
-		errSave := Save(&defaultConf, configFile)
-		if errSave != nil {
-			return fmt.Errorf("could not initialize configuration in '%s': %s", configFile, errSave)
-		} else {
-			return fmt.Errorf("no configuration, created default in '%s'", configFile)
-		}
-	} else {
-		errLoad := Load(configFile)
-		if errLoad != nil {
-			return errLoad
-		} else {
-			return nil
-		}
-	}
-}
+// Init initializes the configuration module and loads a JSON configuration. If the file does not exist, a default
+// configuration is generated.
+func Init(confPath string) error { return configImporter.Init(confPath, defaultImporterConfigFactory) }
 
-// Load reads a configuration from a file, de-serializes it and sets it as the global configuration
-func Load(path string) error {
+// Load reads a configuration from a file, deserializes it, and sets it as the global configuration.
+func Load(confPath string) error { return configImporter.Load(confPath) }
 
-	// Lock global config before initializing an update
-	importerConfigLock.Lock()
-	defer importerConfigLock.Unlock()
+// Set sets a passed configuration as the global configuration.
+func Set(conf *Importer) { configImporter.Set(conf) }
 
-	// Prepare new config, don't work on the global values
-	newConfig := &ImporterConfig{}
-
-	// Read file content
-	rawJson, errLoad := os.ReadFile(path)
-	if errLoad != nil {
-		return errLoad
-	}
-
-	// Parse JSON
-	errUnmarshal := json.Unmarshal(rawJson, newConfig)
-	if errUnmarshal != nil {
-		return errUnmarshal
-	}
-
-	// Replace global configuration with new one
-	importerConfig = newConfig
-
-	// Return nil to indicate successful config update
-	return nil
-}
-
-// Set sets a passed configuration as the global configuration
-func Set(conf *ImporterConfig) {
-
-	// Lock global config before initializing an update
-	importerConfigLock.Lock()
-	defer importerConfigLock.Unlock()
-
-	// Replace global configuration with new one
-	importerConfig = conf
-}
-
-// Save serializes a given configuration and writes it to a file
-func Save(conf *ImporterConfig, path string) error {
-
-	// Lock global config, because the given config pointer might be the global config
-	importerConfigLock.Lock()
-	defer importerConfigLock.Unlock()
-
-	// Serialize to JSON
-	file, errMarshal := json.MarshalIndent(conf, "", "    ")
-	if errMarshal != nil {
-		return errMarshal
-	}
-
-	// Write JSON to file
-	errWrite := os.WriteFile(path, file, 0644)
-	if errWrite != nil {
-		return errWrite
-	}
-
-	// Return nil to indicate successful storage
-	return nil
-}
+// Save serializes a given configuration and writes it to a file.
+func Save(conf *Importer, path string) error { return configImporter.Save(conf, path) }
 
 // GetConfig returns a pointer to the current global configuration.
-func GetConfig() *ImporterConfig {
+func GetConfig() *Importer { return configImporter.Get() }
 
-	// The global configuration might get updated regularly to allow user updating settings without aborting scans
-	importerConfigLock.Lock()
-	defer importerConfigLock.Unlock()
-
-	// Return current global configuration
-	return importerConfig
-}
-
-func defaultImporterConfigFactory() ImporterConfig {
+func defaultImporterConfigFactory() Importer {
 
 	// Prepare default logging settings and adapt for importer
 	logging := log.DefaultLogSettingsFactory()
@@ -136,12 +55,12 @@ func defaultImporterConfigFactory() ImporterConfig {
 	}
 
 	// Generate importer config with default values
-	conf := ImporterConfig{
+	conf := Importer{
 		ManagerAddress: "localhost:2222",
-		ManagerSsl:     true, // Encrypted endpoint be used, unless within a secure network or with a TLS load balancer is in front.
+		ManagerSsl:     true, // TLS should remain enabled unless a trusted network or TLS terminator protects the connection.
 		ManagerSecret:  managerSecret,
 		Logging:        logging,
-		Importer:       map[string]interface{}{ // Flexible map of arguments as needed by integrated importers
+		Inventory:      map[string]interface{}{ // Flexible map of arguments as needed by integrated inventory sources
 		},
 	}
 
@@ -153,26 +72,26 @@ func defaultImporterConfigFactory() ImporterConfig {
 // JSON structure of configuration
 //
 
-type ImporterConfig struct {
-	// The root configuration object tying all configuration segments together.
+// Importer is the root configuration object tying all importer settings together.
+type Importer struct {
 	ManagerAddress string                 `json:"manager_address"`
-	ManagerSsl     bool                   `json:"manager_ssl"`    // Encrypted endpoint be used, unless within a secure network or with a TLS load balancer is in front.
+	ManagerSsl     bool                   `json:"manager_ssl"`    // TLS should remain enabled unless a trusted network or TLS terminator protects the connection.
 	ManagerSecret  string                 `json:"manager_secret"` // Token to authorize RPC connections to invoke manager RPC methods.
 	Logging        log.Settings           `json:"logging"`
-	Importer       map[string]interface{} `json:"importer"` // Arbitrary arguments passed to importers. Flexible for own importer integrations.
+	Inventory      map[string]interface{} `json:"inventory"` // Arbitrary arguments passed to importers. Flexible for own inventory integrations.
 }
 
 // UnmarshalJSON reads a JSON file, validates values and populates the configuration struct
-func (c *ImporterConfig) UnmarshalJSON(b []byte) error {
+func (conf *Importer) UnmarshalJSON(b []byte) error {
 
 	// Prepare temporary auxiliary data structure to load raw JSON data
-	type aux ImporterConfig
+	type aux Importer
 	var raw aux
 
 	// Unmarshal serialized JSON into temporary auxiliary structure
-	err := json.Unmarshal(b, &raw)
-	if err != nil {
-		return err
+	errUnmarshal := json.Unmarshal(b, &raw)
+	if errUnmarshal != nil {
+		return errUnmarshal
 	}
 
 	// Do input validation
@@ -181,7 +100,7 @@ func (c *ImporterConfig) UnmarshalJSON(b []byte) error {
 	}
 
 	// Copy loaded JSON values to actual config
-	*c = ImporterConfig(raw)
+	*conf = Importer(raw)
 
 	// Return nil as everything is valid
 	return nil

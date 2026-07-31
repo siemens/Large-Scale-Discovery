@@ -34,16 +34,16 @@ func TestConnectionHandshake(t *testing.T) {
 		var buf bytes.Buffer
 
 		// Client side: encode the secret, then append bytes simulating the subsequent net/rpc stream
-		if err := gob.NewEncoder(&buf).Encode(secret); err != nil {
-			t.Fatalf("encode handshake (len=%d) failed: %v", len(secret), err)
+		if errEncode := gob.NewEncoder(&buf).Encode(secret); errEncode != nil {
+			t.Fatalf("encode handshake (len=%d) failed: %v", len(secret), errEncode)
 		}
 		trailing := "RPC-STREAM-FOLLOWS"
 		buf.WriteString(trailing)
 
 		// Server side: decode through the unbuffered byteReader over a non-ByteReader source, exactly as ServeRpc does
 		var got string
-		if err := gob.NewDecoder(byteReader{readerOnly{&buf}}).Decode(&got); err != nil {
-			t.Fatalf("decode handshake (len=%d) failed: %v", len(secret), err)
+		if errDecode := gob.NewDecoder(byteReader{readerOnly{&buf}}).Decode(&got); errDecode != nil {
+			t.Fatalf("decode handshake (len=%d) failed: %v", len(secret), errDecode)
 		}
 		if got != secret {
 			t.Fatalf("handshake mismatch: got len %d, want len %d", len(got), len(secret))

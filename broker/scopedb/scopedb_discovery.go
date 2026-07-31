@@ -19,9 +19,10 @@ import (
 
 	"github.com/siemens/GoScans/discovery"
 	scanUtils "github.com/siemens/GoScans/utils"
-	"github.com/siemens/Large-Scale-Discovery/broker/brokerdb"
+	"github.com/siemens/Large-Scale-Discovery/broker/database"
 	manager "github.com/siemens/Large-Scale-Discovery/manager/core"
 	managerdb "github.com/siemens/Large-Scale-Discovery/manager/database"
+	"github.com/siemens/Large-Scale-Discovery/manager/scopedb"
 	"github.com/siemens/Large-Scale-Discovery/utils"
 	"gorm.io/gorm"
 )
@@ -29,34 +30,34 @@ import (
 // GetBlockDiscoveryTargets queries the database for new discovery scan targets and blocks them
 func GetBlockDiscoveryTargets(
 	logger scanUtils.Logger,
-	scanScope *managerdb.T_scan_scope,
+	scopeEntry *managerdb.T_scan_scope,
 	amount int,
 	timezonesActive []int, // List of timezone currently relevant (within configured working hours)
 	scanIp string,
 	scanHostname string,
-) ([]managerdb.T_discovery, error) {
+) ([]scopedb.T_discovery, error) {
 
 	// Return if no timezones suite the current configuration
 	if len(timezonesActive) == 0 {
 		logger.Infof("No timezones within the configured working hours.")
-		return []managerdb.T_discovery{}, nil
+		return []scopedb.T_discovery{}, nil
 	}
 
 	// Open scope's database
-	scopeDb, errHandle := managerdb.GetScopeDbHandle(logger, scanScope)
-	if errHandle != nil {
-		return nil, fmt.Errorf("could not open scope database: %s", errHandle)
+	scopeDb, errScopeDb := scopedb.GetScopeDbHandle(logger, scopeEntry)
+	if errScopeDb != nil {
+		return nil, fmt.Errorf("could not open scope database: %s", errScopeDb)
 	}
 
 	// Prepare memory for result
-	var targets []managerdb.T_discovery
+	var targetEntries []scopedb.T_discovery
 
-	// Start transaction on the scoped db. The new Transaction function will commit if the provided function
+	// Start transaction on the scope database. The new Transaction function will commit if the provided function
 	// returns nil and rollback if an error is returned.
 	errTx := scopeDb.Transaction(func(txScopeDb *gorm.DB) error {
 
 		// Search for new targets
-		query := txScopeDb.Model(&managerdb.T_discovery{}).
+		query := txScopeDb.Model(&scopedb.T_discovery{}).
 			Where("scan_started IS NULL"). // Not active elements only
 			Where("enabled IS TRUE")       // Enabled elements only
 
@@ -70,15 +71,15 @@ func GetBlockDiscoveryTargets(
 			Limit(amount)
 
 		// Execute query
-		errDb := query.Find(&targets).Error
+		errDb := query.Find(&targetEntries).Error
 		if errDb != nil {
-			logger.Errorf("Could not query targets from scope db: %s", errDb)
+			logger.Errorf("Could not query targets from scope database: %s", errDb)
 			return errDb
 		}
 
 		// Block targets
-		for _, target := range targets {
-			errUpdate := blockDiscoveryTarget(txScopeDb, target.Id, scanIp, scanHostname)
+		for _, targetEntry := range targetEntries {
+			errUpdate := blockDiscoveryTarget(txScopeDb, targetEntry.Id, scanIp, scanHostname)
 			if errUpdate != nil {
 				logger.Errorf("Could not update discovery target: %s", errUpdate)
 				return errUpdate
@@ -95,7 +96,7 @@ func GetBlockDiscoveryTargets(
 	}
 
 	// Return selected targets
-	return targets, nil
+	return targetEntries, nil
 }
 
 // SaveDiscoveryResult parses a discovery scan result and writes it into the database. Subsequently, it passes results
@@ -104,7 +105,7 @@ func GetBlockDiscoveryTargets(
 func SaveDiscoveryResult(
 	logger scanUtils.Logger,
 	rpcClient *utils.Client,
-	scanScope *managerdb.T_scan_scope,
+	scopeEntry *managerdb.T_scan_scope,
 	idTDiscovery uint64, // T_discovery ID (not T_discovery_services!!), this result belongs to
 	result *discovery.Result,
 	resultSubnets []string, // During OT discovery scanning, scan targets are selected by the scan agent and taken from the local network interfaces. The data is then fed back to the broker for display.
@@ -115,13 +116,13 @@ func SaveDiscoveryResult(
 	logger.Debugf("Saving discovery scan result.")
 
 	// Open scope's database
-	scopeDb, errHandle := managerdb.GetScopeDbHandle(logger, scanScope)
-	if errHandle != nil {
-		return fmt.Errorf("could not open scope database: %s", errHandle)
+	scopeDb, errScopeDb := scopedb.GetScopeDbHandle(logger, scopeEntry)
+	if errScopeDb != nil {
+		return fmt.Errorf("could not open scope database: %s", errScopeDb)
 	}
 
 	// Prepare list of potential submodule scan targets to add later
-	var potentialSubTargets []*brokerdb.T_sub_input
+	var subTargetEntriesPotential []*database.T_sub_input
 
 	// Note time for timing measurement
 	start := time.Now()
@@ -129,7 +130,7 @@ func SaveDiscoveryResult(
 	// Prepare services counter for log messages
 	services := 0
 
-	// Start transaction on the scoped db. The new Transaction function will commit if the provided function
+	// Start transaction on the scope database. The new Transaction function will commit if the provided function
 	// returns nil and rollback if an error is returned.
 	errTx := scopeDb.Transaction(func(txScopeDb *gorm.DB) error {
 
@@ -137,21 +138,21 @@ func SaveDiscoveryResult(
 		logger.Debugf("Querying discovery target data.")
 
 		// Prepare memory for result
-		var inputTarget = managerdb.T_discovery{}
+		var targetEntry = scopedb.T_discovery{}
 
 		// Get data from t_discovery which needs to replicated into t_discovery_hosts/t_discovery_services/t_discovery_scripts
-		errDb := txScopeDb.Model(&inputTarget).
+		errDb := txScopeDb.Model(&targetEntry).
 			Where("id = ?", idTDiscovery).
-			First(&inputTarget).Error
+			First(&targetEntry).Error
 		if errors.Is(errDb, gorm.ErrRecordNotFound) { // Check if entry didn't exist
 			logger.Infof("Discovery target %d does not exist anymore. Dropping result.", idTDiscovery)
 			return nil
 		} else if errDb != nil {
-			return fmt.Errorf("could not query metadata from scope db: %s", errDb)
+			return fmt.Errorf("could not query metadata from scope database: %s", errDb)
 		}
 
 		// Drop scan result if the scan input entry was reset (e.g. to initiate a fresh scan)
-		if !inputTarget.ScanStarted.Valid {
+		if !targetEntry.ScanStarted.Valid {
 			logger.Infof("Discovery target %d was reset. Dropping result.", idTDiscovery)
 			return nil
 		}
@@ -162,7 +163,7 @@ func SaveDiscoveryResult(
 		// location information, etc.
 		// The input column in t_discovery and the scan scope entry in t_scan_scopes now needs to be
 		// back-filled with data fed back by the agent.
-		if scanScope.ScanSettings.Ot {
+		if scopeEntry.ScanSettings.Ot {
 
 			// Log action
 			logger.Debugf("Back-filling OT input data.")
@@ -179,21 +180,21 @@ func SaveDiscoveryResult(
 
 			// Set input and input size based on scan results. This values also need to be updated in this
 			// struct for later use, when they are copied into scan result columns.
-			inputTarget.Input = strings.Join(resultSubnets, ",")
-			inputTarget.InputSize = size
+			targetEntry.Input = strings.Join(resultSubnets, ",")
+			targetEntry.InputSize = size
 
-			// Update scan scope details in t_discovery (scopedb) and t_scan_scopes (managerdb) via the manager.
+			// Update scan scope details in t_discovery (scopedb) and t_scan_scopes (manager database) via the manager.
 			errRpc := manager.RpcUpdateScopeTargetOt(
 				logger,
 				rpcClient,
-				scanScope.Id,
-				inputTarget.Input,
-				inputTarget.InputSize,
+				scopeEntry.Id,
+				targetEntry.Input,
+				targetEntry.InputSize,
 			)
 			if errors.Is(errRpc, utils.ErrRpcConnectivity) {
-				logger.Warningf("Could not back-fill OT input data into scan scope '%s' (ID %d), manager not reachable.", scanScope.Name, scanScope.Id)
+				logger.Warningf("Could not back-fill OT input data into scan scope '%s' (ID %d), manager not reachable.", scopeEntry.Name, scopeEntry.Id)
 			} else if errRpc != nil {
-				logger.Errorf("Could not back-fill OT input data into scan scope '%s' (ID %d): %s", scanScope.Name, scanScope.Id, errRpc)
+				logger.Errorf("Could not back-fill OT input data into scan scope '%s' (ID %d): %s", scopeEntry.Name, scopeEntry.Id, errRpc)
 			}
 		}
 
@@ -203,11 +204,11 @@ func SaveDiscoveryResult(
 			Valid: true,
 		}
 
-		// Prepare entry slices. We need a slice of pointers for the hostEntries, as we need the same reference
+		// Prepare entry slices. We need a slice of pointers for the discoveryHostEntries, as we need the same reference
 		// in order to set it in the respective service and script entries.
-		hostEntries := make([]*managerdb.T_discovery_host, 0, len(result.Data))
-		serviceEntries := make([]managerdb.T_discovery_service, 0, 10)
-		scriptEntries := make([]managerdb.T_discovery_script, 0, 10)
+		discoveryHostEntries := make([]*scopedb.T_discovery_host, 0, len(result.Data))
+		discoveryServiceEntries := make([]scopedb.T_discovery_service, 0, 10)
+		discoveryScriptEntries := make([]scopedb.T_discovery_script, 0, 10)
 
 		// Iterate hosts and prepare hosts/services/script database entries
 		for _, hostResult := range result.Data {
@@ -230,7 +231,7 @@ func SaveDiscoveryResult(
 			}
 
 			// Create structs that are the same for host, service and script entries
-			columnsHost := managerdb.ColumnsHost{
+			columnsHost := scopedb.ColumnsHost{
 				Address:    utils.ValidUtf8String(address),
 				Ip:         utils.ValidUtf8String(hostResult.Ip),
 				DnsName:    utils.ValidUtf8String(hostResult.DnsName),
@@ -239,9 +240,9 @@ func SaveDiscoveryResult(
 				Critical:   critical,
 				MacAddress: utils.ValidUtf8String(hostResult.MacAddress),
 				Hops:       utils.ValidUtf8String(strings.Join(hostResult.Hops, DbValueSeparator)),
-				ScanCycle:  scanScope.Cycle,
+				ScanCycle:  scopeEntry.Cycle,
 			}
-			columnsOs := managerdb.ColumnsOs{
+			columnsOs := scopedb.ColumnsOs{
 				OsGuess:    utils.ValidUtf8String(strings.Join(hostResult.OsGuesses, DbValueSeparator)),
 				OsSmb:      utils.ValidUtf8String(hostResult.OsSmb),
 				OsLastBoot: sql.NullTime{Time: hostResult.LastBoot, Valid: true},
@@ -252,40 +253,40 @@ func SaveDiscoveryResult(
 				OsAdminUsers: utils.ValidUtf8String(strings.Join(hostResult.AdminUsers, DbValueSeparator)),
 				OsRdpUsers:   utils.ValidUtf8String(strings.Join(hostResult.RdpUsers, DbValueSeparator)),
 			}
-			columnsAsset := managerdb.ColumnsAsset{
+			columnsAsset := scopedb.ColumnsAsset{
 				AssetCompany:    utils.ValidUtf8String(hostResult.Company),
 				AssetDepartment: utils.ValidUtf8String(hostResult.Department),
 				AssetOwner:      utils.ValidUtf8String(hostResult.Owner),
 			}
-			columnsScan := managerdb.ColumnsScan{
-				ScanStarted:  inputTarget.ScanStarted,
+			columnsScan := scopedb.ColumnsScan{
+				ScanStarted:  targetEntry.ScanStarted,
 				ScanFinished: finished,
 				ScanStatus:   result.Status,
-				ScanIp:       inputTarget.ScanIp,
-				ScanHostname: inputTarget.ScanHostname,
+				ScanIp:       targetEntry.ScanIp,
+				ScanHostname: targetEntry.ScanHostname,
 			}
-			columnsInput := managerdb.ColumnsInput{
-				Input:     inputTarget.Input,
-				InputSize: inputTarget.InputSize,
+			columnsInput := scopedb.ColumnsInput{
+				Input:     targetEntry.Input,
+				InputSize: targetEntry.InputSize,
 			}
-			columnsInputDetails := managerdb.ColumnsInputDetails{
-				Timezone:           inputTarget.Timezone,
-				Lat:                inputTarget.Lat,
-				Lng:                inputTarget.Lng,
-				PostalAddress:      inputTarget.PostalAddress,
-				InputNetwork:       inputTarget.InputNetwork,
-				InputCountry:       inputTarget.InputCountry,
-				InputLocation:      inputTarget.InputLocation,
-				InputRoutingDomain: inputTarget.InputRoutingDomain,
-				InputZone:          inputTarget.InputZone,
-				InputPurpose:       inputTarget.InputPurpose,
-				InputCompany:       inputTarget.InputCompany,
-				InputDepartment:    inputTarget.InputDepartment,
-				InputManager:       inputTarget.InputManager,
-				InputContact:       inputTarget.InputContact,
-				InputComment:       inputTarget.InputComment,
+			columnsInputDetails := scopedb.ColumnsInputDetails{
+				Timezone:           targetEntry.Timezone,
+				Lat:                targetEntry.Lat,
+				Lng:                targetEntry.Lng,
+				PostalAddress:      targetEntry.PostalAddress,
+				InputNetwork:       targetEntry.InputNetwork,
+				InputCountry:       targetEntry.InputCountry,
+				InputLocation:      targetEntry.InputLocation,
+				InputRoutingDomain: targetEntry.InputRoutingDomain,
+				InputZone:          targetEntry.InputZone,
+				InputPurpose:       targetEntry.InputPurpose,
+				InputCompany:       targetEntry.InputCompany,
+				InputDepartment:    targetEntry.InputDepartment,
+				InputManager:       targetEntry.InputManager,
+				InputContact:       targetEntry.InputContact,
+				InputComment:       targetEntry.InputComment,
 			}
-			columnsAd := managerdb.ColumnsAd{
+			columnsAd := scopedb.ColumnsAd{
 				AdName:                 utils.ValidUtf8String(hostResult.Ad.Name),
 				AdDistinguishedName:    utils.ValidUtf8String(hostResult.Ad.DistinguishedName),
 				AdDnsName:              utils.ValidUtf8String(hostResult.Ad.Name),
@@ -305,7 +306,7 @@ func SaveDiscoveryResult(
 			// Prepare host entry
 			// Fields used from this entry that are supposed to be set by the DB and are used by the service or script
 			// entries need to be pointers to be set correctly! See the ID reference as an example
-			tDiscoveryHost := &managerdb.T_discovery_host{
+			tDiscoveryHost := &scopedb.T_discovery_host{
 				IdTDiscovery:        idTDiscovery, // Associate the fk
 				ColumnsHost:         columnsHost,
 				PortsOpen:           len(hostResult.Services),
@@ -316,7 +317,7 @@ func SaveDiscoveryResult(
 				ColumnsInputDetails: columnsInputDetails,
 				ColumnsAd:           columnsAd,
 			}
-			hostEntries = append(hostEntries, tDiscoveryHost)
+			discoveryHostEntries = append(discoveryHostEntries, tDiscoveryHost)
 
 			// Increment counter
 			services += len(hostResult.Services)
@@ -346,7 +347,7 @@ func SaveDiscoveryResult(
 				}
 
 				// Prepare service entry
-				serviceEntries = append(serviceEntries, managerdb.T_discovery_service{
+				discoveryServiceEntries = append(discoveryServiceEntries, scopedb.T_discovery_service{
 					ColumnsHost:         columnsHost,
 					Port:                serviceResult.Port,
 					Protocol:            serviceResult.Protocol,
@@ -380,7 +381,7 @@ func SaveDiscoveryResult(
 				)
 
 				// Prepare script entry
-				scriptEntries = append(scriptEntries, managerdb.T_discovery_script{
+				discoveryScriptEntries = append(discoveryScriptEntries, scopedb.T_discovery_script{
 					ColumnsHost:         columnsHost,
 					Port:                scriptResult.Port,
 					Protocol:            scriptResult.Protocol,
@@ -404,52 +405,52 @@ func SaveDiscoveryResult(
 		// first create the service/script entries. In this case gorm would:
 		// - insert service/script, detect that the corresponding hosts are not existing
 		// - create the missing hosts (correctly) according to the host struct in the service/script
-		// - try to create the hosts from the hostEntries slice again
+		// - try to create the hosts from the discoveryHostEntries slice again
 		// Empty slices would result in an error and we don't consider an empty slice an error, as there might simply
 		// be no results
-		if len(hostEntries) > 0 {
+		if len(discoveryHostEntries) > 0 {
 
 			// Use a new gorm session and force a limit on how many Entries can be batched, as we otherwise might
 			// exceed the database's limit of 65535 parameters
 			errDb2 := txScopeDb.
-				Session(&gorm.Session{CreateBatchSize: managerdb.MaxBatchSizeDiscoveryHost}).
-				Create(&hostEntries).Error
+				Session(&gorm.Session{CreateBatchSize: scopedb.MaxBatchSizeDiscoveryHost}).
+				Create(&discoveryHostEntries).Error
 			if errDb2 != nil {
 
 				// Rollback everything if we cannot insert something
-				return fmt.Errorf("could not insert host entry into scope db: %s", errDb2)
+				return fmt.Errorf("could not insert host entry into scope database: %s", errDb2)
 			}
 		}
 
 		// Create new entries for the service results. Empty slices would result in an error and we don't consider an
 		// empty slice an error, as there might simply be no results.
-		if len(serviceEntries) > 0 {
+		if len(discoveryServiceEntries) > 0 {
 
 			// Use a new gorm session and force a limit on how many Entries can be batched, as we otherwise might
 			// exceed the database's limit of 65535 parameters
 			errDb3 := txScopeDb.
-				Session(&gorm.Session{CreateBatchSize: managerdb.MaxBatchSizeDiscoveryService}).
-				Create(&serviceEntries).Error
+				Session(&gorm.Session{CreateBatchSize: scopedb.MaxBatchSizeDiscoveryService}).
+				Create(&discoveryServiceEntries).Error
 			if errDb3 != nil {
 
 				// Rollback everything if we cannot insert something
-				return fmt.Errorf("could not insert service entry into scope db: %s", errDb3) // Rollback everything if we cannot insert something
+				return fmt.Errorf("could not insert service entry into scope database: %s", errDb3) // Rollback everything if we cannot insert something
 			}
 		}
 
 		// Create new entries for the script results. Empty slices would result in an error and we don't consider an
 		// empty slice an error, as there might simply be no results.
-		if len(scriptEntries) > 0 {
+		if len(discoveryScriptEntries) > 0 {
 
 			// Use a new gorm session and force a limit on how many Entries can be batched, as we otherwise might
 			// exceed the database's limit of 65535 parameters
 			errDb4 := txScopeDb.
-				Session(&gorm.Session{CreateBatchSize: managerdb.MaxBatchSizeDiscoveryScript}).
-				Create(&scriptEntries).Error
+				Session(&gorm.Session{CreateBatchSize: scopedb.MaxBatchSizeDiscoveryScript}).
+				Create(&discoveryScriptEntries).Error
 			if errDb4 != nil {
 
 				// Rollback everything if we cannot insert something
-				return fmt.Errorf("could not insert script entry into scope db: %s", errDb4) // Rollback everything if we cannot insert something
+				return fmt.Errorf("could not insert script entry into scope database: %s", errDb4) // Rollback everything if we cannot insert something
 			}
 		}
 
@@ -457,16 +458,16 @@ func SaveDiscoveryResult(
 		logger.Debugf("Completing result.")
 		errCompletion := completeDiscoveryResult(logger, txScopeDb, idTDiscovery, finished.Time, result.Status)
 		if errCompletion != nil {
-			return fmt.Errorf("could not update associated discovery entry in scope db: %s", errCompletion)
+			return fmt.Errorf("could not update associated discovery entry in scope database: %s", errCompletion)
 		}
 
 		// Assemble the potential sub-targets, as the services now have valid IDs
-		// Attention: The sub-targets can only be committed/created after the scope db transaction got committed, to
-		// avoid race conditions, where submodule targets are started before parent entries are available in scope db.
-		for _, service := range serviceEntries {
+		// Attention: The sub-targets can only be committed/created after the scope database transaction got committed, to
+		// avoid race conditions, where submodule targets are started before parent entries are available in scope database.
+		for _, service := range discoveryServiceEntries {
 
 			// Create generic submodule target, which might be added to the cache for multiple submodules
-			potentialSubTargets = append(potentialSubTargets, &brokerdb.T_sub_input{
+			subTargetEntriesPotential = append(subTargetEntriesPotential, &database.T_sub_input{
 				IdTDiscoveryService: service.Id,
 				Timezone:            service.Timezone,
 				Address:             service.Address,
@@ -489,10 +490,10 @@ func SaveDiscoveryResult(
 		return errTx
 	}
 
-	// Add targets to brokerdb for submodule scans. brokerdb.AddScopeTargets() will only add necessary ones.
-	errAdd := brokerdb.AddScopeTargets(logger, scanScope, potentialSubTargets)
+	// Add targets to broker database for submodule scans. database.AddScopeTargets() will only add necessary ones.
+	errAdd := database.AddScopeTargets(logger, scopeEntry, subTargetEntriesPotential)
 	if errAdd != nil {
-		return fmt.Errorf("could not add submodule targets to broker db: %s", errAdd)
+		return fmt.Errorf("could not add submodule targets to broker database: %s", errAdd)
 	}
 
 	// Log benchmark, warn about longer inserts. If too many too long inserts happen, sqlite might not suffice anymore!
@@ -512,7 +513,7 @@ func blockDiscoveryTarget(
 ) (retErr error) {
 
 	// Update input entry with latest scan state information
-	db := txScopeDb.Model(&managerdb.T_discovery{}).
+	db := txScopeDb.Model(&scopedb.T_discovery{}).
 		Where("id = ?", inputId).
 		Updates(map[string]interface{}{
 			"scan_started":  time.Now(),
@@ -550,7 +551,7 @@ func completeDiscoveryResult(
 	}
 
 	// Update input entry with final scan state information
-	errDb := txScopeDb.Model(&managerdb.T_discovery{}).
+	errDb := txScopeDb.Model(&scopedb.T_discovery{}).
 		Where("id = ?", idTDiscovery).
 		Updates(values).
 		Update("scan_count", gorm.Expr("scan_count + ?", 1)).Error

@@ -12,15 +12,14 @@ package scopedb
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
 
-	"github.com/jackc/pgconn"
 	"github.com/siemens/GoScans/banner"
 	scanUtils "github.com/siemens/GoScans/utils"
 	managerdb "github.com/siemens/Large-Scale-Discovery/manager/database"
+	"github.com/siemens/Large-Scale-Discovery/manager/scopedb"
 	"github.com/siemens/Large-Scale-Discovery/utils"
 	"gorm.io/gorm"
 )
@@ -28,98 +27,26 @@ import (
 // PrepareBannerResults creates info entries in the database, if not existing, to indicate an active process.
 func PrepareBannerResults(
 	logger scanUtils.Logger,
-	scanScope *managerdb.T_scan_scope,
+	scopeEntry *managerdb.T_scan_scope,
 	idsTDiscoveryService []uint64,
 	scanStarted sql.NullTime,
 	scanIp string,
 	scanHostname string,
 	wg *sync.WaitGroup,
 ) {
-
-	// Log potential panics before letting them move on
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf(fmt.Sprintf("Panic: %s%s", r, scanUtils.StacktraceIndented("\t")))
-			panic(r)
-		}
-	}()
-
-	// Notify the WaitGroup that we're done
-	defer wg.Done()
-
-	// Log action
-	logger.Debugf("Preparing banner info entry.")
-
-	// Return if there were no results to be created
-	if len(idsTDiscoveryService) == 0 {
-		logger.Debugf("No discovery services for banner info entries provided.")
-		return
-	}
-
-	// Open scope's database
-	scopeDb, errHandle := managerdb.GetScopeDbHandle(logger, scanScope)
-	if errHandle != nil {
-		logger.Errorf("Could not open scope database: %s", errHandle)
-		return
-	}
-
-	// Iterate service IDs to create database info entries for
-	infoEntries := make([]managerdb.T_banner, 0, len(idsTDiscoveryService))
-	for _, idTDiscoveryService := range idsTDiscoveryService {
-
-		// Prepare info entry
-		infoEntries = append(infoEntries, managerdb.T_banner{
-			IdTDiscoveryService: idTDiscoveryService,
-			ColumnsScan: managerdb.ColumnsScan{
-				ScanStarted:  scanStarted,
-				ScanFinished: sql.NullTime{Valid: false},
-				ScanStatus:   scanUtils.StatusRunning,
-				ScanIp:       scanIp,
-				ScanHostname: scanHostname,
-			},
-		})
-	}
-
-	// Create info entries, if not yet existing. It might exist from a previous scan attempt (if the scan crashed).
-	// This check which is applied here is specific to postgres.
-	// Use a new gorm session and force a limit on how many Entries can be batched, as we otherwise might
-	// exceed the database's limit of 65535 parameters
-	errDb := scopeDb.
-		Session(&gorm.Session{CreateBatchSize: managerdb.MaxBatchSizeBanner}).
-		Create(&infoEntries).Error
-
-	// Extract Postgres error if existing
-	var errPg *pgconn.PgError
-	errors.As(errDb, &errPg)
-
-	// Handle database errors
-	if errPg != nil && errPg.Code == "23505" { // Code for Postgres' unique constraint violation
-
-		// Fall back to inserting the entries one by one to ensure as many entries as possible being added to the db
-		for _, entry := range infoEntries {
-			errDb2 := scopeDb.Create(&entry).Error
-
-			// Extract Postgres error if existing
-			var errPg2 *pgconn.PgError
-			errors.As(errDb2, &errPg2)
-
-			// Handle database errors
-			if errPg2 != nil && errPg2.Code == "23505" { // Code for Postgres' unique constraint violation
-				logger.Debugf("Banner info entry %d already existing.", entry.IdTDiscoveryService)
-			} else if errDb2 != nil {
-				logger.Errorf("Banner info entry %d could not be created: %s", entry.IdTDiscoveryService, errDb2)
-			}
-		}
-	} else if errDb != nil {
-		logger.Errorf("Banner info entries could not be created: %s", errDb)
-	}
+	prepareInfoEntry(logger, scopeEntry, idsTDiscoveryService, scanStarted, scanIp, scanHostname, wg,
+		"banner", scopedb.MaxBatchSizeBanner,
+		func(id uint64, cols scopedb.ColumnsScan) scopedb.T_banner {
+			return scopedb.T_banner{IdTDiscoveryService: id, ColumnsScan: cols}
+		},
+	)
 }
 
 // SaveBannerResult parses a result and adds it to the database. Furthermore, it sets the "scan_finished" timestamp to
 // indicate a completed process.
 func SaveBannerResult(
 	logger scanUtils.Logger,
-	scanScope *managerdb.T_scan_scope,
+	scopeEntry *managerdb.T_scan_scope,
 	idTDiscoveryService uint64, // T_discovery_services ID this result belongs to
 	result *banner.Result,
 ) error {
@@ -128,12 +55,12 @@ func SaveBannerResult(
 	logger.Debugf("Saving banner scan result.")
 
 	// Open scope's database
-	scopeDb, errHandle := managerdb.GetScopeDbHandle(logger, scanScope)
-	if errHandle != nil {
-		return fmt.Errorf("could not open scope database: %s", errHandle)
+	scopeDb, errScopeDb := scopedb.GetScopeDbHandle(logger, scopeEntry)
+	if errScopeDb != nil {
+		return fmt.Errorf("could not open scope database: %s", errScopeDb)
 	}
 
-	// Start transaction on the scoped db. The new Transaction function will commit if the provided function
+	// Start transaction on the scope database. The new Transaction function will commit if the provided function
 	// returns nil and rollback if an error is returned.
 	return scopeDb.Transaction(func(txScopeDb *gorm.DB) error {
 		// Check the condition of the info entry stored in the database. It got created the first time the target was
@@ -149,46 +76,46 @@ func SaveBannerResult(
 		// 			   allow users proper investigations in case of IDS alerts).
 
 		// Prepare memory for result
-		var infoEntry = managerdb.T_banner{}
-		var infoEntryCount int64
+		var bannerEntry = scopedb.T_banner{}
+		var bannerEntryCount int64
 
 		// Query info entry
 		errDb := txScopeDb.Where("id_t_discovery_service = ?", idTDiscoveryService).
-			First(&infoEntry).
-			Count(&infoEntryCount).Error
+			First(&bannerEntry).
+			Count(&bannerEntryCount).Error
 		if errDb != nil {
-			return fmt.Errorf("could not find associated info entry in scope db: %s", errDb)
+			return fmt.Errorf("could not find associated info entry in scope database: %s", errDb)
 		}
 
 		// Check if info entry was found
-		if infoEntryCount != 1 {
+		if bannerEntryCount != 1 {
 			logger.Infof("Dropping banner result of vanished discovery result.") // Scan database might have been reset or cleaned up
 			return nil
 		}
 
 		// Add scan results, if this is the first result delivered (scan_finished not yet set)
-		if !infoEntry.ScanFinished.Valid {
+		if !bannerEntry.ScanFinished.Valid {
 
 			// Add scan result to db entry
-			infoEntry.TriggerPlain = utils.ToValidUtf8String(result.Data.Plain)
-			infoEntry.TriggerSsl = utils.ToValidUtf8String(result.Data.Ssl)
-			infoEntry.TriggerTelnet = utils.ToValidUtf8String(result.Data.Telnet)
-			infoEntry.TriggerHttp = utils.ToValidUtf8String(result.Data.Http)
-			infoEntry.TriggerHttps = utils.ToValidUtf8String(result.Data.Https)
+			bannerEntry.TriggerPlain = utils.ToValidUtf8String(result.Data.Plain)
+			bannerEntry.TriggerSsl = utils.ToValidUtf8String(result.Data.Ssl)
+			bannerEntry.TriggerTelnet = utils.ToValidUtf8String(result.Data.Telnet)
+			bannerEntry.TriggerHttp = utils.ToValidUtf8String(result.Data.Http)
+			bannerEntry.TriggerHttps = utils.ToValidUtf8String(result.Data.Https)
 
 			// Add scan status to info entry. Some scan modules might have even more data stored in the info column
-			infoEntry.ScanStatus = result.Status
+			bannerEntry.ScanStatus = result.Status
 		}
 
 		// Update finished timestamp. Set or update it to the current time.
-		infoEntry.ScanFinished = sql.NullTime{Time: time.Now(), Valid: true}
+		bannerEntry.ScanFinished = sql.NullTime{Time: time.Now(), Valid: true}
 
 		// Update db with changes
-		errDb2 := txScopeDb.Model(&infoEntry).
+		errDb2 := txScopeDb.Model(&bannerEntry).
 			Where("id_t_discovery_service = ?", idTDiscoveryService).
-			Updates(infoEntry).Error
+			Updates(bannerEntry).Error
 		if errDb2 != nil {
-			return fmt.Errorf("could not update entry in scope db: %s", errDb2)
+			return fmt.Errorf("could not update entry in scope database: %s", errDb2)
 		}
 
 		// Return nil as everything went fine

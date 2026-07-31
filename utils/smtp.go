@@ -50,9 +50,9 @@ func (s *Smtp) UnmarshalJSON(b []byte) error {
 	var raw aux
 
 	// Unmarshal serialized JSON into temporary auxiliary structure
-	err := json.Unmarshal(b, &raw)
-	if err != nil {
-		return err
+	errUnmarshal := json.Unmarshal(b, &raw)
+	if errUnmarshal != nil {
+		return errUnmarshal
 	}
 
 	// Validate values
@@ -115,9 +115,9 @@ func (s *Smtp) UnmarshalJSON(b []byte) error {
 	// Load administrators encryption certificates from file
 	s.EncryptionCerts = make([][]byte, 0, len(s.EncryptionCertPaths))
 	for _, p := range s.EncryptionCertPaths {
-		cert, errEncCert := os.ReadFile(p)
-		if errEncCert != nil {
-			return fmt.Errorf("could not load recipient certificate: %s", errEncCert)
+		cert, errCert := os.ReadFile(p)
+		if errCert != nil {
+			return fmt.Errorf("could not load recipient certificate: %s", errCert)
 		}
 		s.EncryptionCerts = append(s.EncryptionCerts, cert)
 	}

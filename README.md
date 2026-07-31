@@ -150,54 +150,48 @@ mode. Similarly, in production mode, but with hardened configuration.
 
 ## Web frontend for managing scan scopes
 
-#### Preparation
+The frontend is a Vue 3, TypeScript, Vite, and PrimeVue single-page application. The web backend serves its
+generated `web_frontend/dist/` files; it does not serve frontend source files.
 
-* Install node.js (v20 LTS or later; CI uses Node.js 25), which is used for dependency management and generating an
-  optimized deployment version
-  of the application later.
-* Download dependencies. Most of them are only required to support development, some of them are actively used within
-  the web application. See *package.json* for details. Open command line in `./web_frontend` and run:
+### Prerequisites
 
-```
-npm install
-```
+- Node.js 20 LTS or later. CI currently uses Node.js 25.
+- A running web backend for API requests.
 
-* Launch the _web backend_ `./web_backend`. Beside serving the REST API called by the _web frontend_, the _web backend_
-  does also serve the _web frontend_ application files (HTML) from the `./web_frontend/src/` folder (
-  or `./web_frontend/dist` in production mode).
-* Depending on the browser you might need to disable HTTP caching to avoid JavaScript **files being taken from cache**.
-  In Firefox CTRL+F5 does not suffice, but you can disable HTTP caching in the developer toolbar for the time it's
-  open (https://stackoverflow.com/a/48027947). You could also use a private tab, but reloading would also discard the
-  authentication token.
-* Access the _web frontend_ at https://localhost/
-* You do **not** need to "build" the web application during development. Building is just an optimization step before
-  deployment. It generates an optimized production-ready version of the web application. E.g., it combines all JS and
-  CSS files into one, minifies them, moves necessary files into a common structure, updates paths, etc... (according to
-  the rules described in `gulpfile.js`). The output is put into the `./dist` sub folder, where it is taken from by the
-  _web backend_ in production mode.
-* Make sure that `gulp` (`gulp.cmd` on Windows) is accessible via your PATH environment variable(s). Then open command
-  line in `./web_frontend` and run:
+### Development
 
-```
-gulp build
+Install the locked dependencies and rebuild the bundle when files change:
+
+```bash
+cd web_frontend
+npm ci
+npm run build:watch
 ```
 
-#### Folder description
+In a second terminal, start the backend. It serves the generated `dist/` bundle and the REST API:
 
-* `./web_frontend` - Root folder of the web application
-    * `./src` - Source files of the web application
-        * `/app` - Main app folder with configuration files and initializers for the *Knockout* JavaScript framework.
-        * `/components` - Application modules/elements which can be integrated and reused everywhere via HTML tags. **
-          Each component needs to be initially registered in `./app/main.js` and added in the `gulpfile.js` file for
-          building.**
-        * `/pages` - The html/js code for the available pages which are loaded by their specific routes. **Each page
-          needs to be initially registered in `./app/main.js`, assigned to a route in `./app/router.js` and added in
-          the `gulpfile.js` file for building.**
-    * `./dist` - Release folder, where "gulp" is putting the optimized production ready web application.
-  * `./node_modules` - Packages and their dependencies maintained by npm. Note that most packages are used only for
-    the "gulp" build process.
-    * `./gulpfile.js` - Gulp build script for building a production-ready version of the web application.
-    * `./package.json` - Npm list of packages required for the web application or throughout the development process.
+```bash
+cd web_frontend
+go run ../web_backend
+```
+
+For Vite hot-module replacement during frontend work, start the backend first and then run `npm run dev` in
+`web_frontend`. The Vite server listens on `http://127.0.0.1:5173` and proxies `/api/v1` to the local backend.
+
+### Production bundle
+
+Run `npm run build` in `web_frontend`. Vite writes the optimized, content-hashed assets to `web_frontend/dist/`,
+which the production backend serves.
+
+### Frontend layout
+
+- `src/main.ts` initializes Vue, PrimeVue, routing, and session restoration.
+- `src/pages` contains route-level views; `src/components` contains feature and reusable UI components.
+- `src/stores` owns client and server state; `src/api` owns HTTP, authentication, and normalized API errors.
+- `tests/unit` contains Vitest unit and component tests; `tests/e2e` contains Playwright browser tests.
+
+See [web_frontend/README.md](web_frontend/README.md) for the full frontend quality gates, architecture, and
+Content Security Policy details.
 
 # Production
 

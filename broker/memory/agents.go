@@ -19,7 +19,8 @@ import (
 	"github.com/siemens/Large-Scale-Discovery/utils"
 )
 
-var agents = cmap.New[managerdb.T_scan_agent]() // Map of recently seen scan agents and associated metadata and stats
+// agents stores scan-agent state in memory
+var agents = cmap.New[managerdb.T_scan_agent]()
 
 // UpdateAgent updates cached agent statistics with latest values. Host, IP and instance are used to build a
 // unique agent identifier (A machine can run multiple scan agents for different scopes).
@@ -70,6 +71,7 @@ func UpdateAgent(
 		VersionNmap:     systemData.VersionNmap,
 		VersionNpcap:    systemData.VersionNpcap,
 		VersionSslyze:   systemData.VersionSslyze,
+		VersionPython:   systemData.VersionPython,
 	})
 }
 

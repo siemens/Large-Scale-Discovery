@@ -15,32 +15,36 @@ import (
 	"os"
 	"testing"
 
-	_test "github.com/siemens/Large-Scale-Discovery/_test"
+	"github.com/siemens/Large-Scale-Discovery/_test"
 )
 
-// TestMain initializes a shared in-process SQLite manager DB and tears it down after all tests complete.
+// TestMain initializes a shared in-process SQLite manager database and tears it down after all tests complete
 func TestMain(m *testing.M) {
 
 	// GetSettings sets the working directory to _test/ so all test-created files are isolated there.
 	_test.GetSettings()
 
 	// Create a per-run subdirectory within _test/ so the SQLite file is isolated and cleaned up on exit.
-	tmpDir, errTmp := os.MkdirTemp(".", "lsd-manager-db-test-*")
-	if errTmp != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "could not create temp dir: %v\n", errTmp)
+	tmpDir, errTmpDir := os.MkdirTemp(".", "lsd-manager-db-test-*")
+	if errTmpDir != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "could not create temp dir: %v\n", errTmpDir)
 		os.Exit(1)
 	}
-	_ = os.Chdir(tmpDir)
-
-	// Open the manager DB before running any tests.
-	if errOpen := OpenManagerDb(); errOpen != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "could not open manager db: %v\n", errOpen)
+	if errChdir := os.Chdir(tmpDir); errChdir != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "could not enter temp dir: %v\n", errChdir)
 		os.Exit(1)
 	}
 
+	// Open the manager database before running any tests
+	if errOpen := Open(); errOpen != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "could not open manager database: %v\n", errOpen)
+		os.Exit(1)
+	}
+
+	// Run the package tests before releasing database and filesystem resources
 	code := m.Run()
-
-	_ = CloseManagerDb()
+	_ = Close()
+	_ = os.Chdir("..")
 	_ = os.RemoveAll(tmpDir)
 	os.Exit(code)
 }

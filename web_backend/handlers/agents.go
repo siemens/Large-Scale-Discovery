@@ -1,11 +1,12 @@
 /*
-* Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
-*
-* Copyright (c) Siemens AG, 2016-2025.
-*
-* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
-* directory or visit <https://opensource.org/licenses/MIT>.
-*
+ * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
+ *
+ * Copyright (c) Siemens AG, 2016-2026.
+ *
+ * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+ * directory or visit <https://opensource.org/licenses/MIT>.
+ *
+ * SPDX-License-Identifier: MIT
  */
 
 package handlers
@@ -20,11 +21,13 @@ import (
 	"github.com/siemens/Large-Scale-Discovery/web_backend/core"
 )
 
+// ScopeAgents groups visible scan agents by scope and identifies the current user's ownership
 type ScopeAgents struct {
-	ScopeId   uint64                   `json:"scope_id"`
-	ScopeName string                   `json:"scope_name"`
-	ScopeDb   string                   `json:"scope_db"`
-	Agents    []managerdb.T_scan_agent `json:"agents"`
+	ScopeId        uint64                   `json:"scope_id"`
+	ScopeName      string                   `json:"scope_name"`
+	ScopeDb        string                   `json:"scope_db"`
+	ScopeOwnership bool                     `json:"scope_ownership"`
+	Agents         []managerdb.T_scan_agent `json:"agents"`
 }
 
 // Agents returns scan agents data grouped by scan scope
@@ -44,103 +47,85 @@ var Agents = func() gin.HandlerFunc {
 		// Get user from context storage
 		contextUser := core.GetContextUser(ctx)
 
-		// Request views granted from manager
-		accessibleViews, _ := manager.RpcGetViewsGranted(logger, core.RpcClient(), contextUser.Email)
-
-		// Prepare memory for list of scopes
-		var scanAgents []managerdb.T_scan_agent
-		var errScanAgents error
-
-		// Query scan agents according to user's role
-		if contextUser.Admin {
-
-			// Prepare memory for list of agents
-			scanAgents, errScanAgents = manager.RpcGetAgents(logger, core.RpcClient())
-
-		} else if len(contextUser.Ownerships) > 0 {
-
-			// Prepare memory for list of agents
-			var scanAgentsUnfiltered []managerdb.T_scan_agent
-			scanAgentsUnfiltered, errScanAgents = manager.RpcGetAgents(logger, core.RpcClient())
-
-			// Filter for scan scopes owned by the user
-			if errScanAgents == nil {
-
-				// Prepare list of owned groups
-				ownedGroups := make(map[uint64]struct{}, len(contextUser.Ownerships))
-				for _, ownership := range contextUser.Ownerships {
-					ownedGroups[ownership.Group.Id] = struct{}{}
-				}
-
-				// Filter for scan agents related to a scan scope owned by the user
-				for _, scanAgent := range scanAgentsUnfiltered {
-					_, ok := ownedGroups[scanAgent.ScanScope.IdTGroup]
-					if ok {
-						scanAgents = append(scanAgents, scanAgent)
-					}
-				}
-			}
-
-		} else if len(accessibleViews) > 0 {
-
-			// Prepare memory for list of agents
-			var scanAgentsUnfiltered []managerdb.T_scan_agent
-			scanAgentsUnfiltered, errScanAgents = manager.RpcGetAgents(logger, core.RpcClient())
-
-			// Filter for scan scopes accessible by the user (independent of scope view)
-			if errScanAgents == nil {
-
-				// Prepare list of accessible scan scopes based on scope views
-				accessibleScopeIds := make(map[uint64]struct{}, len(accessibleViews))
-				for _, scopeView := range accessibleViews {
-					accessibleScopeIds[scopeView.IdTScanScope] = struct{}{}
-				}
-
-				// Filter for scan agents related to a scan scope owned by the user
-				for _, scanAgent := range scanAgentsUnfiltered {
-					_, ok := accessibleScopeIds[scanAgent.ScanScope.Id]
-					if ok {
-						scanAgents = append(scanAgents, scanAgent)
-					}
-				}
-			}
-
-		} else {
-			core.RespondAuthError(ctx)
+		// Demo users always receive an empty list
+		// They could be granted, but should not be allowed to use their grants.
+		if contextUser.Demo {
+			core.Respond(ctx, false, "Agents retrieved.", responseBody{ScopeAgents: []ScopeAgents{}})
 			return
 		}
 
-		// Check for errors occurred while querying groups
-		if errors.Is(errScanAgents, utils.ErrRpcConnectivity) {
-			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
-			return
-		} else if errScanAgents != nil {
-			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
-			return
+		// Request views granted from manager
+		accessibleViews, _ := manager.RpcGetViewsGranted(logger, core.RpcClient(), contextUser.Email)
+
+		// Prepare list of owned groups
+		ownedGroups := make(map[uint64]struct{}, len(contextUser.Ownerships))
+		for _, ownership := range contextUser.Ownerships {
+			ownedGroups[ownership.Group.Id] = struct{}{}
+		}
+
+		// Prepare list of accessible scan scopes based on scope views
+		accessibleScopeIds := make(map[uint64]struct{}, len(accessibleViews))
+		for _, scopeView := range accessibleViews {
+			accessibleScopeIds[scopeView.IdTScanScope] = struct{}{}
+		}
+
+		// Prepare memory for list of scopes
+		var agentEntries []managerdb.T_scan_agent
+
+		// Query scan agents according to user's role
+		if contextUser.Admin || len(ownedGroups) > 0 || len(accessibleScopeIds) > 0 {
+
+			// Query all scan agents before applying user-specific access restrictions
+			agentEntriesUnfiltered, errAgentEntriesUnfiltered := manager.RpcGetAgents(logger, core.RpcClient())
+			if errors.Is(errAgentEntriesUnfiltered, utils.ErrRpcConnectivity) {
+				core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
+				return
+			} else if errAgentEntriesUnfiltered != nil {
+				core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
+				return
+			}
+
+			// Return all scan agents to administrators without further filtering
+			if contextUser.Admin {
+				agentEntries = agentEntriesUnfiltered
+			} else {
+
+				// Filter scan agents to scopes owned by or accessible to the user
+				for _, scanAgent := range agentEntriesUnfiltered {
+					_, hasOwnership := ownedGroups[scanAgent.ScanScope.IdTGroup]
+					_, hasGrant := accessibleScopeIds[scanAgent.ScanScope.Id]
+					if hasOwnership || hasGrant {
+						agentEntries = append(agentEntries, scanAgent)
+					}
+				}
+			}
 		}
 
 		// Prepare customized list of scan agents
 		var agentStats = make([]ScopeAgents, 0, 4) // Initialize empty slice to avoid returning nil to frontend
-		for _, scanAgent := range scanAgents {
+		for _, agentEntry := range agentEntries {
 
 			// Append scan agent to scan scope's list (cannot be done in a for range loop, because it passes copies
 			// of the agents slice)
 			found := false
 			for i := 0; i < len(agentStats); i++ {
-				if agentStats[i].ScopeId == scanAgent.ScanScope.Id {
-					agentStats[i].Agents = append(agentStats[i].Agents, scanAgent)
+				if agentStats[i].ScopeId == agentEntry.ScanScope.Id {
+					agentStats[i].Agents = append(agentStats[i].Agents, agentEntry)
 					found = true
 					break
 				}
 			}
 
-			// Introduce new list for new scan scope
 			if !found {
+
+				// Introduce new list for new scan scope and include the user's ownership
+				_, hasOwnership := ownedGroups[agentEntry.ScanScope.IdTGroup]
 				agentStats = append(agentStats, ScopeAgents{
-					ScopeId:   scanAgent.ScanScope.Id,
-					ScopeName: scanAgent.ScanScope.Name,
-					ScopeDb:   scanAgent.ScanScope.DbName,
-					Agents:    []managerdb.T_scan_agent{scanAgent},
+					ScopeId:        agentEntry.ScanScope.Id,
+					ScopeName:      agentEntry.ScanScope.Name,
+					ScopeDb:        agentEntry.ScanScope.DbName,
+					ScopeOwnership: hasOwnership,
+					Agents:         []managerdb.T_scan_agent{agentEntry},
 				})
 			}
 		}
@@ -209,16 +194,16 @@ var AgentDelete = func() gin.HandlerFunc {
 		}
 
 		// Lookup scan scope the agent belongs to
-		var agentScanScope managerdb.T_scan_scope
+		var scopeEntry managerdb.T_scan_scope
 		for _, scanAgent := range scanAgents {
 			if scanAgent.Id == req.Id {
-				agentScanScope = scanAgent.ScanScope
+				scopeEntry = scanAgent.ScanScope
 				break
 			}
 		}
 
 		// Check if user has rights to update scope
-		if !core.OwnerOrAdmin(agentScanScope.IdTGroup, contextUser) {
+		if !core.OwnerOrAdmin(scopeEntry.IdTGroup, contextUser) {
 			core.RespondAuthError(ctx)
 			return
 		}

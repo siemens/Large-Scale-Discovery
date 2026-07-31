@@ -16,7 +16,7 @@ import (
 	"github.com/orcaman/concurrent-map/v2"
 )
 
-var moduleLabels []string
+var moduleLabels []string               // Labels of enabled scan modules
 var scopeCounter map[string]moduleCount // Map of scan scopes referencing ConcurrentMaps of module counts
 
 type moduleCount struct { // ConcurrentMap of module to count

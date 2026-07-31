@@ -25,12 +25,12 @@ import (
 )
 
 // Build information accessible via -version
-var buildGitCommit = "dev12345"                       // Git commit hash identifying the version of this scan agent. Injected by the build command.
-var buildTimestamp = "0001-01-01T00:00:00+00:00"      // Timestamp when this agent was built. Injected by the build command.
-var buildGoVersion = runtime.Version()                // Golang version used during building of the agent.
-var buildGoArch = runtime.GOOS + "/" + runtime.GOARCH // Golang version used during building of the agent.
+var buildGitCommit = "dev12345"                       // Git commit hash identifying this binary. Injected by the build command.
+var buildTimestamp = "0001-01-01T00:00:00+00:00"      // Timestamp when this binary was built. Injected by the build command.
+var buildGoVersion = runtime.Version()                // Go version used to build this binary.
+var buildGoArch = runtime.GOOS + "/" + runtime.GOARCH // OS and architecture targeted by this binary.
 
-// main application entry point
+// main is the application entry point
 func main() {
 
 	// Introduce Gracy to take care of cleanup/shutdown actions on interrupt
@@ -54,10 +54,10 @@ func main() {
 		return
 	}
 
-	// Initialize config
+	// Initialize configuration
 	errConf := config.Init("importer.conf")
 	if errConf != nil {
-		fmt.Println("Could not load configuration:", errConf)
+		fmt.Printf("Could not load configuration: %s\n", errConf)
 		return
 	}
 
@@ -65,9 +65,9 @@ func main() {
 	conf := config.GetConfig()
 
 	// Initialize logger
-	logger, errLog := log.InitGlobalLogger(conf.Logging)
-	if errLog != nil {
-		fmt.Println("could not initialize logger: ", errLog)
+	logger, errLogger := log.InitGlobalLogger(conf.Logging)
+	if errLogger != nil {
+		fmt.Printf("Could not initialize logger: %s\n", errLogger)
 		return
 	}
 
@@ -76,9 +76,8 @@ func main() {
 
 	// Make sure logger gets closed on exit
 	gracy.Register(func() {
-		err := log.CloseGlobalLogger()
-		if err != nil {
-			fmt.Printf("could not close logger: %s\n", err)
+		if errClose := log.CloseGlobalLogger(); errClose != nil {
+			fmt.Printf("Could not close logger: %s\n", errClose)
 		}
 	})
 
@@ -88,12 +87,12 @@ func main() {
 	// Log potential panics before letting them move on
 	defer func() {
 		if r := recover(); r != nil {
-			logger.Errorf(fmt.Sprintf("Panic: %s%s", r, scanUtils.StacktraceIndented("\t")))
+			logger.Errorf("Panic: %s%s", r, scanUtils.StacktraceIndented("\t"))
 			panic(r)
 		}
 	}()
 
-	// Make agent print final message on exit
+	// Print the final component message just before termination
 	gracy.Register(func() {
 		time.Sleep(time.Microsecond) // Make sure this message is written last, in case of race condition
 		logger.Debugf("Importer terminated.")
@@ -121,6 +120,7 @@ func main() {
 	}
 }
 
+// buildInfo returns the metadata embedded in this binary
 func buildInfo() []string {
 	return []string{
 		fmt.Sprintf("Build Timestamp   : %s", buildTimestamp),

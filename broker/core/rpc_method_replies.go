@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2025.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -18,9 +18,10 @@ import (
 // all scan modules and to simplify broker-side code. Required information is picked from this struct by the agent.
 // This struct will contain copied data from a cached scan target struct.
 type ScanTask struct {
+	ScopeName      string // Name of the scan scope this scan task belongs to
 	Secret         string // Scope secret identifying the scan scope this scan tasks belongs to
 	Label          string // Name of the respective module to use these arguments with
-	Id             uint64 // PK from the source table (might be a t_discovery ID (scope db) or a sub scan target ID (broker db)
+	Id             uint64 // PK from the source table (might be a t_discovery ID (scope database) or a sub scan target ID (broker database)
 	Target         string
 	Protocol       string
 	Port           int

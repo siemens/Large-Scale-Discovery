@@ -22,8 +22,8 @@ func CheckPragmas(db *gorm.DB, pragmas map[string]interface{}) error {
 		switch v := exp.(type) {
 		case int:
 			var value int
-			if err := db.Raw(fmt.Sprintf("PRAGMA %s", name)).Scan(&value).Error; err != nil {
-				return fmt.Errorf("could not read PRAGMA '%s': %w", name, err)
+			if errDb := db.Raw(fmt.Sprintf("PRAGMA %s", name)).Scan(&value).Error; errDb != nil {
+				return fmt.Errorf("could not read PRAGMA '%s': %w", name, errDb)
 			}
 			if value != v {
 				return fmt.Errorf("PRAGMA '%s' is set to %d instead of %d", name, value, v)
@@ -31,8 +31,8 @@ func CheckPragmas(db *gorm.DB, pragmas map[string]interface{}) error {
 
 		case string:
 			var value string
-			if err := db.Raw(fmt.Sprintf("PRAGMA %s", name)).Scan(&value).Error; err != nil {
-				return fmt.Errorf("could not read PRAGMA '%s': %w", name, err)
+			if errDb := db.Raw(fmt.Sprintf("PRAGMA %s", name)).Scan(&value).Error; errDb != nil {
+				return fmt.Errorf("could not read PRAGMA '%s': %w", name, errDb)
 			}
 			if value != v {
 				return fmt.Errorf("PRAGMA '%s' is set to '%s' instead of '%s'", name, value, v)
@@ -44,5 +44,21 @@ func CheckPragmas(db *gorm.DB, pragmas map[string]interface{}) error {
 	}
 
 	// Return nil as everything went fine
+	return nil
+}
+
+// CloseDatabasePool closes the underlying SQL connection pool of a GORM database.
+func CloseDatabasePool(db *gorm.DB) error {
+	if db == nil {
+		return nil
+	}
+
+	sqlDb, errSqlDb := db.DB()
+	if errSqlDb != nil {
+		return fmt.Errorf("could not retrieve underlying database connection: %w", errSqlDb)
+	}
+	if errClose := sqlDb.Close(); errClose != nil {
+		return fmt.Errorf("could not close database connection: %w", errClose)
+	}
 	return nil
 }

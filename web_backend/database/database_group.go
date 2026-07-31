@@ -1,11 +1,12 @@
 /*
-* Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
-*
-* Copyright (c) Siemens AG, 2016-2025.
-*
-* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
-* directory or visit <https://opensource.org/licenses/MIT>.
-*
+ * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
+ *
+ * Copyright (c) Siemens AG, 2016-2026.
+ *
+ * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+ * directory or visit <https://opensource.org/licenses/MIT>.
+ *
+ * SPDX-License-Identifier: MIT
  */
 
 package database
@@ -19,6 +20,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// T_group represents a user group and its ownership relations
 type T_group struct {
 	// - Set the JSON ignore flag (json:"-") for sensitive columns that may NEVER be leaked by a JSON response.
 	// - Make columns "not null" if possible. Otherwise, use null-types (e.g. sql.NullString).
@@ -61,7 +63,7 @@ func (group *T_group) BeforeSave(tx *gorm.DB) error {
 	return nil
 }
 
-// Create a group
+// Create creates a group in the database
 func (group *T_group) Create() error {
 
 	// Write group to database
@@ -112,52 +114,63 @@ func (group *T_group) Save(columns ...string) (int64, error) {
 
 // UpdateOwners removes all owners and sets them to the given list of new owners. The ownerships set in the group will
 // be updated by this function.
-func (group *T_group) UpdateOwners(users []T_user) error {
+func (group *T_group) UpdateOwners(userEntries []T_user) error {
 
-	return backendDb.Transaction(func(txBackendDb *gorm.DB) error {
+	// Retain the in-memory ownerships in case the transaction cannot be committed
+	ownershipsOriginal := group.Ownerships
+
+	// Update group ownerships atomically
+	errUpdate := backendDb.Transaction(func(txBackendDb *gorm.DB) error {
 
 		// Delete existing owners
 		errDb := txBackendDb.Where("id_t_group = ?", group.Id).Delete(&T_ownership{}).Error
 		if errDb != nil {
-			return fmt.Errorf("could not initiate update of group owners: %s", errDb)
+			return fmt.Errorf("could not initiate update of group owners: %w", errDb)
 		}
 
-		// Check for empty slices, as this would lead to a error when inserting
-		if len(users) < 1 {
+		// Check for empty slices, as this would lead to an error when inserting
+		if len(userEntries) < 1 {
+
+			// Keep the in-memory representation consistent with the committed deletion
+			group.Ownerships = []T_ownership{}
 			return nil
 		}
 
-		// Set the ownerships to an empty slice, as gorm won't delete the old ones from the group. Back them up though
-		// in case of an error.
-		owners := group.Ownerships
+		// Clear the in-memory ownerships before appending their replacements
 		group.Ownerships = []T_ownership{}
 
-		// Add existing Owners
-		relations := make([]T_ownership, 0, len(users))
-		for _, user := range users {
+		// Prepare the desired group ownerships
+		relations := make([]T_ownership, 0, len(userEntries))
+		for _, userEntry := range userEntries {
 
 			// Prepare join table entry
 			relations = append(relations, T_ownership{
 				IdTGroup: group.Id,
-				IdTUser:  user.Id,
+				IdTUser:  userEntry.Id,
 			})
 		}
 
-		errDb = txBackendDb.Model(group).Association("Ownerships").Append(&relations)
-		if errDb != nil {
-			// Restore the ownerships, as the new ownerships are added to the group regardless whether an error
-			// occurs
-			group.Ownerships = owners
-
-			return errDb
+		// Persist the replacement ownerships
+		errAppend := txBackendDb.Model(group).Association("Ownerships").Append(&relations)
+		if errAppend != nil {
+			return errAppend
 		}
 
 		// Return nil as everything went fine
 		return nil
 	})
+	if errUpdate != nil {
+
+		// Restore the original in-memory ownerships after a failed update
+		group.Ownerships = ownershipsOriginal
+		return errUpdate
+	}
+
+	// Return nil as everything went fine
+	return nil
 }
 
-// Delete a group
+// Delete removes a group from the database
 func (group *T_group) Delete() error {
 
 	// Write group to database
@@ -172,20 +185,20 @@ func (group *T_group) Delete() error {
 
 // AddOwner creates an ownership by adding a user to a group. The ownerships set in the group will be updated by this
 // function. However, the existing ownerships must not have the User.Ownerships or Group values set, as this will result
-// in an endless SQL query. (The group returned by GetGroup is valid)
-func (group *T_group) AddOwner(user *T_user) error {
+// in an endless SQL query. (The group returned by GetGroupById is valid)
+func (group *T_group) AddOwner(userEntry *T_user) error {
 
 	// Prepare join table entry
-	relation := T_ownership{
+	ownershipEntry := T_ownership{
 		IdTGroup: group.Id,
-		IdTUser:  user.Id,
+		IdTUser:  userEntry.Id,
 	}
 
 	// Backup ownerships in case of an error
 	owners := group.Ownerships
 
 	// Write group to database
-	errDb := backendDb.Model(group).Association("Ownerships").Append(&relation)
+	errDb := backendDb.Model(group).Association("Ownerships").Append(&ownershipEntry)
 	if errDb != nil {
 
 		// Restore the ownerships, as the new ownership is added to the group regardless whether an error
@@ -199,7 +212,7 @@ func (group *T_group) AddOwner(user *T_user) error {
 	return nil
 }
 
-// GetGroups gets all groups from the db
+// GetGroups returns all groups from the database
 func GetGroups() ([]T_group, error) {
 
 	// Prepare memory for result
@@ -218,6 +231,7 @@ func GetGroups() ([]T_group, error) {
 	return entries, nil
 }
 
+// GetGroupsOfUser returns the groups associated with a user
 func GetGroupsOfUser(userId uint64) ([]T_group, error) {
 
 	// Prepare memory for result
@@ -238,9 +252,9 @@ func GetGroupsOfUser(userId uint64) ([]T_group, error) {
 	return entries, nil
 }
 
-// GetGroup searches a group by ID and returns a pointer to the found group.
+// GetGroupById searches a group by ID and returns a pointer to the found group.
 // If no entry is found, a nil pointer is returned, make sure to check it!
-func GetGroup(id uint64) (*T_group, error) {
+func GetGroupById(id uint64) (*T_group, error) {
 
 	// Prepare memory for result
 	var entry T_group

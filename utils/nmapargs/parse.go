@@ -151,8 +151,8 @@ func parseTimeDuration(s string) (float64, error) {
 	}
 
 	// Parse the numeric portion as a float.
-	val, errParse := strconv.ParseFloat(numStr, 64)
-	if errParse != nil {
+	val, errVal := strconv.ParseFloat(numStr, 64)
+	if errVal != nil {
 		return 0, fmt.Errorf("invalid time value %q", s)
 	}
 

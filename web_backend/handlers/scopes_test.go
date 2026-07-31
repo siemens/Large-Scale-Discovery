@@ -1,11 +1,12 @@
 /*
-* Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
-*
-* Copyright (c) Siemens AG, 2016-2026.
-*
-* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
-* directory or visit <https://opensource.org/licenses/MIT>.
-*
+ * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
+ *
+ * Copyright (c) Siemens AG, 2016-2026.
+ *
+ * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+ * directory or visit <https://opensource.org/licenses/MIT>.
+ *
+ * SPDX-License-Identifier: MIT
  */
 
 package handlers
@@ -13,9 +14,11 @@ package handlers
 import (
 	"net/http"
 	"testing"
+
+	"github.com/siemens/Large-Scale-Discovery/utils"
 )
 
-// TestScopes_Admin verifies that an admin user triggers an RPC call and receives 503 when RPC is down.
+// TestScopes_Admin_RpcUnavailable_Returns503 verifies that an admin user triggers an RPC call and receives 503 when RPC is down.
 func TestScopes_Admin_RpcUnavailable_Returns503(t *testing.T) {
 	ctx, w := newCtx(nil, adminUser())
 	Scopes()(ctx)
@@ -24,7 +27,7 @@ func TestScopes_Admin_RpcUnavailable_Returns503(t *testing.T) {
 	}
 }
 
-// TestScopes_NonAdmin verifies that a non-admin user also triggers an RPC call and receives 503 when RPC is down.
+// TestScopes_NonAdmin_RpcUnavailable_Returns503 verifies that a non-admin user also triggers an RPC call and receives 503 when RPC is down.
 func TestScopes_NonAdmin_RpcUnavailable_Returns503(t *testing.T) {
 	ctx, w := newCtx(nil, regularUser())
 	Scopes()(ctx)
@@ -33,7 +36,7 @@ func TestScopes_NonAdmin_RpcUnavailable_Returns503(t *testing.T) {
 	}
 }
 
-// TestScopeDelete_BadBody verifies that a malformed request body returns 400.
+// TestScopeDelete_BadBody_Returns400 verifies that a malformed request body returns 400.
 func TestScopeDelete_BadBody_Returns400(t *testing.T) {
 	ctx, w := badBodyCtx(adminUser())
 	ScopeDelete()(ctx)
@@ -42,7 +45,7 @@ func TestScopeDelete_BadBody_Returns400(t *testing.T) {
 	}
 }
 
-// TestScopeDelete_ZeroId verifies that an ID of zero returns a 200 with an error body.
+// TestScopeDelete_ZeroId_Returns200Error verifies that an ID of zero returns a 200 with an error body.
 func TestScopeDelete_ZeroId_Returns200Error(t *testing.T) {
 	ctx, w := newCtx(idReq{Id: 0}, adminUser())
 	ScopeDelete()(ctx)
@@ -51,7 +54,7 @@ func TestScopeDelete_ZeroId_Returns200Error(t *testing.T) {
 	}
 }
 
-// TestScopeDelete_ValidId verifies that a valid ID triggers an RPC call and returns 503 when RPC is down.
+// TestScopeDelete_ValidId_RpcUnavailable_Returns503 verifies that a valid ID triggers an RPC call and returns 503 when RPC is down.
 func TestScopeDelete_ValidId_RpcUnavailable_Returns503(t *testing.T) {
 	ctx, w := newCtx(idReq{Id: 1}, adminUser())
 	ScopeDelete()(ctx)
@@ -60,7 +63,7 @@ func TestScopeDelete_ValidId_RpcUnavailable_Returns503(t *testing.T) {
 	}
 }
 
-// TestScopeTargets_BadBody verifies that a malformed request body returns 400.
+// TestScopeTargets_BadBody_Returns400 verifies that a malformed request body returns 400.
 func TestScopeTargets_BadBody_Returns400(t *testing.T) {
 	ctx, w := badBodyCtx(adminUser())
 	ScopeTargets()(ctx)
@@ -69,7 +72,7 @@ func TestScopeTargets_BadBody_Returns400(t *testing.T) {
 	}
 }
 
-// TestScopeTargets_ZeroId verifies that an ID of zero returns a 200 with an error body.
+// TestScopeTargets_ZeroId_Returns200Error verifies that an ID of zero returns a 200 with an error body.
 func TestScopeTargets_ZeroId_Returns200Error(t *testing.T) {
 	ctx, w := newCtx(idReq{Id: 0}, adminUser())
 	ScopeTargets()(ctx)
@@ -78,7 +81,7 @@ func TestScopeTargets_ZeroId_Returns200Error(t *testing.T) {
 	}
 }
 
-// TestScopeTargets_ValidId verifies that a valid ID triggers an RPC call and returns 503 when RPC is down.
+// TestScopeTargets_ValidId_RpcUnavailable_Returns503 verifies that a valid ID triggers an RPC call and returns 503 when RPC is down.
 func TestScopeTargets_ValidId_RpcUnavailable_Returns503(t *testing.T) {
 	ctx, w := newCtx(idReq{Id: 1}, adminUser())
 	ScopeTargets()(ctx)
@@ -87,7 +90,7 @@ func TestScopeTargets_ValidId_RpcUnavailable_Returns503(t *testing.T) {
 	}
 }
 
-// TestScopeResetFailed_BadBody verifies that a malformed request body returns 400.
+// TestScopeResetFailed_BadBody_Returns400 verifies that a malformed request body returns 400.
 func TestScopeResetFailed_BadBody_Returns400(t *testing.T) {
 	ctx, w := badBodyCtx(adminUser())
 	ScopeResetFailed()(ctx)
@@ -96,7 +99,7 @@ func TestScopeResetFailed_BadBody_Returns400(t *testing.T) {
 	}
 }
 
-// TestScopeResetFailed_ZeroId verifies that an ID of zero returns a 200 with an error body.
+// TestScopeResetFailed_ZeroId_Returns200Error verifies that an ID of zero returns a 200 with an error body.
 func TestScopeResetFailed_ZeroId_Returns200Error(t *testing.T) {
 	ctx, w := newCtx(idReq{Id: 0}, adminUser())
 	ScopeResetFailed()(ctx)
@@ -105,7 +108,7 @@ func TestScopeResetFailed_ZeroId_Returns200Error(t *testing.T) {
 	}
 }
 
-// TestScopeResetFailed_ValidId verifies that a valid ID triggers an RPC call and returns 503 when RPC is down.
+// TestScopeResetFailed_ValidId_RpcUnavailable_Returns503 verifies that a valid ID triggers an RPC call and returns 503 when RPC is down.
 func TestScopeResetFailed_ValidId_RpcUnavailable_Returns503(t *testing.T) {
 	ctx, w := newCtx(idReq{Id: 1}, adminUser())
 	ScopeResetFailed()(ctx)
@@ -114,7 +117,7 @@ func TestScopeResetFailed_ValidId_RpcUnavailable_Returns503(t *testing.T) {
 	}
 }
 
-// TestScopeNewCycle_BadBody verifies that a malformed request body returns 400.
+// TestScopeNewCycle_BadBody_Returns400 verifies that a malformed request body returns 400.
 func TestScopeNewCycle_BadBody_Returns400(t *testing.T) {
 	ctx, w := badBodyCtx(adminUser())
 	ScopeNewCycle()(ctx)
@@ -123,7 +126,7 @@ func TestScopeNewCycle_BadBody_Returns400(t *testing.T) {
 	}
 }
 
-// TestScopeNewCycle_ZeroId verifies that an ID of zero returns a 200 with an error body.
+// TestScopeNewCycle_ZeroId_Returns200Error verifies that an ID of zero returns a 200 with an error body.
 func TestScopeNewCycle_ZeroId_Returns200Error(t *testing.T) {
 	ctx, w := newCtx(idReq{Id: 0}, adminUser())
 	ScopeNewCycle()(ctx)
@@ -132,7 +135,7 @@ func TestScopeNewCycle_ZeroId_Returns200Error(t *testing.T) {
 	}
 }
 
-// TestScopeNewCycle_ValidId verifies that a valid ID triggers an RPC call and returns 503 when RPC is down.
+// TestScopeNewCycle_ValidId_RpcUnavailable_Returns503 verifies that a valid ID triggers an RPC call and returns 503 when RPC is down.
 func TestScopeNewCycle_ValidId_RpcUnavailable_Returns503(t *testing.T) {
 	ctx, w := newCtx(idReq{Id: 1}, adminUser())
 	ScopeNewCycle()(ctx)
@@ -141,7 +144,7 @@ func TestScopeNewCycle_ValidId_RpcUnavailable_Returns503(t *testing.T) {
 	}
 }
 
-// TestScopeTogglePause_BadBody verifies that a malformed request body returns 400.
+// TestScopeTogglePause_BadBody_Returns400 verifies that a malformed request body returns 400.
 func TestScopeTogglePause_BadBody_Returns400(t *testing.T) {
 	ctx, w := badBodyCtx(adminUser())
 	ScopeTogglePause()(ctx)
@@ -150,7 +153,7 @@ func TestScopeTogglePause_BadBody_Returns400(t *testing.T) {
 	}
 }
 
-// TestScopeTogglePause_ZeroId verifies that an ID of zero returns a 200 with an error body.
+// TestScopeTogglePause_ZeroId_Returns200Error verifies that an ID of zero returns a 200 with an error body.
 func TestScopeTogglePause_ZeroId_Returns200Error(t *testing.T) {
 	ctx, w := newCtx(idReq{Id: 0}, adminUser())
 	ScopeTogglePause()(ctx)
@@ -159,7 +162,7 @@ func TestScopeTogglePause_ZeroId_Returns200Error(t *testing.T) {
 	}
 }
 
-// TestScopeTogglePause_ValidId verifies that a valid ID triggers an RPC call and returns 503 when RPC is down.
+// TestScopeTogglePause_ValidId_RpcUnavailable_Returns503 verifies that a valid ID triggers an RPC call and returns 503 when RPC is down.
 func TestScopeTogglePause_ValidId_RpcUnavailable_Returns503(t *testing.T) {
 	ctx, w := newCtx(idReq{Id: 1}, adminUser())
 	ScopeTogglePause()(ctx)
@@ -168,7 +171,7 @@ func TestScopeTogglePause_ValidId_RpcUnavailable_Returns503(t *testing.T) {
 	}
 }
 
-// TestScopeUpdateSettings_BadBody verifies that a malformed request body returns 400.
+// TestScopeUpdateSettings_BadBody_Returns400 verifies that a malformed request body returns 400.
 func TestScopeUpdateSettings_BadBody_Returns400(t *testing.T) {
 	ctx, w := badBodyCtx(adminUser())
 	ScopeUpdateSettings()(ctx)
@@ -177,7 +180,7 @@ func TestScopeUpdateSettings_BadBody_Returns400(t *testing.T) {
 	}
 }
 
-// TestScopeUpdateSettings_ZeroId verifies that an ID of zero returns a 200 with an error body.
+// TestScopeUpdateSettings_ZeroId_Returns200Error verifies that an ID of zero returns a 200 with an error body.
 func TestScopeUpdateSettings_ZeroId_Returns200Error(t *testing.T) {
 	ctx, w := newCtx(idReq{Id: 0}, adminUser())
 	ScopeUpdateSettings()(ctx)
@@ -186,7 +189,7 @@ func TestScopeUpdateSettings_ZeroId_Returns200Error(t *testing.T) {
 	}
 }
 
-// TestScopeCreateUpdateCustom_BadBody verifies that a malformed request body returns 400.
+// TestScopeCreateUpdateCustom_BadBody_Returns400 verifies that a malformed request body returns 400.
 func TestScopeCreateUpdateCustom_BadBody_Returns400(t *testing.T) {
 	ctx, w := badBodyCtx(adminUser())
 	ScopeCreateUpdateCustom()(ctx)
@@ -195,7 +198,57 @@ func TestScopeCreateUpdateCustom_BadBody_Returns400(t *testing.T) {
 	}
 }
 
-// TestScopeCreateUpdateCustom_BothIdsSet verifies that providing both scope ID and group ID returns a 200 with an error body.
+// TestNormalizeNetworkSize_ValidOrOmittedValue_ReturnsSafeSize verifies legacy defaults and valid choices are preserved.
+func TestNormalizeNetworkSize_ValidOrOmittedValue_ReturnsSafeSize(t *testing.T) {
+
+	// Prepare and run test cases
+	tests := []struct {
+		name      string
+		splitSize uint32
+		want      uint32
+	}{
+		{
+			name:      "omitted-value",
+			splitSize: 0,
+			want:      utils.NetworkSizeSplit,
+		},
+		{
+			name:      "smaller-valid-value",
+			splitSize: 512,
+			want:      512,
+		},
+		{
+			name:      "maximum-value",
+			splitSize: utils.NetworkSizeSplit,
+			want:      utils.NetworkSizeSplit,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			splitSize, errSplitSize := normalizeNetworkSize(test.splitSize)
+			if errSplitSize != nil {
+				t.Errorf("normalizeNetworkSize() error = '%v', want = 'nil'", errSplitSize)
+			}
+			if splitSize != test.want {
+				t.Errorf("normalizeNetworkSize() result = '%v', want = '%v'", splitSize, test.want)
+			}
+		})
+	}
+}
+
+// TestNormalizeNetworkSize_InvalidValue_ReturnsError verifies unsafe split choices cannot enter scope storage.
+func TestNormalizeNetworkSize_InvalidValue_ReturnsError(t *testing.T) {
+
+	// Prepare and run test cases
+	for _, splitSize := range []uint32{3, 1_000, utils.NetworkSizeSplit + 1} {
+		_, errSplitSize := normalizeNetworkSize(splitSize)
+		if errSplitSize == nil {
+			t.Errorf("normalizeNetworkSize() error = 'nil', want = 'non-nil'")
+		}
+	}
+}
+
+// TestScopeCreateUpdateCustom_BothIdsSet_Returns200Error verifies that providing both scope ID and group ID returns a 200 with an error body.
 func TestScopeCreateUpdateCustom_BothIdsSet_Returns200Error(t *testing.T) {
 	scopeId := uint64(1)
 	groupId := uint64(2)
@@ -211,7 +264,7 @@ func TestScopeCreateUpdateCustom_BothIdsSet_Returns200Error(t *testing.T) {
 	}
 }
 
-// TestScopeCreateUpdateCustom_EmptyName verifies that an empty scope name returns a 200 with an error body.
+// TestScopeCreateUpdateCustom_EmptyName_Returns200Error verifies that an empty scope name returns a 200 with an error body.
 func TestScopeCreateUpdateCustom_EmptyName_Returns200Error(t *testing.T) {
 	groupId := uint64(1)
 	type req struct {
@@ -225,7 +278,7 @@ func TestScopeCreateUpdateCustom_EmptyName_Returns200Error(t *testing.T) {
 	}
 }
 
-// TestScopeCreateUpdateNetworks_BadBody verifies that a malformed request body returns 400.
+// TestScopeCreateUpdateNetworks_BadBody_Returns400 verifies that a malformed request body returns 400.
 func TestScopeCreateUpdateNetworks_BadBody_Returns400(t *testing.T) {
 	ctx, w := badBodyCtx(adminUser())
 	ScopeCreateUpdateNetworks()(ctx)
@@ -234,7 +287,7 @@ func TestScopeCreateUpdateNetworks_BadBody_Returns400(t *testing.T) {
 	}
 }
 
-// TestScopeCreateUpdateNetworks_EmptyName verifies that an empty scope name returns a 200 with an error body.
+// TestScopeCreateUpdateNetworks_EmptyName_Returns200Error verifies that an empty scope name returns a 200 with an error body.
 func TestScopeCreateUpdateNetworks_EmptyName_Returns200Error(t *testing.T) {
 	groupId := uint64(1)
 	type req struct {
@@ -248,7 +301,7 @@ func TestScopeCreateUpdateNetworks_EmptyName_Returns200Error(t *testing.T) {
 	}
 }
 
-// TestScopeCreateUpdateAssets_BadBody verifies that a malformed request body returns 400.
+// TestScopeCreateUpdateAssets_BadBody_Returns400 verifies that a malformed request body returns 400.
 func TestScopeCreateUpdateAssets_BadBody_Returns400(t *testing.T) {
 	ctx, w := badBodyCtx(adminUser())
 	ScopeCreateUpdateAssets()(ctx)
@@ -257,7 +310,7 @@ func TestScopeCreateUpdateAssets_BadBody_Returns400(t *testing.T) {
 	}
 }
 
-// TestScopeCreateUpdateAssets_EmptyName verifies that an empty scope name returns a 200 with an error body.
+// TestScopeCreateUpdateAssets_EmptyName_Returns200Error verifies that an empty scope name returns a 200 with an error body.
 func TestScopeCreateUpdateAssets_EmptyName_Returns200Error(t *testing.T) {
 	groupId := uint64(1)
 	type req struct {
@@ -271,7 +324,7 @@ func TestScopeCreateUpdateAssets_EmptyName_Returns200Error(t *testing.T) {
 	}
 }
 
-// TestScopeResetInput_BadBody verifies that a malformed request body returns 400.
+// TestScopeResetInput_BadBody_Returns400 verifies that a malformed request body returns 400.
 func TestScopeResetInput_BadBody_Returns400(t *testing.T) {
 	ctx, w := badBodyCtx(adminUser())
 	ScopeResetInput()(ctx)
@@ -280,7 +333,7 @@ func TestScopeResetInput_BadBody_Returns400(t *testing.T) {
 	}
 }
 
-// TestScopeResetInput_ZeroScopeId verifies that a scope ID of zero returns a 200 with an error body.
+// TestScopeResetInput_ZeroScopeId_Returns200Error verifies that a scope ID of zero returns a 200 with an error body.
 func TestScopeResetInput_ZeroScopeId_Returns200Error(t *testing.T) {
 	type req struct {
 		ScopeId uint64 `json:"scope_id"`
@@ -293,7 +346,7 @@ func TestScopeResetInput_ZeroScopeId_Returns200Error(t *testing.T) {
 	}
 }
 
-// TestScopeResetInput_ValidScopeId verifies that a valid scope ID triggers an RPC call and returns 503 when RPC is down.
+// TestScopeResetInput_ValidScopeId_RpcUnavailable_Returns503 verifies that a valid scope ID triggers an RPC call and returns 503 when RPC is down.
 func TestScopeResetInput_ValidScopeId_RpcUnavailable_Returns503(t *testing.T) {
 	type req struct {
 		ScopeId uint64 `json:"scope_id"`
@@ -306,7 +359,7 @@ func TestScopeResetInput_ValidScopeId_RpcUnavailable_Returns503(t *testing.T) {
 	}
 }
 
-// TestScopeResetSecret_BadBody verifies that a malformed request body returns 400.
+// TestScopeResetSecret_BadBody_Returns400 verifies that a malformed request body returns 400.
 func TestScopeResetSecret_BadBody_Returns400(t *testing.T) {
 	ctx, w := badBodyCtx(adminUser())
 	ScopeResetSecret(nil)(ctx)
@@ -315,7 +368,7 @@ func TestScopeResetSecret_BadBody_Returns400(t *testing.T) {
 	}
 }
 
-// TestScopeResetSecret_ZeroId verifies that an ID of zero returns a 200 with an error body.
+// TestScopeResetSecret_ZeroId_Returns200Error verifies that an ID of zero returns a 200 with an error body.
 func TestScopeResetSecret_ZeroId_Returns200Error(t *testing.T) {
 	ctx, w := newCtx(idReq{Id: 0}, adminUser())
 	ScopeResetSecret(nil)(ctx)
@@ -324,7 +377,7 @@ func TestScopeResetSecret_ZeroId_Returns200Error(t *testing.T) {
 	}
 }
 
-// TestScopeResetSecret_ValidId verifies that a valid ID triggers an RPC call and returns 503 when RPC is down.
+// TestScopeResetSecret_ValidId_RpcUnavailable_Returns503 verifies that a valid ID triggers an RPC call and returns 503 when RPC is down.
 func TestScopeResetSecret_ValidId_RpcUnavailable_Returns503(t *testing.T) {
 	ctx, w := newCtx(idReq{Id: 1}, adminUser())
 	ScopeResetSecret(nil)(ctx)

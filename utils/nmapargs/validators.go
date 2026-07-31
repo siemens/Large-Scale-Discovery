@@ -17,7 +17,8 @@ import (
 	"strings"
 )
 
-var reTime = regexp.MustCompile(`^\d+(\.\d+)?(ms|s|m|h)?$`) // Matches Nmap time expressions like 100ms, 3s, 1m, 0.5h
+// reTime matches Nmap time expressions such as 100ms, 3s, 1m, or 0.5h
+var reTime = regexp.MustCompile(`^\d+(\.\d+)?(ms|s|m|h)?$`)
 
 // rePortList is a character-set guard for port list strings.
 // Includes P/p for IP-protocol qualifier, a-z/A-Z for service names,
@@ -27,8 +28,10 @@ var rePortList = regexp.MustCompile(`^[TUSPtusp:0-9,\-a-zA-Z*?\[\]]+$`)
 var reDecoys = regexp.MustCompile( // Matches comma-separated decoy specs (IPs, RND[:n], ME)
 	`^(RND(:\d+)?|ME|[a-zA-Z0-9.\-:/\[\]]+)(,(RND(:\d+)?|ME|[a-zA-Z0-9.\-:/\[\]]+))*$`,
 )
-var reScanFlag = regexp.MustCompile(`^\d+$|^(URG|ACK|PSH|RST|SYN|FIN|ECE|CWR)+$`) // Matches symbolic or numeric TCP flags
-var reMac = regexp.MustCompile(                                                   // Matches MAC address, 0, or vendor prefix
+
+// reScanFlag matches symbolic or numeric TCP flags
+var reScanFlag = regexp.MustCompile(`^\d+$|^(URG|ACK|PSH|RST|SYN|FIN|ECE|CWR)+$`)
+var reMac = regexp.MustCompile( // Matches MAC address, 0, or vendor prefix
 	`^([0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}|0|[a-zA-Z][a-zA-Z0-9_\-]*)$`,
 )
 
@@ -36,8 +39,8 @@ var reMac = regexp.MustCompile(                                                 
 func validatePortNumber(s string) error {
 
 	// Parse the port string as an integer and validate its range.
-	n, errConv := strconv.Atoi(s)
-	if errConv != nil || n < 0 || n > 65535 {
+	port, errPort := strconv.Atoi(s)
+	if errPort != nil || port < 0 || port > 65535 {
 		return fmt.Errorf("port %q is out of range (must be 0–65535)", s)
 	}
 
@@ -115,12 +118,12 @@ func validatePortList(s string) error {
 				}
 
 				// Validate each endpoint is within 0–65535.
-				if err := validatePortNumber(lo); err != nil {
-					return err
+				if errValidatePortNumber := validatePortNumber(lo); errValidatePortNumber != nil {
+					return errValidatePortNumber
 				}
 
-				if err := validatePortNumber(hi); err != nil {
-					return err
+				if errValidatePortNumber := validatePortNumber(hi); errValidatePortNumber != nil {
+					return errValidatePortNumber
 				}
 
 				// Parse both ends for the ordering check (errors already handled above).
@@ -138,8 +141,8 @@ func validatePortList(s string) error {
 
 		// If the entry is all digits, validate it as a single port number.
 		if isAllDigits(entry) {
-			if err := validatePortNumber(entry); err != nil {
-				return err
+			if errValidatePortNumber := validatePortNumber(entry); errValidatePortNumber != nil {
+				return errValidatePortNumber
 			}
 			continue
 		}
@@ -188,9 +191,9 @@ func validateTimePositive(s string) error {
 	}
 
 	// Parse the duration and reject zero.
-	ms, errParse := parseTimeDuration(s)
-	if errParse != nil {
-		return errParse
+	ms, errMs := parseTimeDuration(s)
+	if errMs != nil {
+		return errMs
 	}
 
 	// A zero duration is not allowed for this flag.
@@ -208,19 +211,19 @@ func validateIntRange(min, max int) func(string) error {
 	return func(s string) error {
 
 		// Parse the value as a signed integer.
-		n, errConv := strconv.Atoi(s)
-		if errConv != nil {
+		value, errValue := strconv.Atoi(s)
+		if errValue != nil {
 			return fmt.Errorf("expected an integer, got %q", s)
 		}
 
 		// Check the lower bound if one was requested.
-		if n < min {
-			return fmt.Errorf("must be at least %d, got %d", min, n)
+		if value < min {
+			return fmt.Errorf("must be at least %d, got %d", min, value)
 		}
 
 		// Check the upper bound if one was requested.
-		if n > max {
-			return fmt.Errorf("must be at most %d, got %d", max, n)
+		if value > max {
+			return fmt.Errorf("must be at most %d, got %d", max, value)
 		}
 
 		// Return nil as everything went fine.
@@ -234,19 +237,19 @@ func validateFloatRange(min, max float64) func(string) error {
 	return func(s string) error {
 
 		// Parse the value as a 64-bit float.
-		f, errConv := strconv.ParseFloat(s, 64)
-		if errConv != nil {
+		value, errValue := strconv.ParseFloat(s, 64)
+		if errValue != nil {
 			return fmt.Errorf("expected a number, got %q", s)
 		}
 
 		// Check the lower bound if one was requested.
-		if f < min {
-			return fmt.Errorf("must be at least %g, got %g", min, f)
+		if value < min {
+			return fmt.Errorf("must be at least %g, got %g", min, value)
 		}
 
 		// Check the upper bound if one was requested.
-		if f > max {
-			return fmt.Errorf("must be at most %g, got %g", max, f)
+		if value > max {
+			return fmt.Errorf("must be at most %g, got %g", max, value)
 		}
 
 		// Return nil as everything went fine.
@@ -280,14 +283,14 @@ func validateTimingTemplate(s string) error {
 func validateMtu(s string) error {
 
 	// Parse the MTU value as an integer.
-	n, errConv := strconv.Atoi(s)
-	if errConv != nil || n <= 0 {
+	mtu, errMtu := strconv.Atoi(s)
+	if errMtu != nil || mtu <= 0 {
 		return fmt.Errorf("MTU must be a positive integer, got %q", s)
 	}
 
 	// Nmap requires the MTU to be a multiple of 8.
-	if n%8 != 0 {
-		return fmt.Errorf("MTU must be a multiple of 8, got %d", n)
+	if mtu%8 != 0 {
+		return fmt.Errorf("MTU must be a multiple of 8, got %d", mtu)
 	}
 
 	// Return nil as everything went fine.
@@ -306,8 +309,8 @@ func validateScanFlags(s string) error {
 
 	// A numeric value must fit in a single TCP flag byte (0–255).
 	if isAllDigits(s) {
-		n, errConv := strconv.Atoi(s)
-		if errConv != nil || n < 0 || n > 255 {
+		flags, errFlags := strconv.Atoi(s)
+		if errFlags != nil || flags < 0 || flags > 255 {
 			return fmt.Errorf("numeric --scanflags value must be 0–255, got %s", s)
 		}
 	}
@@ -347,8 +350,8 @@ func validateMac(s string) error {
 func validatePortRatio(s string) error {
 
 	// Parse the port-ratio value as a float.
-	f, errParse := strconv.ParseFloat(s, 64)
-	if errParse != nil || f < 0 || f >= 1 {
+	ratio, errRatio := strconv.ParseFloat(s, 64)
+	if errRatio != nil || ratio < 0 || ratio >= 1 {
 		return fmt.Errorf("--port-ratio must be a float in [0, 1), got %q", s)
 	}
 

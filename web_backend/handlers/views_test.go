@@ -1,11 +1,12 @@
 /*
-* Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
-*
-* Copyright (c) Siemens AG, 2016-2026.
-*
-* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
-* directory or visit <https://opensource.org/licenses/MIT>.
-*
+ * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
+ *
+ * Copyright (c) Siemens AG, 2016-2026.
+ *
+ * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+ * directory or visit <https://opensource.org/licenses/MIT>.
+ *
+ * SPDX-License-Identifier: MIT
  */
 
 package handlers
@@ -15,7 +16,7 @@ import (
 	"testing"
 )
 
-// TestViews_Admin verifies that an admin triggers an RPC call and receives 503 when RPC is down.
+// TestViews_Admin_RpcUnavailable_Returns503 verifies that an admin triggers an RPC call and receives 503 when RPC is down.
 func TestViews_Admin_RpcUnavailable_Returns503(t *testing.T) {
 	ctx, w := newCtx(nil, adminUser())
 	Views()(ctx)
@@ -24,7 +25,7 @@ func TestViews_Admin_RpcUnavailable_Returns503(t *testing.T) {
 	}
 }
 
-// TestViews_NonAdmin verifies that a non-admin triggers an RPC call and receives 503 when RPC is down.
+// TestViews_NonAdmin_RpcUnavailable_Returns503 verifies that a non-admin triggers an RPC call and receives 503 when RPC is down.
 func TestViews_NonAdmin_RpcUnavailable_Returns503(t *testing.T) {
 	ctx, w := newCtx(nil, regularUser())
 	Views()(ctx)
@@ -33,7 +34,7 @@ func TestViews_NonAdmin_RpcUnavailable_Returns503(t *testing.T) {
 	}
 }
 
-// TestViewsGranted_RpcUnavailable verifies that ViewsGranted returns 503 when RPC is down.
+// TestViewsGranted_RpcUnavailable_Returns503 verifies that ViewsGranted returns 503 when RPC is down.
 func TestViewsGranted_RpcUnavailable_Returns503(t *testing.T) {
 	ctx, w := newCtx(nil, regularUser())
 	ViewsGranted()(ctx)
@@ -42,7 +43,7 @@ func TestViewsGranted_RpcUnavailable_Returns503(t *testing.T) {
 	}
 }
 
-// TestViewCreate_BadBody verifies that a malformed request body returns 400.
+// TestViewCreate_BadBody_Returns400 verifies that a malformed request body returns 400.
 func TestViewCreate_BadBody_Returns400(t *testing.T) {
 	ctx, w := badBodyCtx(adminUser())
 	ViewCreate()(ctx)
@@ -51,7 +52,7 @@ func TestViewCreate_BadBody_Returns400(t *testing.T) {
 	}
 }
 
-// TestViewCreate_RpcUnavailable verifies that a valid request returns 503 when RPC is down.
+// TestViewCreate_RpcUnavailable_Returns503 verifies that a valid request returns 503 when RPC is down.
 // ViewCreate calls RpcGetScope before validating inputs, so an unavailable RPC surfaces immediately.
 func TestViewCreate_RpcUnavailable_Returns503(t *testing.T) {
 	type req struct {
@@ -65,7 +66,7 @@ func TestViewCreate_RpcUnavailable_Returns503(t *testing.T) {
 	}
 }
 
-// TestViewDelete_BadBody verifies that a malformed request body returns 400.
+// TestViewDelete_BadBody_Returns400 verifies that a malformed request body returns 400.
 func TestViewDelete_BadBody_Returns400(t *testing.T) {
 	ctx, w := badBodyCtx(adminUser())
 	ViewDelete()(ctx)
@@ -74,7 +75,7 @@ func TestViewDelete_BadBody_Returns400(t *testing.T) {
 	}
 }
 
-// TestViewDelete_ZeroId verifies that an ID of zero returns a 200 with an error body.
+// TestViewDelete_ZeroId_Returns200Error verifies that an ID of zero returns a 200 with an error body.
 func TestViewDelete_ZeroId_Returns200Error(t *testing.T) {
 	ctx, w := newCtx(idReq{Id: 0}, adminUser())
 	ViewDelete()(ctx)
@@ -83,7 +84,7 @@ func TestViewDelete_ZeroId_Returns200Error(t *testing.T) {
 	}
 }
 
-// TestViewDelete_ValidId verifies that a valid ID triggers an RPC call and returns 503 when RPC is down.
+// TestViewDelete_ValidId_RpcUnavailable_Returns503 verifies that a valid ID triggers an RPC call and returns 503 when RPC is down.
 func TestViewDelete_ValidId_RpcUnavailable_Returns503(t *testing.T) {
 	ctx, w := newCtx(idReq{Id: 1}, adminUser())
 	ViewDelete()(ctx)
@@ -92,7 +93,7 @@ func TestViewDelete_ValidId_RpcUnavailable_Returns503(t *testing.T) {
 	}
 }
 
-// TestViewUpdate_BadBody verifies that a malformed request body returns 400.
+// TestViewUpdate_BadBody_Returns400 verifies that a malformed request body returns 400.
 func TestViewUpdate_BadBody_Returns400(t *testing.T) {
 	ctx, w := badBodyCtx(adminUser())
 	ViewUpdate()(ctx)
@@ -101,7 +102,7 @@ func TestViewUpdate_BadBody_Returns400(t *testing.T) {
 	}
 }
 
-// TestViewUpdate_ZeroId verifies that an ID of zero returns a 200 with an error body.
+// TestViewUpdate_ZeroId_Returns200Error verifies that an ID of zero returns a 200 with an error body.
 func TestViewUpdate_ZeroId_Returns200Error(t *testing.T) {
 	type req struct {
 		Id   uint64 `json:"id"`

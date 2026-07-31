@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["node"],
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noUncheckedIndexedAccess": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "composite": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "vite.config.ts",
+    "tests/vite.config.smoke.ts",
+    "tests/vitest.config.ts",
+    "tests/playwright.config.ts"
+  ]
+}

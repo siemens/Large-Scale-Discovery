@@ -1,0 +1,30 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.{js,jsx,ts,tsx,cjs,cts,mjs,mts,vue}]
+# Match Prettier's printWidth: 100 when GoLand's built-in formatter runs.
+max_line_length = 100
+
+# Match Prettier's bracketSpacing: true when GoLand's built-in formatter runs.
+ij_javascript_spaces_within_imports = true
+ij_javascript_spaces_within_object_literal_braces = true
+ij_typescript_spaces_within_imports = true
+ij_typescript_spaces_within_object_literal_braces = true
+
+# Wrap long imports like Prettier instead of collapsing them onto an overlong line.
+ij_javascript_imports_wrap = chop_down_if_long
+ij_typescript_imports_wrap = chop_down_if_long
+
+# Match Prettier's trailingComma: "all" when GoLand's built-in formatter runs.
+ij_javascript_enforce_trailing_comma = when_multiline
+ij_typescript_enforce_trailing_comma = when_multiline

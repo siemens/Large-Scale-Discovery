@@ -12,4 +12,5 @@
 
 package _build
 
+// DevMode indicates whether development-mode behavior is enabled
 const DevMode = true

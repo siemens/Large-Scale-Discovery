@@ -92,8 +92,8 @@ var templateModules = Modules{
 }
 
 type Paths struct {
-	// issues. E.g. on Linux the Python executable files might have different names (python, python3.7, python3.8)
 	// Paths to executables, e.g. of third party tools. Use complete paths to executables to avoid cross-platform
+	// issues. E.g. on Windows the Python executable path may vary by installation.
 	NmapDir   string `json:"-"`
 	Nmap      string `json:"nmap"`
 	SslyzeDir string `json:"-"`
@@ -107,14 +107,14 @@ func (p *Paths) UnmarshalJSON(b []byte) error {
 	var raw aux
 
 	// Unmarshal serialized JSON into temporary auxiliary structure
-	err := json.Unmarshal(b, &raw)
-	if err != nil {
-		return err
+	errUnmarshal := json.Unmarshal(b, &raw)
+	if errUnmarshal != nil {
+		return errUnmarshal
 	}
 
 	// Check if paths are set
 	if raw.Nmap == "" {
-		return fmt.Errorf("Nmap path not set")
+		return fmt.Errorf("Nmap path not set") //lint:ignore ST1005 Nmap is product name
 	}
 	if raw.Sslyze == "" {
 		return fmt.Errorf("SSLyze path not set")
@@ -123,19 +123,19 @@ func (p *Paths) UnmarshalJSON(b []byte) error {
 	// Convert the paths to an absolute ones if necessary
 	nmap := raw.Nmap
 	if !filepath.IsAbs(nmap) {
-		var errAbs error
-		nmap, errAbs = filepath.Abs(nmap)
-		if errAbs != nil {
-			return errAbs
+		var errNmap error
+		nmap, errNmap = filepath.Abs(nmap)
+		if errNmap != nil {
+			return errNmap
 		}
 	}
 
 	sslyze := raw.Sslyze
 	if !filepath.IsAbs(sslyze) {
-		var errAbs error
-		sslyze, errAbs = filepath.Abs(sslyze)
-		if errAbs != nil {
-			return errAbs
+		var errSslyze error
+		sslyze, errSslyze = filepath.Abs(sslyze)
+		if errSslyze != nil {
+			return errSslyze
 		}
 	}
 
@@ -198,9 +198,9 @@ func (m *ModuleSmb) UnmarshalJSON(b []byte) error {
 	raw.MaxInstances = -1
 
 	// Unmarshal serialized JSON into temporary auxiliary structure
-	err := json.Unmarshal(b, &raw)
-	if err != nil {
-		return err
+	errUnmarshal := json.Unmarshal(b, &raw)
+	if errUnmarshal != nil {
+		return errUnmarshal
 	}
 
 	// Fix invalid settings
@@ -248,9 +248,9 @@ func (m *Modules) UnmarshalJSON(b []byte) error {
 	raw.Webenum.MaxInstances = -1
 
 	// Unmarshal serialized JSON into temporary auxiliary structure
-	err := json.Unmarshal(b, &raw)
-	if err != nil {
-		return err
+	errUnmarshal := json.Unmarshal(b, &raw)
+	if errUnmarshal != nil {
+		return errUnmarshal
 	}
 
 	// Update struct with de-serialized values

@@ -40,8 +40,8 @@ func RpcGetScopeFull(
 		ScopeSecret:     scopeSecret,
 	}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return database.T_scan_scope{}, errRpc
 	}

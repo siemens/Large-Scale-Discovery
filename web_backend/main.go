@@ -1,11 +1,12 @@
 /*
-* Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
-*
-* Copyright (c) Siemens AG, 2016-2026.
-*
-* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
-* directory or visit <https://opensource.org/licenses/MIT>.
-*
+ * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
+ *
+ * Copyright (c) Siemens AG, 2016-2026.
+ *
+ * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+ * directory or visit <https://opensource.org/licenses/MIT>.
+ *
+ * SPDX-License-Identifier: MIT
  */
 
 // @title           Large-Scale Discovery API
@@ -21,6 +22,8 @@
 // @securityDefinitions.apikey BearerAuth
 // @in              header
 // @name            Authorization
+
+//go:generate swag init --generalInfo main.go --output docs --parseDependency --parseInternal
 
 package main
 
@@ -42,12 +45,12 @@ import (
 )
 
 // Build information accessible via -version
-var buildGitCommit = "dev12345"                       // Git commit hash identifying the version of this scan agent. Injected by the build command.
-var buildTimestamp = "0001-01-01T00:00:00+00:00"      // Timestamp when this agent was built. Injected by the build command.
-var buildGoVersion = runtime.Version()                // Golang version used during building of the agent.
-var buildGoArch = runtime.GOOS + "/" + runtime.GOARCH // Golang version used during building of the agent.
+var buildGitCommit = "dev12345"                       // Git commit hash identifying this binary. Injected by the build command.
+var buildTimestamp = "0001-01-01T00:00:00+00:00"      // Timestamp when this binary was built. Injected by the build command.
+var buildGoVersion = runtime.Version()                // Go version used to build this binary.
+var buildGoArch = runtime.GOOS + "/" + runtime.GOARCH // OS and architecture targeted by this binary.
 
-// main application entry point
+// main is the application entry point
 func main() {
 
 	// Introduce Gracy to take care of cleanup/shutdown actions on interrupt
@@ -74,7 +77,7 @@ func main() {
 	// Initialize configuration
 	errConf := config.Init("backend.conf")
 	if errConf != nil {
-		fmt.Println("Could not load configuration:", errConf)
+		fmt.Printf("Could not load configuration: %s\n", errConf)
 		return
 	}
 
@@ -82,9 +85,9 @@ func main() {
 	conf := config.GetConfig()
 
 	// Initialize logger
-	logger, errLog := log.InitGlobalLogger(conf.Logging)
-	if errLog != nil {
-		fmt.Println("could not initialize logger: ", errLog)
+	logger, errLogger := log.InitGlobalLogger(conf.Logging)
+	if errLogger != nil {
+		fmt.Printf("Could not initialize logger: %s\n", errLogger)
 		return
 	}
 
@@ -93,9 +96,8 @@ func main() {
 
 	// Make sure logger gets closed on exit
 	gracy.Register(func() {
-		err := log.CloseGlobalLogger()
-		if err != nil {
-			fmt.Printf("could not close logger: %s\n", err)
+		if errClose := log.CloseGlobalLogger(); errClose != nil {
+			fmt.Printf("Could not close logger: %s\n", errClose)
 		}
 	})
 
@@ -105,12 +107,12 @@ func main() {
 	// Log potential panics before letting them move on
 	defer func() {
 		if r := recover(); r != nil {
-			logger.Errorf(fmt.Sprintf("Panic: %s%s", r, scanUtils.StacktraceIndented("\t")))
+			logger.Errorf("Panic: %s%s", r, scanUtils.StacktraceIndented("\t"))
 			panic(r)
 		}
 	}()
 
-	// Make backend print final message on exit
+	// Print the final component message just before termination
 	gracy.Register(func() {
 		time.Sleep(time.Microsecond) // Make sure this message is written last, in case of race condition
 		logger.Debugf("Backend terminated.")
@@ -156,7 +158,7 @@ func main() {
 	// Start the backend web server. This will start serving two interfaces:
 	//   - The REST API mounted under /api
 	//   - The web application frontend under /
-	// The web frontend is served from ../web_frontend/src/ in dev mode and from ../web_frontend/dist/ otherwise.
+	// The web frontend is served from ../web_frontend/dist/ in both dev and production mode.
 	errLaunch := core.Run()
 	if errLaunch != nil {
 		logger.Errorf("Could not launch backend: %s", errLaunch)
@@ -231,6 +233,7 @@ func registerApiEndpointsV1(smtpConfig *utils.Smtp) {
 	core.RegisterApiEndpointAdmin(v, "POST", "/admin/database/remove", handlers.DatabaseRemove())
 }
 
+// buildInfo returns the metadata embedded in this binary
 func buildInfo() []string {
 	return []string{
 		fmt.Sprintf("Build Timestamp   : %s", buildTimestamp),

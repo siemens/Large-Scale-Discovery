@@ -1,11 +1,12 @@
 /*
-* Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
-*
-* Copyright (c) Siemens AG, 2016-2024.
-*
-* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
-* directory or visit <https://opensource.org/licenses/MIT>.
-*
+ * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
+ *
+ * Copyright (c) Siemens AG, 2016-2026.
+ *
+ * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+ * directory or visit <https://opensource.org/licenses/MIT>.
+ *
+ * SPDX-License-Identifier: MIT
  */
 
 package handlers
@@ -16,7 +17,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	manager "github.com/siemens/Large-Scale-Discovery/manager/core"
-	"github.com/siemens/Large-Scale-Discovery/manager/database"
+	"github.com/siemens/Large-Scale-Discovery/manager/scopedb"
 	"github.com/siemens/Large-Scale-Discovery/utils"
 	"github.com/siemens/Large-Scale-Discovery/web_backend/core"
 )
@@ -35,7 +36,7 @@ var SqlLogs = func() gin.HandlerFunc {
 
 	// Define expected response structure
 	type responseBody struct {
-		Logs []database.T_sql_log `json:"logs"`
+		Logs []scopedb.T_sql_log `json:"logs"`
 	}
 
 	// Return request handling function
@@ -65,12 +66,12 @@ var SqlLogs = func() gin.HandlerFunc {
 		}
 
 		// Query related logs
-		sqlLogs, errSql := manager.RpcGetSqlLogs(logger, core.RpcClient(), req.DbName, req.Since)
-		if errors.Is(errSql, utils.ErrRpcConnectivity) {
+		sqlLogs, errSqlLogs := manager.RpcGetSqlLogs(logger, core.RpcClient(), req.DbName, req.Since)
+		if errors.Is(errSqlLogs, utils.ErrRpcConnectivity) {
 			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
-		} else if errSql != nil {
-			logger.Errorf("Could not query SQL logs: %s", errSql)
+		} else if errSqlLogs != nil {
+			logger.Errorf("Could not query SQL logs: %s", errSqlLogs)
 			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}

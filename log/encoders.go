@@ -17,6 +17,7 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// TimestampFormat defines the timestamp layout used in log output
 const TimestampFormat = "2006-01-02 15:04:05.000 -0700"
 
 func NameEncoder(loggerName string, enc zapcore.PrimitiveArrayEncoder) {

@@ -16,8 +16,10 @@ import (
 	"time"
 )
 
+// TimeFormat stores the application-wide time layout
 var TimeFormat = "15:04"
 
+// Timespans maps labels to configured time spans
 type Timespans []Timespan
 
 func (t *Timespans) String() string {

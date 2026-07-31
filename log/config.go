@@ -78,9 +78,9 @@ func (h *ConsoleHandler) UnmarshalJSON(b []byte) error {
 	var raw aux
 
 	// Unmarshal serialized JSON into temporary auxiliary structure
-	err := json.Unmarshal(b, &raw)
-	if err != nil {
-		return err
+	errUnmarshal := json.Unmarshal(b, &raw)
+	if errUnmarshal != nil {
+		return errUnmarshal
 	}
 
 	// Validate values
@@ -112,9 +112,9 @@ func (h *FileHandler) UnmarshalJSON(b []byte) error {
 	var raw aux
 
 	// Unmarshal serialized JSON into temporary auxiliary structure
-	err := json.Unmarshal(b, &raw)
-	if err != nil {
-		return err
+	errUnmarshal := json.Unmarshal(b, &raw)
+	if errUnmarshal != nil {
+		return errUnmarshal
 	}
 
 	// Validate values
@@ -156,9 +156,9 @@ func (h *SmtpHandler) UnmarshalJSON(b []byte) error {
 	var raw aux
 
 	// Unmarshal serialized JSON into temporary auxiliary structure
-	err := json.Unmarshal(b, &raw)
-	if err != nil {
-		return err
+	errUnmarshal := json.Unmarshal(b, &raw)
+	if errUnmarshal != nil {
+		return errUnmarshal
 	}
 
 	// Validate values
@@ -208,9 +208,9 @@ func (s *Settings) UnmarshalJSON(b []byte) error {
 	var raw aux
 
 	// Unmarshal serialized JSON into temporary auxiliary structure
-	err := json.Unmarshal(b, &raw)
-	if err != nil {
-		return err
+	errUnmarshal := json.Unmarshal(b, &raw)
+	if errUnmarshal != nil {
+		return errUnmarshal
 	}
 
 	// Check whether logger settings were there

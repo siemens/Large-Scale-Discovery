@@ -12,14 +12,9 @@ package nmapargs
 
 import "math"
 
-// argKind describes what a flag expects after it.
-type argKind int
-
-const (
-	argNone     argKind = iota // flag takes no argument (e.g. -sS)
-	argRequired                // flag must be followed by an argument (e.g. -p <ports>)
-	argOptional                // argument may be glued directly or absent (e.g. -PS[portlist])
-)
+const argNone argKind = 0     // Flag takes no argument, for example -sS
+const argRequired argKind = 1 // Flag must be followed by an argument, for example -p <ports>
+const argOptional argKind = 2 // Argument may be glued directly or omitted, for example -PS[portlist]
 
 // flagDef defines one Nmap flag and how its argument should be validated.
 type flagDef struct {
@@ -236,3 +231,6 @@ var tcpPortScanFlags = map[string]bool{
 var noPortScanFlags = map[string]bool{
 	"-sn": true, "-sP": true, "-sL": true,
 }
+
+// argKind describes what a flag expects after it.
+type argKind int

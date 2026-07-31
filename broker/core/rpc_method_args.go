@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2025.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -58,7 +58,7 @@ type ArgsGetScanTask struct {
 type ArgsSaveScanResult struct {
 	AgentInfo                 // Identifying scan agent information to distinguish scan agent instances for informational purposes
 	ScopeSecret   string      // Scan scope secret to authenticate/associate this scan result to
-	Id            uint64      // Id is passed back to allow the broker associating this result set with the original request. The Id might be either the t_discovery entry ID from the scope db or the t_sub_input entry ID from the brokerdb.
+	Id            uint64      // Id is passed back to allow the broker associating this result set with the original request. The Id might be either the t_discovery entry ID from the scope database or the t_sub_input entry ID from the database.
 	Result        interface{} // Generic interface that holds structure for different scan results
 	ResultSubnets []string    // OT discovery scans don't have an input target. The agent takes subnet of the local network interface targeted as an input target. The information is fed back to the broker and used to fill t_discovery for display.
 }

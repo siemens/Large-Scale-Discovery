@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -29,11 +29,11 @@ func extractMinHostgroup(args string) int {
 		if strings.ToLower(splits[i]) == "--min-hostgroup" {
 
 			// Convert value to integer
-			v, errV := strconv.Atoi(strings.ToLower(splits[i+1]))
-			if errV == nil {
+			hostGroup, errHostGroup := strconv.Atoi(strings.ToLower(splits[i+1]))
+			if errHostGroup == nil {
 
 				// Return value from arguments
-				return v
+				return hostGroup
 			}
 		}
 	}
@@ -57,39 +57,39 @@ func extractHostTimeoutMinutes(args string) float64 {
 
 			// Convert hot timeout value from Nmap format to integer minutes
 			if strings.HasSuffix(hostTimeout, "ms") {
-				ms, errMs := strconv.Atoi(strings.ReplaceAll(hostTimeout, "ms", ""))
-				if errMs == nil {
+				milliseconds, errMilliseconds := strconv.Atoi(strings.ReplaceAll(hostTimeout, "ms", ""))
+				if errMilliseconds == nil {
 
 					// Return value from arguments in minutes
-					return float64(ms) / 1000 / 60
+					return float64(milliseconds) / 1000 / 60
 				}
 			} else if strings.HasSuffix(hostTimeout, "s") {
-				s, errS := strconv.Atoi(strings.ReplaceAll(hostTimeout, "s", ""))
-				if errS == nil {
+				seconds, errSeconds := strconv.Atoi(strings.ReplaceAll(hostTimeout, "s", ""))
+				if errSeconds == nil {
 
 					// Return value from arguments in minutes
-					return float64(s) / 60
+					return float64(seconds) / 60
 				}
 			} else if strings.HasSuffix(hostTimeout, "m") {
-				m, errM := strconv.Atoi(strings.ReplaceAll(hostTimeout, "m", ""))
-				if errM == nil {
+				minutes, errMinutes := strconv.Atoi(strings.ReplaceAll(hostTimeout, "m", ""))
+				if errMinutes == nil {
 
 					// Return value from arguments in minutes
-					return float64(m)
+					return float64(minutes)
 				}
 			} else if strings.HasSuffix(hostTimeout, "h") {
-				h, errH := strconv.Atoi(strings.ReplaceAll(hostTimeout, "h", ""))
-				if errH == nil {
+				hours, errHours := strconv.Atoi(strings.ReplaceAll(hostTimeout, "h", ""))
+				if errHours == nil {
 
 					// Return value from arguments in minutes
-					return float64(h) * 60
+					return float64(hours) * 60
 				}
 			} else { // no unit means seconds
-				s, errS := strconv.Atoi(hostTimeout)
-				if errS == nil {
+				seconds, errSeconds := strconv.Atoi(hostTimeout)
+				if errSeconds == nil {
 
 					// Return value from arguments in minutes
-					return float64(s) / 60
+					return float64(seconds) / 60
 				}
 			}
 		}

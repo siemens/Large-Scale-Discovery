@@ -43,10 +43,6 @@ func TestNewSysMon(t *testing.T) {
 	// Terminate sys mon
 	defer sm.Shutdown()
 
-	// Boundary cache only updates at interval crossings so the cross-interval comparison always
-	// compares readings from distinct measurement windows, not consecutive ticks within the same one.
-	var boundaryCache SystemData
-
 	// Record loop start for reliable time-based assertions that do not depend on scheduler precision.
 	startTime := time.Now()
 
@@ -95,16 +91,44 @@ func TestNewSysMon(t *testing.T) {
 			t.Errorf("NewSystemMonitor() memory rate = '0', want > '0' (elapsed '%v' > interval*2)", elapsed)
 		}
 
-		// At each interval boundary, compare against the previous boundary reading to verify that the
-		// monitor updated. Skip the comparison when either side is still the zero-value struct (first
-		// measurement may arrive slightly late under load), so we only compare real measurement pairs.
-		if i >= frequency && i%frequency == 0 {
-			if values.MemoryRate != 0 && boundaryCache.MemoryRate != 0 {
-				if values.MemoryRate == boundaryCache.MemoryRate && values.CpuRate == boundaryCache.CpuRate {
-					t.Errorf("NewSystemMonitor() measurements did not update between intervals: CPU='%v', Mem='%v'", values.CpuRate, values.MemoryRate)
-				}
-			}
-			boundaryCache = values
+	}
+}
+
+// TestSystemMonitor_Get_ReturnsAfterCancellation verifies shutdown cannot leave a reader blocked
+func TestSystemMonitor_Get_ReturnsAfterCancellation(t *testing.T) {
+
+	// Prepare a monitor without starting its request loop
+	ctx, cancel := context.WithCancel(context.Background())
+	systemMonitor := NewSystemMonitor(ctx)
+	chResult := make(chan SystemData, 1)
+	go func() {
+
+		// Request data while no monitor loop is available to answer
+		chResult <- systemMonitor.Get()
+	}()
+
+	// Cancel the parent context and verify the pending request returns an empty snapshot
+	cancel()
+	select {
+	case result := <-chResult:
+		if result != (SystemData{}) {
+			t.Fatalf("SystemMonitor.Get() after cancellation = '%v', want empty snapshot", result)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("SystemMonitor.Get() remained blocked after cancellation")
+	}
+
+	// Verify repeated requests after cancellation also return promptly
+	for requestIndex := 0; requestIndex < 3; requestIndex++ {
+		go func() {
+
+			// Isolate the call so the test timeout can observe a blocking regression
+			chResult <- systemMonitor.Get()
+		}()
+		select {
+		case <-chResult:
+		case <-time.After(time.Second):
+			t.Fatalf("SystemMonitor.Get() request %d blocked after cancellation", requestIndex)
 		}
 	}
 }

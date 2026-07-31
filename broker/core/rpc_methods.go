@@ -30,7 +30,7 @@ import (
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/GoScans/webcrawler"
 	"github.com/siemens/GoScans/webenum"
-	"github.com/siemens/Large-Scale-Discovery/broker/brokerdb"
+	"github.com/siemens/Large-Scale-Discovery/broker/database"
 	"github.com/siemens/Large-Scale-Discovery/broker/memory"
 	"github.com/siemens/Large-Scale-Discovery/broker/scopedb"
 	"github.com/siemens/Large-Scale-Discovery/log"
@@ -40,7 +40,8 @@ import (
 	"gorm.io/gorm"
 )
 
-var scopeModuleLock = nsync.NewNamedMutex() // Named mutex to prevent parallel changes on the same scope and module data
+// scopeModuleLock serializes updates to scope module state
+var scopeModuleLock = nsync.NewNamedMutex()
 
 func agentCompatible(apiVersionAgent scanUtils.Version) bool {
 	return !BrokerApiVersion.IsGreaterThan(apiVersionAgent)
@@ -52,16 +53,12 @@ type Broker struct{}
 // RequestScanTasks processes scan task requests received from agents
 func (b *Broker) RequestScanTasks(rpcArgs *ArgsGetScanTask, rpcReply *ReplyGetScanTask) error {
 
-	// Track request so shutdown waits for it to complete
-	rpcInflight.Add(1)
-	defer rpcInflight.Done()
-
-	// Reject request if shutdown is already in progress, the client can retry later
-	select {
-	case <-coreCtx.Done():
-		return utils.ErrRpcConnectivity
-	default:
+	// Reject requests once shutdown starts.
+	// beginRpc already increments rpcInflight before proceeding.
+	if !beginRpc() {
+		return utils.ErrRpcGeneric
 	}
+	defer rpcInflight.Done() // Release rpcInflight count that was set by beginRpc.
 
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
@@ -88,12 +85,12 @@ func (b *Broker) RequestScanTasks(rpcArgs *ArgsGetScanTask, rpcReply *ReplyGetSc
 	}
 
 	// Get scan scope data by secret (will be taken from memory, if available).
-	scanScope, errScanScope := getScanScope(logger, rpcArgs.ScopeSecret)
-	if errors.Is(errScanScope, errInvalidScopeSecret) {
-		return errScanScope // Let the scan agent know that the secret was invalid
-	} else if errors.Is(errScanScope, errScopeNotAvailable) {
-		return nil // Pretend there are currently no scan tasks available
-	} else if scanScope == nil {
+	scopeEntry, errScopeEntry := getScanScope(logger, rpcArgs.ScopeSecret)
+	if errors.Is(errScopeEntry, errInvalidScopeSecret) {
+		return errScopeEntry // Let the scan agent know that the secret was invalid
+	} else if errors.Is(errScopeEntry, utils.ErrRpcGeneric) {
+		return nil // Pretend there are currently no scan tasks available. Agent will retry anyway.
+	} else if scopeEntry == nil {
 		logger.Warningf("Scan scope should be available but is not.")
 		return nil
 	}
@@ -104,19 +101,19 @@ func (b *Broker) RequestScanTasks(rpcArgs *ArgsGetScanTask, rpcReply *ReplyGetSc
 		rpcArgs.Name,
 		rpcArgs.Host,
 		rpcArgs.Ip,
-		scanScope.Name,
-		scanScope.Id,
+		scopeEntry.Name,
+		scopeEntry.Id,
 	)
 
-	// Update cached agent information. This information will be persisted and regularly updated in the managerdb
+	// Update cached agent information. This information will be persisted and regularly updated in the manager database
 	// where it can be loaded by the web backend to be presented to the web interface users.
-	errStore := cacheAgentDetails(logger, rpcArgs, scanScope)
+	errStore := cacheAgentDetails(logger, rpcArgs, scopeEntry)
 	if errStore != nil {
 		return errStore
 	}
 
 	// Don't feed new scan tasks, while scan scope is paused
-	if !scanScope.Enabled {
+	if !scopeEntry.Enabled {
 
 		// Return nil to indicate successful RPC call
 		logger.Debugf("Scope currently paused.")
@@ -130,9 +127,9 @@ func (b *Broker) RequestScanTasks(rpcArgs *ArgsGetScanTask, rpcReply *ReplyGetSc
 	for _, agentModule := range rpcArgs.ModuleData {
 
 		// Get max instances configured in the scan scope settings
-		maxInstances, errInstances := scanScope.ScanSettings.MaxInstances(agentModule.Label)
-		if errInstances != nil {
-			logger.Errorf("Could not get max instances for '%s': %s", agentModule.Label, errInstances)
+		maxInstances, errMaxInstances := scopeEntry.ScanSettings.MaxInstances(agentModule.Label)
+		if errMaxInstances != nil {
+			logger.Errorf("Could not get max instances for '%s': %s", agentModule.Label, errMaxInstances)
 			return utils.ErrRpcGeneric // Error message returned to agent
 		}
 
@@ -159,7 +156,7 @@ func (b *Broker) RequestScanTasks(rpcArgs *ArgsGetScanTask, rpcReply *ReplyGetSc
 			// Query targets and fill RPC response with response data
 			errFeed := feedDiscovery(
 				logger,
-				scanScope,
+				scopeEntry,
 				availableSlots,
 				rpcArgs.Ip,
 				rpcArgs.Host,
@@ -168,8 +165,8 @@ func (b *Broker) RequestScanTasks(rpcArgs *ArgsGetScanTask, rpcReply *ReplyGetSc
 			if errFeed != nil {
 				logger.Errorf(
 					"Could not feed discovery tasks for '%s' (ID %d): %s",
-					scanScope.Name,
-					scanScope.Id,
+					scopeEntry.Name,
+					scopeEntry.Id,
 					errFeed,
 				)
 				return utils.ErrRpcGeneric // Error message returned to agent
@@ -180,7 +177,7 @@ func (b *Broker) RequestScanTasks(rpcArgs *ArgsGetScanTask, rpcReply *ReplyGetSc
 			// Query targets and fill RPC response with response data
 			errFeed := feedSubmodule(
 				logger,
-				scanScope,
+				scopeEntry,
 				agentModule.Label,
 				availableSlots,
 				rpcArgs.Ip,
@@ -192,8 +189,8 @@ func (b *Broker) RequestScanTasks(rpcArgs *ArgsGetScanTask, rpcReply *ReplyGetSc
 				logger.Errorf(
 					"Could not feed '%s' tasks for '%s' (ID %d): %s",
 					agentModule.Label,
-					scanScope.Name,
-					scanScope.Id,
+					scopeEntry.Name,
+					scopeEntry.Id,
 					errFeed,
 				)
 				return utils.ErrRpcGeneric // Error message returned to agent
@@ -211,30 +208,27 @@ func (b *Broker) RequestScanTasks(rpcArgs *ArgsGetScanTask, rpcReply *ReplyGetSc
 // SubmitScanResult processes scan results received from agents
 func (b *Broker) SubmitScanResult(rpcArgs *ArgsSaveScanResult, rpcReply *struct{}) error {
 
-	// Track request so shutdown waits for it to complete (no defer, goroutine path calls Done() itself)
-	rpcInflight.Add(1)
-
-	// Reject request if shutdown is already in progress, the client can retry later
-	select {
-	case <-coreCtx.Done():
-		return utils.ErrRpcConnectivity
-	default:
+	// Reject requests once shutdown starts.
+	// beginRpc already increments rpcInflight before proceeding.
+	if !beginRpc() {
+		return utils.ErrRpcGeneric
 	}
+	defer rpcInflight.Done() // Release rpcInflight count that was set by beginRpc.
+
+	// Generate UUID for context
+	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
+
+	// Get tagged logger
+	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-SubmitScanResult", uuid))
+
+	// Log RPC call benchmark to be able to identify bottlenecks later on
+	start := time.Now()
+	defer func() {
+		logger.Debugf("RPC call took %s.", time.Since(start))
+	}()
 
 	// Check if agent version is compatible
 	if !agentCompatible(rpcArgs.ApiVersion) {
-
-		// Generate UUID for context
-		uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
-
-		// Get tagged logger
-		logger := log.GetLogger().Tagged(fmt.Sprintf("%s-SubmitScanResult", uuid))
-
-		// Log RPC call benchmark to be able to identify bottlenecks later on
-		start := time.Now()
-		defer func() {
-			logger.Debugf("RPC call took %s.", time.Since(start))
-		}()
 
 		// Log message
 		logger.Warningf(
@@ -246,21 +240,39 @@ func (b *Broker) SubmitScanResult(rpcArgs *ArgsSaveScanResult, rpcReply *struct{
 		)
 
 		// Return compatibility error
-		rpcInflight.Done()
 		return utils.ErrRpcCompatibility
 	}
 
-	// Process results based on their type. Done() is called inside the goroutine after saving completes.
+	// Resolve scan scope before acknowledging the result to the agent. If the scope cannot be resolved
+	// (e.g. broker shutting down), the RPC returns an error and the agent will retry.
+	scopeEntry, errScopeEntry := getScanScope(logger, rpcArgs.ScopeSecret)
+	if errScopeEntry != nil {
+		logger.Warningf(
+			"'%s' (%s/%s) sent result %d with scope secret '%s...', but scope could not be resolved: %s",
+			rpcArgs.Name,
+			rpcArgs.Host,
+			rpcArgs.Ip,
+			rpcArgs.Id,
+			rpcArgs.ScopeSecret[0:5],
+			errScopeEntry,
+		)
+		return errScopeEntry
+	}
+
+	// Register the background worker before returning so shutdown cannot miss it
+	wgBackgroundTask.Add(1)
+
+	// Process results based on their type
 	switch rpcArgs.Result.(type) {
 	case discovery.Result:
 		go func() {
-			defer rpcInflight.Done()
-			saveDiscoveryResult(rpcArgs)
+			defer wgBackgroundTask.Done()
+			saveDiscoveryResult(logger, rpcArgs, scopeEntry)
 		}()
 	default:
 		go func() {
-			defer rpcInflight.Done()
-			saveSubResult(rpcArgs)
+			defer wgBackgroundTask.Done()
+			saveSubResult(logger, rpcArgs, scopeEntry)
 		}()
 	}
 
@@ -269,7 +281,7 @@ func (b *Broker) SubmitScanResult(rpcArgs *ArgsSaveScanResult, rpcReply *struct{
 }
 
 // lock acquires an access lock for a given scan scope and module to prevent concurrent access to the same
-// data segment in broker db and scope db. The scope's ID is used as an identifier, because it never changes, while the
+// data segment in broker database and scope database. The scope's ID is used as an identifier, because it never changes, while the
 // scope secret might change.
 func lock(scanScopeId uint64, module string) {
 	scopeModuleLock.Lock(strconv.FormatUint(scanScopeId, 10) + module)
@@ -281,8 +293,8 @@ func unlock(scanScopeId uint64, module string) {
 }
 
 // cacheAgentDetails updates cached agent information. This information will be persisted and regularly updated
-// in the managerdb where it can be loaded by the web backend to be presented to the web interface users.
-func cacheAgentDetails(logger scanUtils.Logger, rpcArgs *ArgsGetScanTask, scanScope *managerdb.T_scan_scope) error {
+// in the manager database where it can be loaded by the web backend to be presented to the web interface users.
+func cacheAgentDetails(logger scanUtils.Logger, rpcArgs *ArgsGetScanTask, scopeEntry *managerdb.T_scan_scope) error {
 
 	// Prepare map of scan counts
 	tasks := make(map[string]int, len(rpcArgs.ModuleData))
@@ -291,9 +303,9 @@ func cacheAgentDetails(logger scanUtils.Logger, rpcArgs *ArgsGetScanTask, scanSc
 	for _, agentModule := range rpcArgs.ModuleData {
 
 		// Get max instances configured in the scan scope
-		maxInstances, errInstances := scanScope.ScanSettings.MaxInstances(agentModule.Label)
-		if errInstances != nil {
-			logger.Errorf("Could not get max instances for '%s': %s", agentModule.Label, errInstances)
+		maxInstances, errMaxInstances := scopeEntry.ScanSettings.MaxInstances(agentModule.Label)
+		if errMaxInstances != nil {
+			logger.Errorf("Could not get max instances for '%s': %s", agentModule.Label, errMaxInstances)
 			return utils.ErrRpcGeneric // Error message returned to agent
 		}
 
@@ -323,7 +335,7 @@ func cacheAgentDetails(logger scanUtils.Logger, rpcArgs *ArgsGetScanTask, scanSc
 		rpcArgs.Ip,
 		rpcArgs.Shared,
 		rpcArgs.Limits,
-		scanScope.Id,
+		scopeEntry.Id,
 		tasks,
 		rpcArgs.SystemData,
 		rpcArgs.BuildCommit,
@@ -337,10 +349,10 @@ func cacheAgentDetails(logger scanUtils.Logger, rpcArgs *ArgsGetScanTask, scanSc
 
 // feedDiscovery queries discovery scan targets (for a given scan scope) from *database* and adds them to the RPC response
 // returned to the requesting the scan agent. In contrast to submodules, which have stored scan tasks in the local
-// brokerdb, the discovery scan module takes targets directly from the database (t_discovery table).
+// broker database, the discovery scan module takes targets directly from the database (t_discovery table).
 func feedDiscovery(
 	logger scanUtils.Logger,
-	scanScope *managerdb.T_scan_scope,
+	scopeEntry *managerdb.T_scan_scope,
 	amount int,
 	scanIp string,
 	scanHostname string,
@@ -348,61 +360,61 @@ func feedDiscovery(
 ) error {
 
 	// Query current queue size to make sure submodules are not falling behind
-	queueSize, errSize := brokerdb.GetScopeSize(scanScope.Id)
-	if errSize != nil {
-		return errSize
+	queueSize, errQueueSize := database.GetScopeSize(scopeEntry.Id)
+	if errQueueSize != nil {
+		return errQueueSize
 	}
 
 	// Do not feed further discovery scan tasks until submodules could catch up
 	if queueSize > 10000 { // Targets are easily piled up if a few discovery scan instances send results
-		logger.Infof("Queue size exceeded for '%s' (ID %d). %d targets queued.", scanScope.Name, scanScope.Id, queueSize)
+		logger.Infof("Queue size exceeded for '%s' (ID %d). %d targets queued.", scopeEntry.Name, scopeEntry.Id, queueSize)
 		return nil
 	}
 
-	// Acquire brokerdb access for related requests (same scope and scan type)
-	lock(scanScope.Id, discovery.Label)
+	// Acquire broker database access for related requests (same scope and scan type)
+	lock(scopeEntry.Id, discovery.Label)
 
 	// Unlock module access for the scope
-	defer unlock(scanScope.Id, discovery.Label)
+	defer unlock(scopeEntry.Id, discovery.Label)
 
 	// Check whether a new scan cycle should be initialized
-	if scanScope.Cycles {
-		_, errCycle := checkCycle(logger, scanScope)
+	if scopeEntry.Cycles {
+		_, errCycle := checkCycle(logger, scopeEntry)
 		if errCycle != nil {
 			return errCycle
 		}
 	}
 
 	// Get timezone ranges that are currently within the configured working hours range
-	timezonesActive := utils.TimezonesActive(scanScope.ScanSettings.DiscoveryTimespansSlice)
+	timezonesActive := utils.TimezonesActive(scopeEntry.ScanSettings.DiscoveryTimespansSlice)
 
-	// Get discovery scan targets directly from scope db (t_discovery) and block them for other agent's requests
-	newTargets, errTargets := scopedb.GetBlockDiscoveryTargets(
+	// Get discovery scan targets directly from scope database (t_discovery) and block them for other agent's requests
+	targetEntriesNew, errTargetEntriesNew := scopedb.GetBlockDiscoveryTargets(
 		logger,
-		scanScope,
+		scopeEntry,
 		amount,
 		timezonesActive,
 		scanIp,
 		scanHostname,
 	)
-	if errTargets != nil {
-		return errTargets
+	if errTargetEntriesNew != nil {
+		return errTargetEntriesNew
 	}
 
 	// Return if no targets were found
-	if len(newTargets) == 0 {
+	if len(targetEntriesNew) == 0 {
 		logger.Debugf("Currently no targets available for '%s'.", discovery.Label)
 		return nil
 	}
 
 	// Log action
-	logger.Infof("Feeding %d '%s' tasks.", len(newTargets), discovery.Label)
+	logger.Infof("Feeding %d '%s' tasks.", len(targetEntriesNew), discovery.Label)
 
 	// Inject default '--min-hostgroup' argument if not present. A fixed value is required to estimate
 	// the maximum scan duration.
-	if v := extractMinHostgroup(scanScope.ScanSettings.DiscoveryNmapArgs); v == 0 {
-		scanScope.ScanSettings.DiscoveryNmapArgs = strings.Join([]string{
-			scanScope.ScanSettings.DiscoveryNmapArgs,
+	if v := extractMinHostgroup(scopeEntry.ScanSettings.DiscoveryNmapArgs); v == 0 {
+		scopeEntry.ScanSettings.DiscoveryNmapArgs = strings.Join([]string{
+			scopeEntry.ScanSettings.DiscoveryNmapArgs,
 			"--min-hostgroup",
 			strconv.Itoa(defaultNmapMinHostgroup),
 		}, " ")
@@ -410,25 +422,26 @@ func feedDiscovery(
 
 	// Inject default '--host-timeout' argument if not present. Some fixed value is required to estimate
 	// the maximum scan duration.
-	if v := extractHostTimeoutMinutes(scanScope.ScanSettings.DiscoveryNmapArgs); v == 0 {
-		scanScope.ScanSettings.DiscoveryNmapArgs = strings.Join([]string{
-			scanScope.ScanSettings.DiscoveryNmapArgs,
+	if v := extractHostTimeoutMinutes(scopeEntry.ScanSettings.DiscoveryNmapArgs); v == 0 {
+		scopeEntry.ScanSettings.DiscoveryNmapArgs = strings.Join([]string{
+			scopeEntry.ScanSettings.DiscoveryNmapArgs,
 			"--host-timeout",
 			strconv.Itoa(defaultNmapHosttimeoutMinutes) + "m",
 		}, " ")
 	}
 
 	// Add new scan targets to RPC reply
-	for _, target := range newTargets {
+	for _, targetEntry := range targetEntriesNew {
 
 		// Append scan task to list of tasks. ScanTask is a generic struct, the agent will pick the data
 		// required by the specific scan task.
 		rpcReply.ScanTasks = append(rpcReply.ScanTasks, ScanTask{
-			Secret:       scanScope.Secret,
+			ScopeName:    scopeEntry.Name,
+			Secret:       scopeEntry.Secret,
 			Label:        discovery.Label,
-			Id:           target.Id,
-			Target:       target.Input,
-			ScanSettings: scanScope.ScanSettings,
+			Id:           targetEntry.Id,
+			Target:       targetEntry.Input,
+			ScanSettings: scopeEntry.ScanSettings,
 		})
 	}
 
@@ -436,11 +449,11 @@ func feedDiscovery(
 	return nil
 }
 
-// feedSubmodule queries scan tasks (for a certain scan scope and submodule) from local brokerdb and returns them to
+// feedSubmodule queries scan tasks (for a certain scan scope and submodule) from local broker database and returns them to
 // the scan agent.
 func feedSubmodule(
 	logger scanUtils.Logger,
-	scanScope *managerdb.T_scan_scope,
+	scopeEntry *managerdb.T_scan_scope,
 	label string,
 	amount int,
 	scanIp string,
@@ -449,43 +462,43 @@ func feedSubmodule(
 	rpcReply *ReplyGetScanTask,
 ) error {
 
-	// Acquire brokerdb access for the scope and module to prevent multiple agents from manipulating the same data
-	lock(scanScope.Id, label)
+	// Acquire broker database access for the scope and module to prevent multiple agents from manipulating the same data
+	lock(scopeEntry.Id, label)
 
 	// Unlock module access for the scope and module
-	defer unlock(scanScope.Id, label)
+	defer unlock(scopeEntry.Id, label)
 
 	// Get timezone ranges that are currently within the configured working hours range
-	timezonesActive := utils.TimezonesActive(scanScope.ScanSettings.DiscoveryTimespansSlice)
+	timezonesActive := utils.TimezonesActive(scopeEntry.ScanSettings.DiscoveryTimespansSlice)
 
-	// Query next submodule targets from brokerdb
-	newTargets, errTargets := brokerdb.GetScopeTargets(logger, scanScope.Id, label, amount, timezonesActive)
-	if errTargets != nil {
-		return errTargets
+	// Query next submodule targets from broker database
+	subTargetEntries, errSubTargetEntries := database.GetScopeTargets(logger, scopeEntry.Id, label, amount, timezonesActive)
+	if errSubTargetEntries != nil {
+		return errSubTargetEntries
 	}
 
 	// Return if no targets were found
-	if len(newTargets) == 0 {
+	if len(subTargetEntries) == 0 {
 		logger.Debugf("Currently no targets available for '%s'.", label)
 		return nil
 	}
 
 	// Log action
-	logger.Infof("Feeding %d '%s' tasks.", len(newTargets), label)
+	logger.Infof("Feeding %d '%s' tasks.", len(subTargetEntries), label)
 
-	// Store target IDs from brokerdb and database
+	// Store target IDs from broker database and database
 	var brokerDbIds []uint64
 	var scopeDbIds []uint64
-	for _, target := range newTargets {
-		brokerDbIds = append(brokerDbIds, target.Id)                // Store id from broker db (T_sub_input -> id)
-		scopeDbIds = append(scopeDbIds, target.IdTDiscoveryService) // Store id from scope db (t_discovery_services -> id)
+	for _, subTargetEntry := range subTargetEntries {
+		brokerDbIds = append(brokerDbIds, subTargetEntry.Id)                // Store id from broker database (T_sub_input -> id)
+		scopeDbIds = append(scopeDbIds, subTargetEntry.IdTDiscoveryService) // Store id from scope database (t_discovery_services -> id)
 	}
 
-	// Get time of starting this scans to make sure brokerdb and scope db values are in sync
+	// Get time of starting this scans to make sure broker database and scope database values are in sync
 	scanStartTime := sql.NullTime{Time: time.Now(), Valid: true}
 
-	// Update scan_started timestamp in brokerdb
-	errSet := brokerdb.SetTargetsStarted(newTargets, brokerDbIds, scanStartTime)
+	// Update scan_started timestamp in broker database
+	errSet := database.SetTargetsStarted(subTargetEntries, brokerDbIds, scanStartTime)
 	if errSet != nil {
 		return errSet
 	}
@@ -495,21 +508,21 @@ func feedSubmodule(
 	wg.Add(1)
 	switch label {
 	case banner.Label:
-		go scopedb.PrepareBannerResults(logger, scanScope, scopeDbIds, scanStartTime, scanIp, scanHostname, wg)
+		go scopedb.PrepareBannerResults(logger, scopeEntry, scopeDbIds, scanStartTime, scanIp, scanHostname, wg)
 	case nfs.Label:
-		go scopedb.PrepareNfsResult(logger, scanScope, scopeDbIds, scanStartTime, scanIp, scanHostname, wg)
+		go scopedb.PrepareNfsResult(logger, scopeEntry, scopeDbIds, scanStartTime, scanIp, scanHostname, wg)
 	case nuclei.Label:
-		go scopedb.PrepareNucleiResult(logger, scanScope, scopeDbIds, scanStartTime, scanIp, scanHostname, wg)
+		go scopedb.PrepareNucleiResult(logger, scopeEntry, scopeDbIds, scanStartTime, scanIp, scanHostname, wg)
 	case smb.Label:
-		go scopedb.PrepareSmbResult(logger, scanScope, scopeDbIds, scanStartTime, scanIp, scanHostname, wg)
+		go scopedb.PrepareSmbResult(logger, scopeEntry, scopeDbIds, scanStartTime, scanIp, scanHostname, wg)
 	case ssl.Label:
-		go scopedb.PrepareSslResult(logger, scanScope, scopeDbIds, scanStartTime, scanIp, scanHostname, wg)
+		go scopedb.PrepareSslResult(logger, scopeEntry, scopeDbIds, scanStartTime, scanIp, scanHostname, wg)
 	case ssh.Label:
-		go scopedb.PrepareSshResult(logger, scanScope, scopeDbIds, scanStartTime, scanIp, scanHostname, wg)
+		go scopedb.PrepareSshResult(logger, scopeEntry, scopeDbIds, scanStartTime, scanIp, scanHostname, wg)
 	case webcrawler.Label:
-		go scopedb.PrepareWebcrawlerResult(logger, scanScope, scopeDbIds, scanStartTime, scanIp, scanHostname, wg)
+		go scopedb.PrepareWebcrawlerResult(logger, scopeEntry, scopeDbIds, scanStartTime, scanIp, scanHostname, wg)
 	case webenum.Label:
-		go scopedb.PrepareWebenumResult(logger, scanScope, scopeDbIds, scanStartTime, scanIp, scanHostname, wg)
+		go scopedb.PrepareWebenumResult(logger, scopeEntry, scopeDbIds, scanStartTime, scanIp, scanHostname, wg)
 	default:
 		// Unexpected label, log and decrement the WaitGroup as no routine was started
 		logger.Debugf("Unknown label: %s", label)
@@ -517,21 +530,22 @@ func feedSubmodule(
 	}
 
 	// Add new scan targets to RPC reply
-	for _, target := range newTargets {
+	for _, subTargetEntry := range subTargetEntries {
 
 		// Append scan task to list of tasks. ScanTask is a generic struct, the agent will pick the data
 		// required by the specific scan task.
 		rpcReply.ScanTasks = append(rpcReply.ScanTasks, ScanTask{
-			Secret:         scanScope.Secret,
+			ScopeName:      scopeEntry.Name,
+			Secret:         scopeEntry.Secret,
 			Label:          label,
-			Id:             target.Id, // Send the id/pk from brokerdb, it will be returned back with the result
-			Target:         target.Address,
-			Protocol:       target.Protocol,
-			Port:           target.Port,
-			OtherNames:     utils.SanitizeToSlice(target.OtherNames, scopedb.DbValueSeparator),
-			Service:        target.Service,
-			ServiceProduct: target.ServiceProduct,
-			ScanSettings:   scanScope.ScanSettings,
+			Id:             subTargetEntry.Id, // Send the id/pk from broker database, it will be returned back with the result
+			Target:         subTargetEntry.Address,
+			Protocol:       subTargetEntry.Protocol,
+			Port:           subTargetEntry.Port,
+			OtherNames:     utils.SanitizeToSlice(subTargetEntry.OtherNames, scopedb.DbValueSeparator),
+			Service:        subTargetEntry.Service,
+			ServiceProduct: subTargetEntry.ServiceProduct,
+			ScanSettings:   scopeEntry.ScanSettings,
 		})
 	}
 
@@ -539,13 +553,7 @@ func feedSubmodule(
 	return nil
 }
 
-func saveDiscoveryResult(rpcArgs *ArgsSaveScanResult) {
-
-	// Generate UUID for context
-	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
-
-	// Get tagged logger
-	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-saveDiscoveryResult", uuid))
+func saveDiscoveryResult(logger scanUtils.Logger, rpcArgs *ArgsSaveScanResult, scopeEntry *managerdb.T_scan_scope) {
 
 	// Recover potential panics to avoid broker termination
 	defer func() {
@@ -560,21 +568,6 @@ func saveDiscoveryResult(rpcArgs *ArgsSaveScanResult) {
 		logger.Debugf("RPC call took %s.", time.Since(start))
 	}()
 
-	// Get scan scope data by secret (will be taken from memory, if available)
-	scanScope, errScanScope := getScanScope(logger, rpcArgs.ScopeSecret)
-	if errScanScope != nil {
-		logger.Errorf(
-			"'%s' (%s/%s) sent result %d with scope secret '%s...', but could not be processed: %s",
-			rpcArgs.Name,
-			rpcArgs.Host,
-			rpcArgs.Ip,
-			rpcArgs.Id,
-			rpcArgs.ScopeSecret[0:5],
-			errScanScope,
-		)
-		return
-	}
-
 	// Log action
 	logger.Infof(
 		"'%s' (%s/%s) sent discovery result %d of '%s' (ID %d).",
@@ -582,8 +575,8 @@ func saveDiscoveryResult(rpcArgs *ArgsSaveScanResult) {
 		rpcArgs.Host,
 		rpcArgs.Ip,
 		rpcArgs.Id,
-		scanScope.Name,
-		scanScope.Id,
+		scopeEntry.Name,
+		scopeEntry.Id,
 	)
 
 	// Cast data to according data type
@@ -594,8 +587,8 @@ func saveDiscoveryResult(rpcArgs *ArgsSaveScanResult) {
 		logger.Errorf(
 			"Discovery scan %d of scan scope '%s' (ID %d) crashed unexpectedly on '%s' (%s/%s): %s",
 			rpcArgs.Id,
-			scanScope.Name,
-			scanScope.Id,
+			scopeEntry.Name,
+			scopeEntry.Id,
 			rpcArgs.Name,
 			rpcArgs.Host,
 			rpcArgs.Ip,
@@ -604,13 +597,13 @@ func saveDiscoveryResult(rpcArgs *ArgsSaveScanResult) {
 		return
 	}
 
-	// Process discovery result and save results to scope db and sub-targets to brokerdb
-	errSave := scopedb.SaveDiscoveryResult(logger, rpcClient, scanScope, rpcArgs.Id, &nmapRes, rpcArgs.ResultSubnets)
+	// Process discovery result and save results to scope database and sub-targets to broker database
+	errSave := scopedb.SaveDiscoveryResult(logger, rpcClient, scopeEntry, rpcArgs.Id, &nmapRes, rpcArgs.ResultSubnets)
 	if errSave != nil {
 		logger.Errorf(
 			"Could not save discovery result of scan scope '%s' (ID %d): %s. Dropping result.",
-			scanScope.Name,
-			scanScope.Id,
+			scopeEntry.Name,
+			scopeEntry.Id,
 			errSave,
 		)
 	} else {
@@ -618,13 +611,7 @@ func saveDiscoveryResult(rpcArgs *ArgsSaveScanResult) {
 	}
 }
 
-func saveSubResult(rpcArgs *ArgsSaveScanResult) {
-
-	// Generate UUID for context
-	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long
-
-	// Get tagged logger
-	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-saveSubResult", uuid))
+func saveSubResult(logger scanUtils.Logger, rpcArgs *ArgsSaveScanResult, scopeEntry *managerdb.T_scan_scope) {
 
 	// Recover potential panics to avoid broker termination
 	defer func() {
@@ -639,21 +626,6 @@ func saveSubResult(rpcArgs *ArgsSaveScanResult) {
 		logger.Debugf("RPC call took %s.", time.Since(start))
 	}()
 
-	// Get scan scope data by secret (will be taken from memory, if available)
-	scanScope, errScanScope := getScanScope(logger, rpcArgs.ScopeSecret)
-	if errScanScope != nil {
-		logger.Errorf(
-			"'%s' (%s/%s) sent result %d with scope secret '%s...', but could not be processed: %s",
-			rpcArgs.Name,
-			rpcArgs.Host,
-			rpcArgs.Ip,
-			rpcArgs.Id,
-			rpcArgs.ScopeSecret[0:5],
-			errScanScope,
-		)
-		return
-	}
-
 	// Log action
 	logger.Debugf(
 		"'%s' (%s/%s) sent result %d of '%s' (ID %d).",
@@ -661,17 +633,17 @@ func saveSubResult(rpcArgs *ArgsSaveScanResult) {
 		rpcArgs.Host,
 		rpcArgs.Ip,
 		rpcArgs.Id,
-		scanScope.Name,
-		scanScope.Id,
+		scopeEntry.Name,
+		scopeEntry.Id,
 	)
 
-	// Query related target from brokerdb, it also contains the related scope db service ID
-	subInput, errGet := brokerdb.GetTarget(rpcArgs.Id)
-	if errors.Is(errGet, gorm.ErrRecordNotFound) { // Check if entry didn't exist
+	// Query related target from broker database, it also contains the related scope database service ID
+	subTargetEntry, errSubTargetEntry := database.GetTarget(rpcArgs.Id)
+	if errors.Is(errSubTargetEntry, gorm.ErrRecordNotFound) { // Check if entry didn't exist
 		logger.Infof("Scan task %d got cleaned up already. Dropping result.", rpcArgs.Id)
 		return
-	} else if errGet != nil {
-		logger.Errorf("Could not query broker for scan target %d: %s. Dropping result.", rpcArgs.Id, errGet)
+	} else if errSubTargetEntry != nil {
+		logger.Errorf("Could not query broker for scan target %d: %s. Dropping result.", rpcArgs.Id, errSubTargetEntry)
 		return
 	}
 
@@ -687,8 +659,8 @@ func saveSubResult(rpcArgs *ArgsSaveScanResult) {
 			"Processing '%s' result %d for '%s' (ID %d).",
 			label,
 			rpcArgs.Id,
-			scanScope.Name,
-			scanScope.Id,
+			scopeEntry.Name,
+			scopeEntry.Id,
 		)
 
 		// Cast data to according data type
@@ -700,8 +672,8 @@ func saveSubResult(rpcArgs *ArgsSaveScanResult) {
 				"'%s' scan %d of scan scope '%s' (ID %d) crashed unexpectedly on '%s' (%s/%s): %s",
 				label,
 				rpcArgs.Id,
-				scanScope.Name,
-				scanScope.Id,
+				scopeEntry.Name,
+				scopeEntry.Id,
 				rpcArgs.Name,
 				rpcArgs.Host,
 				rpcArgs.Ip,
@@ -711,7 +683,7 @@ func saveSubResult(rpcArgs *ArgsSaveScanResult) {
 		}
 
 		// Write scan result to database
-		errSave = scopedb.SaveBannerResult(logger, scanScope, subInput.IdTDiscoveryService, &bannerRes)
+		errSave = scopedb.SaveBannerResult(logger, scopeEntry, subTargetEntry.IdTDiscoveryService, &bannerRes)
 
 	case nfs.Result:
 		label = nfs.Label
@@ -719,8 +691,8 @@ func saveSubResult(rpcArgs *ArgsSaveScanResult) {
 			"Processing '%s' result %d for '%s' (ID %d).",
 			label,
 			rpcArgs.Id,
-			scanScope.Name,
-			scanScope.Id,
+			scopeEntry.Name,
+			scopeEntry.Id,
 		)
 
 		// Cast data to according data type
@@ -731,8 +703,8 @@ func saveSubResult(rpcArgs *ArgsSaveScanResult) {
 			logger.Errorf(
 				"'%s' scan of scan scope '%s' (ID %d) crashed unexpectedly on '%s' (%s/%s): %s",
 				label,
-				scanScope.Name,
-				scanScope.Id,
+				scopeEntry.Name,
+				scopeEntry.Id,
 				rpcArgs.Name,
 				rpcArgs.Host,
 				rpcArgs.Ip,
@@ -742,7 +714,7 @@ func saveSubResult(rpcArgs *ArgsSaveScanResult) {
 		}
 
 		// Write scan result to database
-		errSave = scopedb.SaveNfsResult(logger, scanScope, subInput.IdTDiscoveryService, &nfsRes)
+		errSave = scopedb.SaveNfsResult(logger, scopeEntry, subTargetEntry.IdTDiscoveryService, &nfsRes)
 
 	case nuclei.Result:
 		label = nuclei.Label
@@ -750,8 +722,8 @@ func saveSubResult(rpcArgs *ArgsSaveScanResult) {
 			"Processing '%s' result '%d' for '%s' (ID %d).",
 			label,
 			rpcArgs.Id,
-			scanScope.Name,
-			scanScope.Id,
+			scopeEntry.Name,
+			scopeEntry.Id,
 		)
 
 		// Cast data to according data type
@@ -762,8 +734,8 @@ func saveSubResult(rpcArgs *ArgsSaveScanResult) {
 			logger.Errorf(
 				"'%s' scan of scan scope '%s' (ID %d) crashed unexpectedly on '%s' (%s/%s): %s",
 				label,
-				scanScope.Name,
-				scanScope.Id,
+				scopeEntry.Name,
+				scopeEntry.Id,
 				rpcArgs.Name,
 				rpcArgs.Host,
 				rpcArgs.Ip,
@@ -773,7 +745,7 @@ func saveSubResult(rpcArgs *ArgsSaveScanResult) {
 		}
 
 		// Write scan result to database
-		errSave = scopedb.SaveNucleiResult(logger, scanScope, subInput.IdTDiscoveryService, &nucleiRes)
+		errSave = scopedb.SaveNucleiResult(logger, scopeEntry, subTargetEntry.IdTDiscoveryService, &nucleiRes)
 
 	case smb.Result:
 		label = smb.Label
@@ -781,8 +753,8 @@ func saveSubResult(rpcArgs *ArgsSaveScanResult) {
 			"Processing '%s' result %d for '%s' (ID %d).",
 			label,
 			rpcArgs.Id,
-			scanScope.Name,
-			scanScope.Id,
+			scopeEntry.Name,
+			scopeEntry.Id,
 		)
 
 		// Cast data to according data type
@@ -793,8 +765,8 @@ func saveSubResult(rpcArgs *ArgsSaveScanResult) {
 			logger.Errorf(
 				"'%s' scan of scan scope '%s' (ID %d) crashed unexpectedly on '%s' (%s/%s): %s",
 				label,
-				scanScope.Name,
-				scanScope.Id,
+				scopeEntry.Name,
+				scopeEntry.Id,
 				rpcArgs.Name,
 				rpcArgs.Host,
 				rpcArgs.Ip,
@@ -804,7 +776,7 @@ func saveSubResult(rpcArgs *ArgsSaveScanResult) {
 		}
 
 		// Write scan result to database
-		errSave = scopedb.SaveSmbResult(logger, scanScope, subInput.IdTDiscoveryService, &smbRes)
+		errSave = scopedb.SaveSmbResult(logger, scopeEntry, subTargetEntry.IdTDiscoveryService, &smbRes)
 
 	case ssh.Result:
 		label = ssh.Label
@@ -812,8 +784,8 @@ func saveSubResult(rpcArgs *ArgsSaveScanResult) {
 			"Processing '%s' result %d for '%s' (ID %d).",
 			label,
 			rpcArgs.Id,
-			scanScope.Name,
-			scanScope.Id,
+			scopeEntry.Name,
+			scopeEntry.Id,
 		)
 
 		// Cast data to according data type
@@ -824,8 +796,8 @@ func saveSubResult(rpcArgs *ArgsSaveScanResult) {
 			logger.Errorf(
 				"'%s' scan of scan scope '%s' (ID %d) crashed unexpectedly on '%s' (%s/%s): %s",
 				label,
-				scanScope.Name,
-				scanScope.Id,
+				scopeEntry.Name,
+				scopeEntry.Id,
 				rpcArgs.Name,
 				rpcArgs.Host,
 				rpcArgs.Ip,
@@ -835,7 +807,7 @@ func saveSubResult(rpcArgs *ArgsSaveScanResult) {
 		}
 
 		// Write scan result to database
-		errSave = scopedb.SaveSshResult(logger, scanScope, subInput.IdTDiscoveryService, &sshRes)
+		errSave = scopedb.SaveSshResult(logger, scopeEntry, subTargetEntry.IdTDiscoveryService, &sshRes)
 
 	case ssl.Result:
 		label = ssl.Label
@@ -843,8 +815,8 @@ func saveSubResult(rpcArgs *ArgsSaveScanResult) {
 			"Processing '%s' result %d for '%s' (ID %d).",
 			label,
 			rpcArgs.Id,
-			scanScope.Name,
-			scanScope.Id,
+			scopeEntry.Name,
+			scopeEntry.Id,
 		)
 
 		// Cast data to according data type
@@ -855,8 +827,8 @@ func saveSubResult(rpcArgs *ArgsSaveScanResult) {
 			logger.Errorf(
 				"'%s' scan of scan scope '%s' (ID %d) crashed unexpectedly on '%s' (%s/%s): %s",
 				label,
-				scanScope.Name,
-				scanScope.Id,
+				scopeEntry.Name,
+				scopeEntry.Id,
 				rpcArgs.Name,
 				rpcArgs.Host,
 				rpcArgs.Ip,
@@ -866,7 +838,7 @@ func saveSubResult(rpcArgs *ArgsSaveScanResult) {
 		}
 
 		// Write scan result to database
-		errSave = scopedb.SaveSslResult(logger, scanScope, subInput.IdTDiscoveryService, &sslRes)
+		errSave = scopedb.SaveSslResult(logger, scopeEntry, subTargetEntry.IdTDiscoveryService, &sslRes)
 
 	case webcrawler.Result:
 		label = webcrawler.Label
@@ -874,8 +846,8 @@ func saveSubResult(rpcArgs *ArgsSaveScanResult) {
 			"Processing '%s' result %d for '%s' (ID %d).",
 			label,
 			rpcArgs.Id,
-			scanScope.Name,
-			scanScope.Id,
+			scopeEntry.Name,
+			scopeEntry.Id,
 		)
 
 		// Cast data to according data type
@@ -886,8 +858,8 @@ func saveSubResult(rpcArgs *ArgsSaveScanResult) {
 			logger.Errorf(
 				"'%s' scan of scan scope '%s' (ID %d) crashed unexpectedly on '%s' (%s/%s): %s",
 				label,
-				scanScope.Name,
-				scanScope.Id,
+				scopeEntry.Name,
+				scopeEntry.Id,
 				rpcArgs.Name,
 				rpcArgs.Host,
 				rpcArgs.Ip,
@@ -897,7 +869,7 @@ func saveSubResult(rpcArgs *ArgsSaveScanResult) {
 		}
 
 		// Write scan result to database
-		errSave = scopedb.SaveWebcrawlerResult(logger, scanScope, subInput.IdTDiscoveryService, &webcrawlerRes)
+		errSave = scopedb.SaveWebcrawlerResult(logger, scopeEntry, subTargetEntry.IdTDiscoveryService, &webcrawlerRes)
 
 	case webenum.Result:
 		label = webenum.Label
@@ -905,8 +877,8 @@ func saveSubResult(rpcArgs *ArgsSaveScanResult) {
 			"Processing '%s' result %d for '%s' (ID %d).",
 			label,
 			rpcArgs.Id,
-			scanScope.Name,
-			scanScope.Id,
+			scopeEntry.Name,
+			scopeEntry.Id,
 		)
 
 		// Cast data to according data type
@@ -917,8 +889,8 @@ func saveSubResult(rpcArgs *ArgsSaveScanResult) {
 			logger.Errorf(
 				"'%s' scan of scan scope '%s' (ID %d) crashed unexpectedly on '%s' (%s/%s): %s",
 				label,
-				scanScope.Name,
-				scanScope.Id,
+				scopeEntry.Name,
+				scopeEntry.Id,
 				rpcArgs.Name,
 				rpcArgs.Host,
 				rpcArgs.Ip,
@@ -928,13 +900,13 @@ func saveSubResult(rpcArgs *ArgsSaveScanResult) {
 		}
 
 		// Write scan result to database
-		errSave = scopedb.SaveWebenumResult(logger, scanScope, subInput.IdTDiscoveryService, &webenumRes)
+		errSave = scopedb.SaveWebenumResult(logger, scopeEntry, subTargetEntry.IdTDiscoveryService, &webenumRes)
 
 	default: // Unknown data type
 		logger.Errorf(
 			"Unknown result type for '%s' (ID %d). Dropping result.",
-			scanScope.Name,
-			scanScope.Id,
+			scopeEntry.Name,
+			scopeEntry.Id,
 		)
 		return
 	}
@@ -944,15 +916,15 @@ func saveSubResult(rpcArgs *ArgsSaveScanResult) {
 		logger.Errorf(
 			"Could not save '%s' result for '%s' (ID: %d): %s. Dropping result.",
 			label,
-			scanScope.Name,
-			scanScope.Id,
+			scopeEntry.Name,
+			scopeEntry.Id,
 			errSave,
 		)
 	} else {
 		logger.Debugf("Result saved successfully.")
 
 		// Remove target from cache
-		errRem := brokerdb.DeleteTarget(subInput)
+		errRem := database.DeleteTarget(subTargetEntry)
 		if errRem != nil {
 			// Rollback is not necessary at this point ... just warn and investigate & fix if it happens
 			logger.Errorf("Could not prune target %d from cache: %s", rpcArgs.Id, errRem)

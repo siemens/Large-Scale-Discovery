@@ -24,16 +24,19 @@ import (
 	"github.com/siemens/Large-Scale-Discovery/log"
 	"github.com/siemens/Large-Scale-Discovery/manager/config"
 	"github.com/siemens/Large-Scale-Discovery/manager/database"
+	"github.com/siemens/Large-Scale-Discovery/manager/scopedb"
 	"github.com/siemens/Large-Scale-Discovery/utils"
 )
 
-const ScopeChangeNotifierInterval = time.Second * 1
+// scopeChangeNotifierInterval defines how often scope-change notifications are evaluated
+const scopeChangeNotifierInterval = time.Second * 1
 
-var scopeChangeNotifier *utils.Notifier
-var coreCtx, coreCtxCancelFunc = context.WithCancel(context.Background()) // Agent context and context cancellation function. Agent should terminate when context is closed
+var scopeChangeNotifier *utils.Notifier                                   // Batches scan scope change notifications
+var coreCtx, coreCtxCancelFunc = context.WithCancel(context.Background()) // Manager context and cancellation function. Manager should terminate when the context is closed.
 var shutdownOnce sync.Once                                                // Helper variable to prevent shutdown from doing its work multiple times.
-var rpcInflight sync.WaitGroup                                            // Tracks in-flight RPC handlers to allow graceful shutdown
-var scopeDbPrepareLock sync.Mutex                                         // A lock making sure that the scope db preparation is not interrupted by a shutdown request
+var rpcAdmissionLock sync.Mutex                                           // Serializes RPC admission with shutdown
+var rpcInflight sync.WaitGroup                                            // Tracks RPC handlers admitted before shutdown, and background tasks they launch
+var scopeDbPrepareLock sync.Mutex                                         // A lock making sure that the scope database preparation is not interrupted by a shutdown request
 var rpcServerCrt string                                                   // Certificate used by the listening RPC server
 var rpcServerKey string                                                   // Key used by the listening RPC server
 
@@ -46,25 +49,25 @@ func Init() error {
 	// Get config
 	conf := config.GetConfig()
 
-	// Lookup manager IP
-	localIp, errIp := utils.GetLocalIp()
-	if errIp != nil {
-		return fmt.Errorf("could not read local ip: %s", errIp)
+	// Look up manager IP
+	localIp, errLocalIp := utils.GetLocalIp()
+	if errLocalIp != nil {
+		return fmt.Errorf("could not read local ip: %s", errLocalIp)
 	}
 
-	// Lookup agent hostname
-	localHostname, errHostname := os.Hostname()
-	if errHostname != nil {
-		return fmt.Errorf("could not read local hostname: %s", errHostname)
+	// Look up manager hostname
+	localHostname, errLocalHostname := os.Hostname()
+	if errLocalHostname != nil {
+		return fmt.Errorf("could not read local hostname: %s", errLocalHostname)
 	}
 
 	// Set the name to use in DB connections
-	database.SetConnectionName(fmt.Sprintf("Manager_%s_%s", localHostname, localIp))
+	scopedb.SetConnectionName(fmt.Sprintf("Manager_%s_%s", localHostname, localIp))
 
 	// Set maximum db connections according to configuration. This value must be below the amount configured in the
 	// database itself, otherwise queries may fail. Also consider, that other applications might connect with multiple
 	// parallel connections.
-	database.SetMaxConnectionsDefault(conf.Database.Connections)
+	scopedb.SetMaxConnectionsDefault(conf.Database.Connections)
 
 	// Prepare manager key and certificate path
 	if conf.ListenSsl {
@@ -85,9 +88,9 @@ func Init() error {
 	}
 
 	// Initialize manager database
-	errDb := database.OpenManagerDb()
+	errDb := database.Open()
 	if errDb != nil {
-		return fmt.Errorf("could not initialize manager db: %s", errDb)
+		return fmt.Errorf("could not initialize manager database: %s", errDb)
 	}
 
 	// Wrap database prepare code into function to make use of local defer statement
@@ -100,7 +103,7 @@ func Init() error {
 		// Write development sample data to the database
 		if _build.DevMode {
 			logger.Infof("Deploying sample data.")
-			errDev := database.XDeploySampleData(logger, conf.ScanDefaults)
+			errDev := XDeploySampleData(logger, conf.ScanDefaults)
 			if errDev != nil {
 				return fmt.Errorf("could not write development sample data: %s", errDev)
 			}
@@ -108,9 +111,9 @@ func Init() error {
 		}
 
 		// Automigrate all scan scope tables
-		errScopeDb := database.AutomigrateScanScopes(logger)
+		errScopeDb := scopedb.AutomigrateScanScopes(logger)
 		if errScopeDb != nil {
-			return fmt.Errorf("could not initialize scope db: %s", errScopeDb)
+			return fmt.Errorf("could not initialize scope database: %s", errScopeDb)
 		}
 
 		// Return nil as everything went fine
@@ -120,7 +123,7 @@ func Init() error {
 	}
 
 	// Initialize scope change notifier that can be subscribed to in order to receive a signal about changed scopes
-	scopeChangeNotifier = utils.NewNotifier(ScopeChangeNotifierInterval, func(a interface{}, b interface{}) bool {
+	scopeChangeNotifier = utils.NewNotifier(scopeChangeNotifierInterval, func(a interface{}, b interface{}) bool {
 		return a == b
 	})
 
@@ -141,10 +144,8 @@ func Init() error {
 func Run() error {
 
 	// Only launch if shutdown is not already in progress
-	select {
-	case <-coreCtx.Done():
+	if coreCtx.Err() != nil {
 		return nil
-	default:
 	}
 
 	// Get global logger
@@ -174,7 +175,13 @@ func Shutdown() {
 		logger := log.GetLogger()
 		logger.Infof("Shutting down.")
 
-		// Wait for scope DB preparation if currently running
+		// Close core context while holding the admission lock so no RPC handler can pass its shutdown check without
+		// being registered in the wait group before shutdown starts waiting
+		rpcAdmissionLock.Lock()
+		coreCtxCancelFunc()
+		rpcAdmissionLock.Unlock()
+
+		// Wait for scope database preparation if currently running
 		scopeDbPrepareLock.Lock()
 		defer scopeDbPrepareLock.Unlock()
 
@@ -183,22 +190,43 @@ func Shutdown() {
 			scopeChangeNotifier.Shutdown()
 		}
 
-		// Close agent context. Waiting goroutines will abort if it is closed.
-		coreCtxCancelFunc()
-
-		// Wait for in-flight RPC handlers to complete before closing resources
+		// Wait for admitted RPC handlers and their background tasks before closing resources
 		rpcInflight.Wait()
 
-		// Close the scope db connections.
-		errsScope := database.CloseScopeDbs()
-		for _, err := range errsScope {
-			logger.Errorf("Could not close scope DB connection: '%s'", err)
+		// Close scope pools only after every borrower has released them
+		errsScope := scopedb.CloseScopeDbs()
+		for _, errClose := range errsScope {
+			logger.Errorf("Could not close scope database connection: '%s'", errClose)
+		}
+
+		// Close the administrative database server connections
+		errsServer := scopedb.CloseServerDbs()
+		for _, errClose := range errsServer {
+			logger.Errorf("Could not close database server connection: '%s'", errClose)
 		}
 
 		// Make sure db gets closed on exit
-		errManager := database.CloseManagerDb()
+		errManager := database.Close()
 		if errManager != nil {
-			logger.Errorf("Could not close manager DB connection: '%s'", errManager)
+			logger.Errorf("Could not close manager database connection: '%s'", errManager)
 		}
 	})
+}
+
+func beginRpc() bool {
+
+	// Acquire admission lock and make sure it is released again
+	rpcAdmissionLock.Lock()
+	defer rpcAdmissionLock.Unlock()
+
+	// Check core context validity
+	if coreCtx.Err() != nil {
+		return false
+	}
+
+	// Increase RPC inflight counter
+	rpcInflight.Add(1)
+
+	// Signal access
+	return true
 }

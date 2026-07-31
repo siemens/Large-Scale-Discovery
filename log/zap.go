@@ -12,8 +12,9 @@ package log
 
 import (
 	"fmt"
-	"go.uber.org/zap"
 	"sync"
+
+	"go.uber.org/zap"
 )
 
 // ZapLogger is a small wrapper for zap's SugaredLogger, that implements our Logger interface
@@ -43,9 +44,9 @@ func (l *ZapLogger) Tagged(tag string) Logger {
 func (l *ZapLogger) Close() (errs error) {
 
 	// Sync the logger before shutting it down
-	err := l.SugaredLogger.Sync()
-	if err != nil {
-		errs = err
+	errSync := l.SugaredLogger.Sync()
+	if errSync != nil {
+		errs = errSync
 	}
 
 	// Call the close functions of the different cores

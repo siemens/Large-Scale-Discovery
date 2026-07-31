@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2025.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -22,7 +22,7 @@ func newSslScanner(
 	target string,
 	port int,
 	vhosts []string,
-	conf *config.AgentConfig,
+	conf *config.Agent,
 ) (*ssl.Scanner, error) {
 	return ssl.NewScanner(
 		logger,

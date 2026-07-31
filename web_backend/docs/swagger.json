@@ -142,83 +142,6 @@
     }
   },
   "definitions": {
-    "database.T_discovery": {
-      "type": "object",
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        },
-        "input": {
-          "type": "string"
-        },
-        "input_comment": {
-          "description": "E.g. anything that helps",
-          "type": "string"
-        },
-        "input_company": {
-          "description": "E.g. company name, useful in a multi company network",
-          "type": "string"
-        },
-        "input_contact": {
-          "description": "E.g. the responsible administrator",
-          "type": "string"
-        },
-        "input_country": {
-          "description": "E.g. \"DE\"",
-          "type": "string"
-        },
-        "input_department": {
-          "description": "E.g. company department, e.g. IT Services",
-          "type": "string"
-        },
-        "input_location": {
-          "description": "E.g. \"Munich\"",
-          "type": "string"
-        },
-        "input_manager": {
-          "description": "E.g. the responsible manager",
-          "type": "string"
-        },
-        "input_network": {
-          "description": "Network the input address belongs to. Equals input if input is already a network range",
-          "type": "string"
-        },
-        "input_purpose": {
-          "description": "E.g. network description, like, \"transfer network\", \"office space\",...",
-          "type": "string"
-        },
-        "input_routing_domain": {
-          "description": "E.g. \"Global\", \"local\", \"Intranet\", \"Internet\",...",
-          "type": "string"
-        },
-        "input_zone": {
-          "description": "E.g. \"Office\", \"Production A\", \"Printer\",...",
-          "type": "string"
-        },
-        "lat": {
-          "type": "string"
-        },
-        "lng": {
-          "type": "string"
-        },
-        "postal_address": {
-          "type": "string"
-        },
-        "priority": {
-          "type": "boolean"
-        },
-        "scan_finished": {
-          "$ref": "#/definitions/sql.NullTime"
-        },
-        "scan_started": {
-          "$ref": "#/definitions/sql.NullTime"
-        },
-        "timezone": {
-          "description": "Float because timezones may be 11.5 in certain edge cases",
-          "type": "number"
-        }
-      }
-    },
     "database.T_scan_agent": {
       "type": "object",
       "properties": {
@@ -231,7 +154,14 @@
         "build_timestamp": {
           "type": "string"
         },
+        "cpu_cores": {
+          "type": "integer"
+        },
+        "cpu_mhz": {
+          "type": "number"
+        },
         "cpu_rate": {
+          "description": "Usage in %",
           "type": "number"
         },
         "host": {
@@ -250,7 +180,11 @@
         "limits": {
           "type": "boolean"
         },
+        "memory_bytes": {
+          "type": "integer"
+        },
         "memory_rate": {
+          "description": "Usage in %",
           "type": "number"
         },
         "name": {
@@ -270,6 +204,18 @@
         },
         "tasks": {
           "$ref": "#/definitions/utils.JsonMap"
+        },
+        "version_nmap": {
+          "type": "string"
+        },
+        "version_npcap": {
+          "type": "string"
+        },
+        "version_python": {
+          "type": "string"
+        },
+        "version_sslyze": {
+          "type": "string"
         }
       }
     },
@@ -283,7 +229,7 @@
           "type": "string"
         },
         "discovery_nmap_args_ot": {
-          "description": "A safer scan executed in OT discovery scans. Field is just required as a JSON field to load default settings from the manager.conf. Not required in the managerdb, because it will be copied into the normal nmap args field.",
+          "description": "A safer scan executed in OT discovery scans. Field is just required as a JSON field to load default settings from the manager.conf. Not required in the manager database, because it will be copied into the normal nmap args field.",
           "type": "string"
         },
         "discovery_nmap_args_prescan": {
@@ -580,6 +526,10 @@
           "description": "Amount of IPs currently within this scan scope. Needs to be calculated/updated during population of the actual scan scope's t_discovery table.",
           "type": "integer"
         },
+        "split_size": {
+          "description": "Maximum amount of IPs contained in one scan target after large networks are split",
+          "type": "integer"
+        },
         "type": {
           "description": "The kind of scope, there might be different ones initialized via different mechanisms. E.g. custom, remote repository,...",
           "type": "string"
@@ -617,11 +567,16 @@
           "type": "integer",
           "example": 42
         },
+        "split_size": {
+          "description": "Maximum amount of IPs per split scan target",
+          "type": "integer",
+          "example": 2048
+        },
         "targets": {
           "description": "List of scan targets to set",
           "type": "array",
           "items": {
-            "$ref": "#/definitions/database.T_discovery"
+            "$ref": "#/definitions/scopedb.T_discovery"
           }
         }
       }
@@ -659,7 +614,7 @@
           "description": "Only returned if no synchronization currently ongoing",
           "type": "array",
           "items": {
-            "$ref": "#/definitions/database.T_discovery"
+            "$ref": "#/definitions/scopedb.T_discovery"
           }
         }
       }
@@ -685,6 +640,83 @@
           "items": {
             "$ref": "#/definitions/handlers.Scope"
           }
+        }
+      }
+    },
+    "scopedb.T_discovery": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "input": {
+          "type": "string"
+        },
+        "input_comment": {
+          "description": "E.g. anything that helps",
+          "type": "string"
+        },
+        "input_company": {
+          "description": "E.g. company name, useful in a multi company network",
+          "type": "string"
+        },
+        "input_contact": {
+          "description": "E.g. the responsible administrator",
+          "type": "string"
+        },
+        "input_country": {
+          "description": "E.g. \"DE\"",
+          "type": "string"
+        },
+        "input_department": {
+          "description": "E.g. company department, e.g. IT Services",
+          "type": "string"
+        },
+        "input_location": {
+          "description": "E.g. \"Munich\"",
+          "type": "string"
+        },
+        "input_manager": {
+          "description": "E.g. the responsible manager",
+          "type": "string"
+        },
+        "input_network": {
+          "description": "Network the input address belongs to. Equals input if input is already a network range",
+          "type": "string"
+        },
+        "input_purpose": {
+          "description": "E.g. network description, like, \"transfer network\", \"office space\",...",
+          "type": "string"
+        },
+        "input_routing_domain": {
+          "description": "E.g. \"Global\", \"local\", \"Intranet\", \"Internet\",...",
+          "type": "string"
+        },
+        "input_zone": {
+          "description": "E.g. \"Office\", \"Production A\", \"Printer\",...",
+          "type": "string"
+        },
+        "lat": {
+          "type": "string"
+        },
+        "lng": {
+          "type": "string"
+        },
+        "postal_address": {
+          "type": "string"
+        },
+        "priority": {
+          "type": "boolean"
+        },
+        "scan_finished": {
+          "$ref": "#/definitions/sql.NullTime"
+        },
+        "scan_started": {
+          "$ref": "#/definitions/sql.NullTime"
+        },
+        "timezone": {
+          "description": "Float because timezones may be 11.5 in certain edge cases",
+          "type": "number"
         }
       }
     },

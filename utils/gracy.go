@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2025.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -17,9 +17,9 @@ import (
 	"syscall"
 )
 
-// Gracy handles our graceful shutdown procedure. Fortunately, Gracy is more capable in doing so then Golang itself.
-// Unfortunately, Golang does not execute registered deferred statements after an interrupt. Instead, it aborts affected
-// Goroutines right away and jumps into the signal handling function. So, Gracy will keep track of everything you want
+// Gracy handles our graceful shutdown procedure. Gracy is more capable of doing so than Go itself.
+// Go does not execute registered deferred statements after an interrupt. Instead, it aborts affected
+// goroutines right away and jumps into the signal handling function. So, Gracy will keep track of everything you want
 // to clean up instead.
 type Gracy struct {
 	shutdownFns   []func()

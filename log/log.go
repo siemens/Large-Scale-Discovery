@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -26,8 +26,8 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-var globalLogger Logger
-var initOnce sync.Once
+var globalLogger Logger // Process-wide logger instance
+var initOnce sync.Once  // Ensures the global logger is initialized once
 
 type Logger interface {
 	io.Closer
@@ -48,13 +48,13 @@ func GetLogger() Logger {
 // InitGlobalLogger initializes a GLOBAL logger based on a given configuration struct
 func InitGlobalLogger(conf Settings) (Logger, error) {
 
-	var err error
+	var errAppend error
 	initOnce.Do(func() {
 		c := make([]zapcore.Core, 0, 3)
 		var closeFns []func() error
 
 		// Create the different cores depending on the config. Anonymous function so we can handle errors better
-		err = func() error {
+		errAppend = func() error {
 			if conf.Console != nil && conf.Console.Enabled {
 				core, errCore := newConsoleCore(conf.Console)
 				if errCore != nil {
@@ -83,11 +83,11 @@ func InitGlobalLogger(conf Settings) (Logger, error) {
 			return nil
 		}()
 
-		if err != nil {
-			for _, f := range closeFns {
-				errF := f()
-				if errF != nil {
-					err = multierr.Append(err, errF)
+		if errAppend != nil {
+			for _, closeFunc := range closeFns {
+				errCloseFunc := closeFunc()
+				if errCloseFunc != nil {
+					errAppend = multierr.Append(errAppend, errCloseFunc)
 				}
 			}
 			return
@@ -101,7 +101,7 @@ func InitGlobalLogger(conf Settings) (Logger, error) {
 	})
 
 	// Return global logger
-	return globalLogger, err
+	return globalLogger, errAppend
 }
 
 // CloseGlobalLogger will call the Close method of the global logger
@@ -128,8 +128,8 @@ func SetCrashOutput(settings Settings) {
 	crashPath := strings.TrimSuffix(settings.File.Path, ext) + ".crash.log"
 
 	// Open crash file in append mode to preserve history of multiple crashes
-	f, err := os.OpenFile(crashPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0640)
-	if err != nil {
+	f, errF := os.OpenFile(crashPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0640)
+	if errF != nil {
 		return
 	}
 

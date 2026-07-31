@@ -14,15 +14,16 @@ import (
 	"fmt"
 	"strings"
 
-	managerdb "github.com/siemens/Large-Scale-Discovery/manager/database"
+	"github.com/siemens/Large-Scale-Discovery/manager/scopedb"
 	"github.com/siemens/Large-Scale-Discovery/utils"
 )
 
-var importers = make(map[string]Importer) // Map of importer names referencing the responsible importer module.
+// importers registers the available importer implementations
+var importers = make(map[string]Importer)
 
 type Importer interface {
 	Init(conf map[string]interface{}) error
-	Import(filters Filters) ([]managerdb.T_discovery, error)
+	Import(filters Filters, splitSize uint32) ([]scopedb.T_discovery, error)
 }
 
 // Filters describes various possible strings that can be applied to filter the entries returned by the respective
@@ -46,41 +47,41 @@ type Filters struct {
 func ParseFilters(scanScopeSettings utils.JsonMap) (Filters, error) {
 
 	// Read filters from scan scope attributes
-	filterCountries, errCountries := readSliceAttribute(scanScopeSettings, "asset_countries")
-	if errCountries != nil {
-		return Filters{}, errCountries
+	filterCountries, errFilterCountries := readSliceAttribute(scanScopeSettings, "asset_countries")
+	if errFilterCountries != nil {
+		return Filters{}, errFilterCountries
 	}
-	filterLocations, errLocations := readSliceAttribute(scanScopeSettings, "asset_locations")
-	if errLocations != nil {
-		return Filters{}, errLocations
+	filterLocations, errFilterLocations := readSliceAttribute(scanScopeSettings, "asset_locations")
+	if errFilterLocations != nil {
+		return Filters{}, errFilterLocations
 	}
-	filterCompanies, errCompanies := readSliceAttribute(scanScopeSettings, "asset_companies")
-	if errCompanies != nil {
-		return Filters{}, errCompanies
+	filterCompanies, errFilterCompanies := readSliceAttribute(scanScopeSettings, "asset_companies")
+	if errFilterCompanies != nil {
+		return Filters{}, errFilterCompanies
 	}
-	filterDepartments, errDepartments := readSliceAttribute(scanScopeSettings, "asset_departments")
-	if errDepartments != nil {
-		return Filters{}, errDepartments
+	filterDepartments, errFilterDepartments := readSliceAttribute(scanScopeSettings, "asset_departments")
+	if errFilterDepartments != nil {
+		return Filters{}, errFilterDepartments
 	}
-	filterContacts, errContacts := readSliceAttribute(scanScopeSettings, "asset_contacts")
-	if errContacts != nil {
-		return Filters{}, errContacts
+	filterContacts, errFilterContacts := readSliceAttribute(scanScopeSettings, "asset_contacts")
+	if errFilterContacts != nil {
+		return Filters{}, errFilterContacts
 	}
 	filterRoutingDomains, okRoutingDomains := readSliceAttribute(scanScopeSettings, "asset_routing_domains")
 	if okRoutingDomains != nil {
 		return Filters{}, okRoutingDomains
 	}
-	filterZones, errZones := readSliceAttribute(scanScopeSettings, "asset_zones")
-	if errZones != nil {
-		return Filters{}, errZones
+	filterZones, errFilterZones := readSliceAttribute(scanScopeSettings, "asset_zones")
+	if errFilterZones != nil {
+		return Filters{}, errFilterZones
 	}
-	filterPurposes, errPurposes := readSliceAttribute(scanScopeSettings, "asset_purposes")
-	if errPurposes != nil {
-		return Filters{}, errPurposes
+	filterPurposes, errFilterPurposes := readSliceAttribute(scanScopeSettings, "asset_purposes")
+	if errFilterPurposes != nil {
+		return Filters{}, errFilterPurposes
 	}
-	filterExcludeKeywords, errExcludeKeywords := readSliceAttribute(scanScopeSettings, "asset_exclude_keywords")
-	if errExcludeKeywords != nil {
-		return Filters{}, errExcludeKeywords
+	filterExcludeKeywords, errFilterExcludeKeywords := readSliceAttribute(scanScopeSettings, "asset_exclude_keywords")
+	if errFilterExcludeKeywords != nil {
+		return Filters{}, errFilterExcludeKeywords
 	}
 
 	var filterType string

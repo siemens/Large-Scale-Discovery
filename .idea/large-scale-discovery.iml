@@ -10,6 +10,7 @@
       <excludeFolder url="file://$MODULE_DIR$/_bin" />
       <excludeFolder url="file://$MODULE_DIR$/web_frontend/dist" />
       <excludeFolder url="file://$MODULE_DIR$/web_frontend/node_modules" />
+      <excludeFolder url="file://$MODULE_DIR$/web_frontend/tests/artifacts" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

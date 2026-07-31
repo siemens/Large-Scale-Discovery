@@ -1,11 +1,12 @@
 /*
-* Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
-*
-* Copyright (c) Siemens AG, 2016-2026.
-*
-* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
-* directory or visit <https://opensource.org/licenses/MIT>.
-*
+ * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
+ *
+ * Copyright (c) Siemens AG, 2016-2026.
+ *
+ * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+ * directory or visit <https://opensource.org/licenses/MIT>.
+ *
+ * SPDX-License-Identifier: MIT
  */
 
 package handlers
@@ -22,8 +23,11 @@ import (
 	"github.com/siemens/Large-Scale-Discovery/_build"
 	manager "github.com/siemens/Large-Scale-Discovery/manager/core"
 	managerdb "github.com/siemens/Large-Scale-Discovery/manager/database"
+	"github.com/siemens/Large-Scale-Discovery/manager/scopedb"
 	"github.com/siemens/Large-Scale-Discovery/utils"
+	"github.com/siemens/Large-Scale-Discovery/web_backend/config"
 	"github.com/siemens/Large-Scale-Discovery/web_backend/core"
+	"github.com/siemens/Large-Scale-Discovery/web_backend/core/loaders"
 	"github.com/siemens/Large-Scale-Discovery/web_backend/database"
 	"github.com/siemens/ZapSmtp/smtp"
 )
@@ -79,7 +83,8 @@ var ViewGrantToken = func(smtpConnection *utils.Smtp) gin.HandlerFunc {
 		}
 
 		// Validate access token expiry value
-		if req.ExpiryDays <= 0 { // Maximum allowed value is set and checked by the manager itself
+		conf := config.GetConfig()
+		if req.ExpiryDays <= 0 || time.Hour*24*time.Duration(req.ExpiryDays) > conf.ExpiryTokenMax {
 			core.Respond(ctx, true, "Invalid token expiry duration.", responseBody{})
 			return
 		}
@@ -203,7 +208,7 @@ var ViewGrantToken = func(smtpConnection *utils.Smtp) gin.HandlerFunc {
 		}
 
 		// Log event
-		errEvent := database.NewEvent(
+		errEvent := database.LogEvent(
 			contextUser,
 			database.EventViewToken,
 			fmt.Sprintf("Token: %s; View: %s", req.Description, scopeView.Name),
@@ -293,8 +298,10 @@ var ViewGrantUsers = func(smtpConnection *utils.Smtp) gin.HandlerFunc {
 			}
 		}
 
+		// Prepare new set of credentials
+		var credentialsEntries []scopedb.DbCredentials
+
 		// Prepare list of credentials to grant
-		var usernamesGrant []managerdb.DbCredentials
 		for _, userEmail := range userEmails {
 
 			// Check if input is valid e-mail address
@@ -312,14 +319,13 @@ var ViewGrantUsers = func(smtpConnection *utils.Smtp) gin.HandlerFunc {
 			}
 
 			// Initialize user if missing
-			var userToGrant *database.T_user
 			if userEntry == nil {
 
 				// Get appropriate loader
-				loader := core.GetLoader(logger, userEmail)
+				loader := loaders.GetLoader(logger, userEmail)
 
 				// Generate new user
-				newUser := database.NewUser(userEmail, "", "", "", "")
+				newUser := database.NewUser(userEmail, "", "", "", "", "")
 
 				// Prepare user object for creation
 				// ATTENTION: RefreshUser might update user attributes, but does not yet commit them!
@@ -350,9 +356,9 @@ var ViewGrantUsers = func(smtpConnection *utils.Smtp) gin.HandlerFunc {
 				}
 
 				// Create new user object in DB
-				err := newUser.Create()
-				if err != nil {
-					logger.Errorf("Could not auto-create user '%s': %s", userEmail, err)
+				errCreate := newUser.Create()
+				if errCreate != nil {
+					logger.Errorf("Could not auto-create user '%s': %s", userEmail, errCreate)
 					core.RespondInternalError(ctx) // Return generic error information
 					return
 				}
@@ -407,27 +413,24 @@ var ViewGrantUsers = func(smtpConnection *utils.Smtp) gin.HandlerFunc {
 				}
 
 				// Assign to outer variable
-				userToGrant = newUser
-
-			} else {
-				userToGrant = userEntry
+				userEntry = newUser
 			}
 
 			// Check if user is currently active. Don't allow granting disabled user
-			if !userToGrant.Active {
+			if !userEntry.Active {
 				core.Respond(
 					ctx,
 					true,
-					fmt.Sprintf("'%s' is disabled.", userToGrant.Email),
+					fmt.Sprintf("'%s' is disabled.", userEntry.Email),
 					responseBody{},
 				)
 				return
 			}
 
-			// Append user to list of users to grant
-			usernamesGrant = append(usernamesGrant, managerdb.DbCredentials{
-				Username: userToGrant.Email,
-				Password: userToGrant.DbPasswordHash,
+			// Append user credentials to list of credentials
+			credentialsEntries = append(credentialsEntries, scopedb.DbCredentials{
+				Username: userEntry.Email,
+				Password: userEntry.DbPasswordHash,
 			})
 		}
 
@@ -442,7 +445,7 @@ var ViewGrantUsers = func(smtpConnection *utils.Smtp) gin.HandlerFunc {
 		}
 
 		// Request manager to grant view for given username
-		errRpc2 := manager.RpcGrantUsers(logger, core.RpcClient(), scopeView.Id, usernamesGrant, contextUser.Email)
+		errRpc2 := manager.RpcGrantUsers(logger, core.RpcClient(), scopeView.Id, credentialsEntries, contextUser.Email)
 		if errors.Is(errRpc2, utils.ErrRpcConnectivity) {
 			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
@@ -458,7 +461,7 @@ var ViewGrantUsers = func(smtpConnection *utils.Smtp) gin.HandlerFunc {
 		}
 
 		// Log event
-		for _, grant := range usernamesGrant {
+		for _, grant := range credentialsEntries {
 
 			// Skip if user was granted before
 			if scanUtils.StrContained(grant.Username, usernamesPrevious) {
@@ -466,7 +469,7 @@ var ViewGrantUsers = func(smtpConnection *utils.Smtp) gin.HandlerFunc {
 			}
 
 			// Create event
-			errEvent := database.NewEvent(
+			errEvent := database.LogEvent(
 				contextUser,
 				database.EventViewGrant,
 				fmt.Sprintf("User: %s; View: %s", grant.Username, scopeView.Name),

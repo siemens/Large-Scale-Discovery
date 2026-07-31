@@ -17,9 +17,9 @@ import (
 	"strings"
 )
 
-const AlphaNumCaseSymbol = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-_!?§$%&/()=*+#,;.:<>|°^"
-const AlphaNumDash = "abcdefghijklmnopqrstuvwxyz0123456789-"
-const AlphaNum = "abcdefghijklmnopqrstuvwxyz0123456789"
+const AlphaNumCaseSymbol = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-_!?§$%&/()=*+#,;.:<>|°^" // Lowercase, uppercase, digits, and supported symbols
+const AlphaNumDash = "abcdefghijklmnopqrstuvwxyz0123456789-"                                                        // Lowercase letters, digits, and dash
+const AlphaNum = "abcdefghijklmnopqrstuvwxyz0123456789"                                                             // Lowercase letters and digits
 
 // ValidPassword checks whether a given string matches password requirements
 func ValidPassword(
@@ -54,7 +54,7 @@ func ValidPassword(
 		charStr := string(char)
 
 		// Check if character is an integer
-		if _, err := strconv.Atoi(charStr); err == nil {
+		if _, errAtoi := strconv.Atoi(charStr); errAtoi == nil {
 			hasNumber = true
 			continue
 		}
@@ -108,9 +108,9 @@ func GenerateToken(symbols string, length int) (string, error) {
 	for i := 0; i < length; i++ {
 
 		// Get random int between 0 and len(chars)
-		randInt, err := rand.Int(rand.Reader, charsLen)
-		if err != nil {
-			return "", err
+		randInt, errRandInt := rand.Int(rand.Reader, charsLen)
+		if errRandInt != nil {
+			return "", errRandInt
 		}
 
 		// Append randomly chosen rune to string builder

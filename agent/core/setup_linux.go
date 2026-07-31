@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2025.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -68,9 +68,9 @@ func checkConfigDependant() error {
 func generateTruststoreOs(truststoreOutputFile string) error {
 
 	// Prepare OS trust store file
-	outputFile, errOpen := os.OpenFile(truststoreOutputFile, os.O_CREATE|os.O_WRONLY, 0660)
-	if errOpen != nil {
-		return fmt.Errorf("could not create OS trust store '%s': %s", truststoreOutputFile, errOpen)
+	outputFile, errOutputFile := os.OpenFile(truststoreOutputFile, os.O_CREATE|os.O_WRONLY, 0660)
+	if errOutputFile != nil {
+		return fmt.Errorf("could not create OS trust store '%s': %s", truststoreOutputFile, errOutputFile)
 	}
 
 	// Make sure file gets closed on exit
@@ -86,9 +86,9 @@ func generateTruststoreOs(truststoreOutputFile string) error {
 		}
 
 		// Read directory
-		files, errReadDir := os.ReadDir(osTruststorePath)
-		if errReadDir != nil {
-			return fmt.Errorf("could not read trust store directory '%s': %s", osTruststorePath, errReadDir)
+		files, errFiles := os.ReadDir(osTruststorePath)
+		if errFiles != nil {
+			return fmt.Errorf("could not read trust store directory '%s': %s", osTruststorePath, errFiles)
 		}
 
 		// Iterate directory files
@@ -99,8 +99,8 @@ func generateTruststoreOs(truststoreOutputFile string) error {
 				filePath := filepath.Join(osTruststorePath, f.Name())
 
 				// Read file
-				data, errRead := os.ReadFile(filePath)
-				if errRead != nil {
+				data, errData := os.ReadFile(filePath)
+				if errData != nil {
 					continue
 				}
 

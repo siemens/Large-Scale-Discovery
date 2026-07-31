@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2024.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -30,9 +30,9 @@ import (
 	"github.com/siemens/Large-Scale-Discovery/utils"
 )
 
-const pathNucleiTemplatesFolder = "./data/nuclei_templates/"
-const pathSslOsTruststoreFile = "./data/os_truststore.pem"
-const pathWebenumProbesFile = "./data/webenum_probes.txt"
+const pathNucleiTemplatesFolder = "./data/nuclei_templates/" // Nuclei template directory
+const pathSslOsTruststoreFile = "./data/os_truststore.pem"   // Operating-system trust store
+const pathWebenumProbesFile = "./data/webenum_probes.txt"    // Web-enumeration probe definitions
 
 func launchBanner(
 	chResults chan broker.ArgsSaveScanResult,
@@ -43,9 +43,9 @@ func launchBanner(
 
 	// Get tagged logger
 	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-%d", label, scanTask.Id))
-	logger.Debugf("Initializing scan.")
+	logger.Debugf("Initializing '%s' scan for scope '%s'.", label, scanTask.ScopeName)
 
-	// Catch potential panics to gracefully log issue
+	// Log potential panics before letting them move on
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -114,9 +114,9 @@ func launchDiscovery(
 
 	// Get tagged logger
 	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-%d", label, scanTask.Id))
-	logger.Debugf("Initializing scan.")
+	logger.Debugf("Initializing '%s' scan for scope '%s'.", label, scanTask.ScopeName)
 
-	// Catch potential panics to gracefully log issue
+	// Log potential panics before letting them move on
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -183,9 +183,9 @@ func launchNfs(
 
 	// Get tagged logger
 	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-%d", label, scanTask.Id))
-	logger.Debugf("Initializing scan.")
+	logger.Debugf("Initializing '%s' scan for scope '%s'.", label, scanTask.ScopeName)
 
-	// Catch potential panics to gracefully log issue
+	// Log potential panics before letting them move on
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -265,9 +265,9 @@ func launchNuclei(
 
 	// Get tagged logger
 	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-%d", label, scanTask.Id))
-	logger.Debugf("Initializing scan.")
+	logger.Debugf("Initializing '%s' scan for scope '%s'.", label, scanTask.ScopeName)
 
-	// Catch potential panics to gracefully log issue with stacktrace
+	// Log potential panics before letting them move on
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -362,9 +362,9 @@ func launchSsh(
 
 	// Get tagged logger
 	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-%d", label, scanTask.Id))
-	logger.Debugf("Initializing scan.")
+	logger.Debugf("Initializing '%s' scan for scope '%s'.", label, scanTask.ScopeName)
 
-	// Catch potential panics to gracefully log issue
+	// Log potential panics before letting them move on
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -432,9 +432,9 @@ func launchSsl(
 
 	// Get tagged logger
 	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-%d", label, scanTask.Id))
-	logger.Debugf("Initializing scan.")
+	logger.Debugf("Initializing '%s' scan for scope '%s'.", label, scanTask.ScopeName)
 
-	// Catch potential panics to gracefully log issue
+	// Log potential panics before letting them move on
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -526,9 +526,9 @@ func launchWebcrawler(
 
 	// Get tagged logger
 	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-%d", label, scanTask.Id))
-	logger.Debugf("Initializing scan.")
+	logger.Debugf("Initializing '%s' scan for scope '%s'.", label, scanTask.ScopeName)
 
-	// Catch potential panics to gracefully log issue
+	// Log potential panics before letting them move on
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -631,9 +631,9 @@ func launchWebenum(
 
 	// Get tagged logger
 	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-%d", label, scanTask.Id))
-	logger.Debugf("Initializing scan.")
+	logger.Debugf("Initializing '%s' scan for scope '%s'.", label, scanTask.ScopeName)
 
-	// Catch potential panics to gracefully log issue
+	// Log potential panics before letting them move on
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)

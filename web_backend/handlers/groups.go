@@ -1,11 +1,12 @@
 /*
-* Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
-*
-* Copyright (c) Siemens AG, 2016-2026.
-*
-* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
-* directory or visit <https://opensource.org/licenses/MIT>.
-*
+ * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
+ *
+ * Copyright (c) Siemens AG, 2016-2026.
+ *
+ * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+ * directory or visit <https://opensource.org/licenses/MIT>.
+ *
+ * SPDX-License-Identifier: MIT
  */
 
 package handlers
@@ -22,6 +23,7 @@ import (
 	manager "github.com/siemens/Large-Scale-Discovery/manager/core"
 	"github.com/siemens/Large-Scale-Discovery/utils"
 	"github.com/siemens/Large-Scale-Discovery/web_backend/core"
+	"github.com/siemens/Large-Scale-Discovery/web_backend/core/loaders"
 	"github.com/siemens/Large-Scale-Discovery/web_backend/database"
 	"github.com/siemens/ZapSmtp/smtp"
 )
@@ -136,7 +138,7 @@ var GroupCreate = func() gin.HandlerFunc {
 		}
 
 		// Prepare new group object
-		newGroup := database.T_group{
+		groupEntryNew := database.T_group{
 			Name:         req.Name,
 			DbServerId:   req.DbServerId,
 			CreatedBy:    contextUser.Email,
@@ -150,9 +152,9 @@ var GroupCreate = func() gin.HandlerFunc {
 		}
 
 		// Create new group object
-		err := newGroup.Create()
-		if err != nil {
-			logger.Errorf("Could not create group: %s", err)
+		errCreate := groupEntryNew.Create()
+		if errCreate != nil {
+			logger.Errorf("Could not create group: %s", errCreate)
 			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
@@ -219,7 +221,7 @@ var GroupUpdate = func() gin.HandlerFunc {
 		}
 
 		// Get group to update
-		groupEntry, errGroupEntry := database.GetGroup(req.Id)
+		groupEntry, errGroupEntry := database.GetGroupById(req.Id)
 		if errGroupEntry != nil {
 			logger.Errorf("Could not query group: %s", errGroupEntry)
 			core.RespondInternalError(ctx) // Return generic error information
@@ -278,9 +280,9 @@ var GroupUpdate = func() gin.HandlerFunc {
 		}
 
 		// Save updated attributes
-		saved, errSave := groupEntry.Save("name", "db_server_id", "max_scopes", "max_views", "max_targets", "max_owners", "allow_custom", "allow_network", "allow_asset")
-		if errSave != nil {
-			logger.Errorf("Could not update group entry: %s", errSave)
+		saved, errSaved := groupEntry.Save("name", "db_server_id", "max_scopes", "max_views", "max_targets", "max_owners", "allow_custom", "allow_network", "allow_asset")
+		if errSaved != nil {
+			logger.Errorf("Could not update group entry: %s", errSaved)
 			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
@@ -348,7 +350,7 @@ var GroupDelete = func() gin.HandlerFunc {
 		}
 
 		// Get group to delete
-		groupEntry, errGroupEntry := database.GetGroup(req.Id)
+		groupEntry, errGroupEntry := database.GetGroupById(req.Id)
 		if errGroupEntry != nil {
 			logger.Errorf("Could not query group: %s", errGroupEntry)
 			core.RespondInternalError(ctx) // Return generic error information
@@ -362,20 +364,20 @@ var GroupDelete = func() gin.HandlerFunc {
 		}
 
 		// Request owned scan scopes from manager
-		scanScopes, errScanScopes := manager.RpcGetScopesOf(logger, core.RpcClient(), []uint64{groupEntry.Id})
-		if errors.Is(errScanScopes, utils.ErrRpcConnectivity) {
+		scopeEntries, errScopeEntries := manager.RpcGetScopesOf(logger, core.RpcClient(), []uint64{groupEntry.Id})
+		if errors.Is(errScopeEntries, utils.ErrRpcConnectivity) {
 			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
-		} else if errScanScopes != nil {
+		} else if errScopeEntries != nil {
 			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
 		// Remove each scope and associated data (views, access rights, users,...)
-		for _, groupScope := range scanScopes {
+		for _, scopeEntry := range scopeEntries {
 
 			// Request manager to delete scan scope and associated data
-			errRpc := manager.RpcDeleteScope(logger, core.RpcClient(), groupScope.Id)
+			errRpc := manager.RpcDeleteScope(logger, core.RpcClient(), scopeEntry.Id)
 			if errors.Is(errRpc, utils.ErrRpcConnectivity) {
 				core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 				return
@@ -446,7 +448,7 @@ var GroupAssign = func(smtpConnection *utils.Smtp) gin.HandlerFunc {
 		}
 
 		// Get group to update
-		groupEntry, errGroupEntry := database.GetGroup(req.Id)
+		groupEntry, errGroupEntry := database.GetGroupById(req.Id)
 		if errGroupEntry != nil {
 			logger.Errorf("Could not query group: %s", errGroupEntry)
 			core.RespondInternalError(ctx) // Return generic error information
@@ -463,7 +465,7 @@ var GroupAssign = func(smtpConnection *utils.Smtp) gin.HandlerFunc {
 		ownerEmails := scanUtils.UniqueStrings(scanUtils.TrimToLower(req.Owners))
 
 		// Prepare new set of owners
-		var newOwners []database.T_user
+		var userEntries []database.T_user
 
 		// Query referenced users
 		for _, ownerEmail := range ownerEmails {
@@ -483,14 +485,13 @@ var GroupAssign = func(smtpConnection *utils.Smtp) gin.HandlerFunc {
 			}
 
 			// Initialize user if missing
-			var owner database.T_user
 			if userEntry == nil {
 
 				// Get appropriate loader
-				loader := core.GetLoader(logger, ownerEmail)
+				loader := loaders.GetLoader(logger, ownerEmail)
 
 				// Generate new user
-				newUser := database.NewUser(ownerEmail, "", "", "", "")
+				newUser := database.NewUser(ownerEmail, "", "", "", "", "")
 
 				// Prepare user object for creation
 				// ATTENTION: RefreshUser might update user attributes, but does not yet commit them!
@@ -521,9 +522,9 @@ var GroupAssign = func(smtpConnection *utils.Smtp) gin.HandlerFunc {
 				}
 
 				// Create new user object in DB
-				err := newUser.Create()
-				if err != nil {
-					logger.Errorf("Could not auto-create user: %s", err)
+				errCreate := newUser.Create()
+				if errCreate != nil {
+					logger.Errorf("Could not auto-create user: %s", errCreate)
 					core.RespondInternalError(ctx) // Return generic error information
 					return
 				}
@@ -580,24 +581,21 @@ var GroupAssign = func(smtpConnection *utils.Smtp) gin.HandlerFunc {
 				}
 
 				// Assign to outer variable
-				owner = *newUser
-
-			} else {
-				owner = *userEntry
+				userEntry = newUser
 			}
 
 			// Add user object to list of new users
-			newOwners = append(newOwners, owner)
+			userEntries = append(userEntries, *userEntry)
 		}
 
 		// Check if total amount of group owners would not exceed maximum
-		if groupEntry.MaxOwners >= 0 && len(groupEntry.Ownerships)+len(newOwners) > groupEntry.MaxOwners {
+		if groupEntry.MaxOwners >= 0 && len(groupEntry.Ownerships)+len(userEntries) > groupEntry.MaxOwners {
 			core.Respond(ctx, true, "Maximum group owners exceeded.", responseBody{})
 			return
 		}
 
 		// Apply new admin users to group
-		errUpdate := groupEntry.UpdateOwners(newOwners)
+		errUpdate := groupEntry.UpdateOwners(userEntries)
 		if errUpdate != nil {
 			logger.Errorf("Could not update owners: %s", errUpdate)
 			core.RespondInternalError(ctx) // Return generic error information

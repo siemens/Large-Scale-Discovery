@@ -25,6 +25,7 @@ import (
 var shutdownOnce sync.Once  // Helper variable to prevent shutdown from doing its work multiple times.
 var rpcClient *utils.Client // RPC client struct handling RPC connections and requests. This needs to be accessible by handler packages
 
+// ConnectManager initializes the shared RPC client and starts connecting to the manager
 func ConnectManager() error {
 
 	// Get global logger
@@ -55,7 +56,6 @@ func ConnectManager() error {
 
 	// Return as everything went fine
 	return nil
-
 }
 
 // Shutdown terminates the application context, which causes associated components to gracefully shut down.

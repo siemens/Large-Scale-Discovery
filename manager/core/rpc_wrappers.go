@@ -19,6 +19,7 @@ import (
 	"github.com/sanyokbig/pqinterval"
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/Large-Scale-Discovery/manager/database"
+	"github.com/siemens/Large-Scale-Discovery/manager/scopedb"
 	"github.com/siemens/Large-Scale-Discovery/utils"
 )
 
@@ -35,8 +36,11 @@ import (
 // This function can be used by other components to subscribe to notifications about scan scope changes. It returns
 // two channels:
 //   - A channel for notifications about specific scan scopes that changed
-//   - A channel for re-connect notifications. In this case scan scope changes might have gone unobserved and a
-//     complete integrity check is necessary!
+//   - A channel for reconnection notifications. In this case scan scope changes might have gone unobserved and a
+//     complete integrity check is necessary
+//
+// Cancellation is observed between RPC calls and while retrying or publishing results. A synchronous long polling
+// call already in progress ends when the manager replies or the owning RPC client disconnects.
 func RpcSubscribeNotification(
 	logger scanUtils.Logger,
 	rpc *utils.Client,
@@ -57,16 +61,27 @@ func RpcSubscribeNotification(
 	// Initialize background look querying listening for manager notifications
 	go func() {
 
+		// Close both outputs on every terminal path so consumers can stop waiting
+		defer close(chNotification)
+		defer close(chNotificationReconnect)
+
 		// Log potential panics before letting them move on
 		defer func() {
 			if r := recover(); r != nil {
-				logger.Errorf(fmt.Sprintf("Panic: %s%s", r, scanUtils.StacktraceIndented("\t")))
+				logger.Errorf("Panic: %s%s", r, scanUtils.StacktraceIndented("\t"))
 				panic(r)
 			}
 		}()
 
 		// Loop until shutdown
 		for {
+
+			// Do not start another request after cancellation
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
 
 			// Log action
 			logger.Debugf("Listening for manager notifications.")
@@ -76,55 +91,72 @@ func RpcSubscribeNotification(
 			rpcReply := ReplyNotification{}
 			rpcArgs := struct{}{} // Does not require arguments
 
-			// Send RPC request. It will not return until scan scope changes become known.
-			errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+			// Send RPC request and restore the sentinel identity lost by net/rpc.
+			// It will not return until scan scope changes become known.
+			errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 			if errors.Is(errRpc, utils.ErrRpcConnectivity) {
 
 				// Abort if termination is requested
+				if ctx.Err() != nil {
+					return
+				}
+
+				// Log situation
+				logger.Debugf("Waiting for reconnection.")
+
+				// Wait until RPC connection or client shutdown
 				select {
 				case <-ctx.Done(): // Cancellation signal
+					return
 
-					// Close channels to inform about termination
-					close(chNotification)
-					close(chNotificationReconnect)
+				case _, ok := <-rpc.Established():
+
+					// Stop when the RPC client terminates
+					if !ok {
+						return
+					}
+
+					// Log reconnection
+					logger.Debugf("Manager reconnected.")
+
+					// Pass on notification without blocking shutdown behind an inactive consumer
+					select {
+					case chNotificationReconnect <- struct{}{}:
+					case <-ctx.Done():
+						return
+					}
+				}
+			} else if errRpc != nil {
+
+				// Check if client is shutting down
+				select {
+				case <-ctx.Done():
 
 					// Terminate goroutine
 					return
+
 				default:
-
-					// Log situation
-					logger.Debugf("Waiting for re-connection.")
-
-					// Wait until RPC connection or agent shutdown
-					select {
-					case <-ctx.Done(): // Cancellation signal
-
-						// Close channels to inform about termination
-						close(chNotification)
-						close(chNotificationReconnect)
-
-						// Terminate goroutine
-						return
-					case <-rpc.Established():
-
-						// Monitoring subscriptions can continue again
-						logger.Debugf("Manger re-connected.")
-
-						// Pass on notification
-						chNotificationReconnect <- struct{}{}
-
-						// Subscribe again for next notification
-						break
-					}
 				}
-			} else if errRpc != nil && errRpc.Error() == utils.ErrNotifierShuttingDown.Error() { // Errors received from RPC lose their original type!!
-				time.Sleep(time.Second / 2) // Prevent useless retries, seems like the manager is shutting down
-			} else if errRpc != nil {
-				logger.Warningf("Listening for manager notifications failed: %s", errRpc)
+
+				// Log situation
+				logger.Debugf("Waiting for retry.")
+
+				// Manager could not process the request, so delay the next attempt without blocking cancellation
+				retryTimer := time.NewTimer(utils.ReconnectInterval)
+				select {
+				case <-retryTimer.C:
+				case <-ctx.Done():
+					_ = retryTimer.Stop()
+					return
+				}
 			} else {
 
-				// Pass on notification
-				chNotification <- rpcReply
+				// Pass on notification without blocking shutdown behind an inactive consumer
+				select {
+				case chNotification <- rpcReply:
+				case <-ctx.Done():
+					return
+				}
 			}
 		}
 	}()
@@ -141,8 +173,8 @@ func RpcGetDatabases(logger scanUtils.Logger, rpc *utils.Client) ([]database.T_d
 	rpcReply := ReplyDatabases{}
 	rpcArgs := struct{}{} // Does not require arguments
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return nil, errRpc
 	}
@@ -181,8 +213,8 @@ func RpcAddUpdateDatabase(
 		Args:       args,
 	}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return errRpc
 	}
@@ -199,13 +231,13 @@ func RpcRemoveDatabase(logger scanUtils.Logger, rpc *utils.Client, dbServerId ui
 	rpcReply := struct{}{} // Does not return values
 	rpcArgs := ArgsDbServerId{DbServerId: dbServerId}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return errRpc
 	}
 
-	// Return scan scopes
+	// Return nil as everything went fine
 	return nil
 }
 
@@ -217,8 +249,8 @@ func RpcGetScopes(logger scanUtils.Logger, rpc *utils.Client) ([]database.T_scan
 	rpcReply := ReplyScanScopes{}
 	rpcArgs := struct{}{} // Does not require arguments
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return nil, errRpc
 	}
@@ -236,8 +268,8 @@ func RpcGetScopesOf(
 	rpcReply := ReplyScanScopes{}
 	rpcArgs := ArgsGroupIds{GroupIds: groupIds}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return nil, errRpc
 	}
@@ -254,8 +286,8 @@ func RpcGetScope(logger scanUtils.Logger, rpc *utils.Client, scopeId uint64) (da
 	rpcReply := ReplyScanScope{}
 	rpcArgs := ArgsScopeId{ScopeId: scopeId}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return database.T_scan_scope{}, errRpc
 	}
@@ -275,6 +307,7 @@ func RpcCreateScope(
 	otSettings bool,
 	cycles bool,
 	cyclesRetention int,
+	splitSize uint32,
 	scopeType string,
 	attributes utils.JsonMap,
 ) (uint64, error) {
@@ -291,16 +324,17 @@ func RpcCreateScope(
 		OtSettings:      otSettings,
 		Cycles:          cycles,
 		CyclesRetention: cyclesRetention,
+		SplitSize:       splitSize,
 		Attributes:      attributes,
 	}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return 0, errRpc
 	}
 
-	// Return nil as everything went fine
+	// Return the new scope ID
 	return rpcReply.ScopeId, nil
 }
 
@@ -312,26 +346,26 @@ func RpcDeleteScope(logger scanUtils.Logger, rpc *utils.Client, scopeId uint64) 
 	rpcReply := struct{}{} // Does not return values
 	rpcArgs := ArgsScopeId{ScopeId: scopeId}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return errRpc
 	}
 
-	// Return scan scopes
+	// Return nil as everything went fine
 	return nil
 }
 
 // RpcGetScopeTargets requests a list of current scan scope targets
-func RpcGetScopeTargets(logger scanUtils.Logger, rpc *utils.Client, scopeId uint64) (bool, []database.T_discovery, error) {
+func RpcGetScopeTargets(logger scanUtils.Logger, rpc *utils.Client, scopeId uint64) (bool, []scopedb.T_discovery, error) {
 
 	// Prepare RPC request
 	rpcEndpoint := "Manager.GetScopeTargets"
 	rpcReply := ReplyScopeTargets{}
 	rpcArgs := ArgsScopeId{ScopeId: scopeId}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return false, nil, errRpc
 	}
@@ -348,13 +382,13 @@ func RpcToggleScope(logger scanUtils.Logger, rpc *utils.Client, scopeId uint64) 
 	rpcReply := struct{}{} // Does not return values
 	rpcArgs := ArgsScopeId{ScopeId: scopeId}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return errRpc
 	}
 
-	// Return scan scopes
+	// Return nil as everything went fine
 	return nil
 }
 
@@ -366,6 +400,7 @@ func RpcUpdateScope(
 	scopeName string,
 	cycles bool,
 	cyclesRetention int,
+	splitSize uint32,
 	attributes *utils.JsonMap, // Optional value, set to nil to skip update
 ) error {
 
@@ -377,16 +412,17 @@ func RpcUpdateScope(
 		Name:            scopeName,
 		Cycles:          cycles,
 		CyclesRetention: cyclesRetention,
+		SplitSize:       splitSize,
 		Attributes:      attributes,
 	}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return errRpc
 	}
 
-	// Return scan scopes
+	// Return nil as everything went fine
 	return nil
 }
 
@@ -396,7 +432,7 @@ func RpcUpdateScopeTargets(
 	logger scanUtils.Logger,
 	rpc *utils.Client,
 	scopeId uint64,
-	targets []database.T_discovery, // Optional values, if there are values that should be set in the database right away
+	targetEntries []scopedb.T_discovery, // Optional values, if there are values that should be set in the database right away
 	blocking bool,
 ) (ReplyTargetsUpdate, error) {
 
@@ -405,12 +441,12 @@ func RpcUpdateScopeTargets(
 	rpcReply := ReplyTargetsUpdate{}
 	rpcArgs := ArgsTargetsUpdate{
 		IdTScanScopes: scopeId,
-		Targets:       targets,
+		Targets:       targetEntries,
 		Blocking:      blocking,
 	}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return ReplyTargetsUpdate{}, errRpc
 	}
@@ -443,8 +479,8 @@ func RpcUpdateScopeTargetOt(
 		InputSize:     inputSize,
 	}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return errRpc
 	}
@@ -457,7 +493,7 @@ func RpcUpdateSettings(
 	logger scanUtils.Logger,
 	rpc *utils.Client,
 	scopeId uint64,
-	scanSettings database.T_scan_setting,
+	settingsEntry database.T_scan_setting,
 ) error {
 
 	// Prepare RPC request
@@ -465,16 +501,16 @@ func RpcUpdateSettings(
 	rpcReply := struct{}{} // Does not return values
 	rpcArgs := ArgsSettingsUpdate{
 		IdTScanScopes: scopeId,
-		ScanSettings:  scanSettings,
+		ScanSettings:  settingsEntry,
 	}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return errRpc
 	}
 
-	// Return scan scopes
+	// Return nil as everything went fine
 	return nil
 }
 
@@ -492,13 +528,13 @@ func RpcResetFailed(
 		ScopeId: scopeId,
 	}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return errRpc
 	}
 
-	// Return scan scopes
+	// Return nil as everything went fine
 	return nil
 }
 
@@ -516,13 +552,13 @@ func RpcNewCycle(
 		ScopeId: scopeId,
 	}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return errRpc
 	}
 
-	// Return scan scopes
+	// Return nil as everything went fine
 	return nil
 }
 
@@ -534,13 +570,13 @@ func RpcResetInput(logger scanUtils.Logger, rpc *utils.Client, scopeId uint64, i
 	rpcReply := struct{}{} // Does not return values
 	rpcArgs := ArgsTargetReset{ScopeId: scopeId, Input: input}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return errRpc
 	}
 
-	// Return scan scopes
+	// Return nil as everything went fine
 	return nil
 }
 
@@ -552,8 +588,8 @@ func RpcResetSecret(logger scanUtils.Logger, rpc *utils.Client, scopeId uint64) 
 	rpcReply := ReplyScopeSecret{}
 	rpcArgs := ArgsScopeId{ScopeId: scopeId}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return "", errRpc
 	}
@@ -578,13 +614,13 @@ func RpcUpdateScopeStats(
 		ScopeStats: scopeStatsByScope,
 	}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return errRpc
 	}
 
-	// Return scan scopes
+	// Return nil as everything went fine
 	return nil
 }
 
@@ -596,8 +632,8 @@ func RpcGetViews(logger scanUtils.Logger, rpc *utils.Client) ([]database.T_scope
 	rpcReply := ReplyScopeViews{}
 	rpcArgs := struct{}{} // Does not require arguments
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return nil, errRpc
 	}
@@ -615,8 +651,8 @@ func RpcGetViewsOf(
 	rpcReply := ReplyScopeViews{}
 	rpcArgs := ArgsGroupIds{GroupIds: groupIds}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return nil, errRpc
 	}
@@ -636,13 +672,13 @@ func RpcGetViewsGranted(
 		Username: username,
 	}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return nil, errRpc
 	}
 
-	// Return nil as everything went fine
+	// Return views
 	return rpcReply.ScopeViews, nil
 }
 
@@ -654,8 +690,8 @@ func RpcGetView(logger scanUtils.Logger, rpc *utils.Client, viewId uint64) (data
 	rpcReply := ReplyScopeView{}
 	rpcArgs := ArgsViewId{ViewId: viewId}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return database.T_scope_view{}, errRpc
 	}
@@ -684,8 +720,8 @@ func RpcCreateView(
 		Filters:   filters,
 	}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 
 	// Return possible RPC error
 	return errRpc
@@ -699,8 +735,8 @@ func RpcDeleteView(logger scanUtils.Logger, rpc *utils.Client, viewId uint64) er
 	rpcReply := struct{}{} // Does not return values
 	rpcArgs := ArgsViewId{ViewId: viewId}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 
 	// Return possible RPC error
 	return errRpc
@@ -717,13 +753,13 @@ func RpcUpdateView(logger scanUtils.Logger, rpc *utils.Client, viewId uint64, vi
 		Name:   viewName,
 	}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return errRpc
 	}
 
-	// Return scan scopes
+	// Return nil as everything went fine
 	return nil
 }
 
@@ -747,8 +783,8 @@ func RpcGrantToken(
 		Expiry:      expiry,
 	}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return "", "", errRpc
 	}
@@ -762,7 +798,7 @@ func RpcGrantUsers(
 	logger scanUtils.Logger,
 	rpc *utils.Client,
 	viewId uint64,
-	dbUsers []database.DbCredentials,
+	dbUsers []scopedb.DbCredentials,
 	grantedBy string,
 ) error {
 
@@ -775,8 +811,8 @@ func RpcGrantUsers(
 		GrantedBy:     grantedBy,
 	}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return errRpc
 	}
@@ -796,8 +832,8 @@ func RpcRevokeGrants(logger scanUtils.Logger, rpc *utils.Client, viewId uint64, 
 		Usernames: username,
 	}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return errRpc
 	}
@@ -817,8 +853,8 @@ func RpcUpdateDatabaseCredentials(logger scanUtils.Logger, rpc *utils.Client, us
 		Password: password,
 	}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return errRpc
 	}
@@ -837,8 +873,8 @@ func RpcDisableDbUser(logger scanUtils.Logger, rpc *utils.Client, username strin
 		Username: username,
 	}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return errRpc
 	}
@@ -857,8 +893,8 @@ func RpcEnableDbUser(logger scanUtils.Logger, rpc *utils.Client, username string
 		Username: username,
 	}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return errRpc
 	}
@@ -875,8 +911,8 @@ func RpcGetAgents(logger scanUtils.Logger, rpc *utils.Client) ([]database.T_scan
 	rpcReply := ReplyScanAgents{}
 	rpcArgs := struct{}{} // Does not require arguments
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return nil, errRpc
 	}
@@ -893,13 +929,13 @@ func RpcDeleteAgent(logger scanUtils.Logger, rpc *utils.Client, agentId uint64) 
 	rpcReply := struct{}{} // Does not return values
 	rpcArgs := ArgsAgentId{AgentId: agentId}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return errRpc
 	}
 
-	// Return scan scopes
+	// Return nil as everything went fine
 	return nil
 }
 
@@ -932,13 +968,13 @@ func RpcCreateSqlLogs(
 		ClientName:     clientName,
 	}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
 		return errRpc
 	}
 
-	// Return scan scopes
+	// Return nil as everything went fine
 	return nil
 }
 
@@ -947,7 +983,7 @@ func RpcGetSqlLogs(
 	rpc *utils.Client,
 	dbName string,
 	since time.Time,
-) ([]database.T_sql_log, error) {
+) ([]scopedb.T_sql_log, error) {
 
 	// Prepare RPC request
 	rpcEndpoint := "Manager.GetSqlLogs"
@@ -957,10 +993,10 @@ func RpcGetSqlLogs(
 		Since:  since,
 	}
 
-	// Send RPC request
-	errRpc := rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply) // rpcReply must be pointer to receive result!
+	// Send RPC request and restore the sentinel identity lost by net/rpc.
+	errRpc := restoreRpcServerError(rpc.Call(logger, rpcEndpoint, rpcArgs, &rpcReply)) // rpcReply must be pointer to receive result!
 	if errRpc != nil {
-		return []database.T_sql_log{}, errRpc
+		return []scopedb.T_sql_log{}, errRpc
 	}
 
 	// Return scan scopes

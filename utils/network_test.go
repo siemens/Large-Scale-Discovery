@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2025.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -14,6 +14,28 @@ import (
 	"reflect"
 	"testing"
 )
+
+// TestIsValidNetworkSize_ValidCidrSizes_ReturnsTrue verifies CIDR-compatible sizes through the Nmap cap are accepted.
+func TestIsValidNetworkSize_ValidCidrSizes_ReturnsTrue(t *testing.T) {
+
+	// Prepare and run test cases
+	for _, splitSize := range []uint32{1, 2, 64, 1_024, NetworkSizeSplit} {
+		if !IsValidNetworkSize(splitSize) {
+			t.Errorf("IsValidNetworkSize(%d) result = 'false', want = 'true'", splitSize)
+		}
+	}
+}
+
+// TestIsValidNetworkSize_InvalidOrOversizedValue_ReturnsFalse verifies unsafe split sizes are rejected.
+func TestIsValidNetworkSize_InvalidOrOversizedValue_ReturnsFalse(t *testing.T) {
+
+	// Prepare and run test cases
+	for _, splitSize := range []uint32{0, 3, 1_000, NetworkSizeSplit + 1, 4_096} {
+		if IsValidNetworkSize(splitSize) {
+			t.Errorf("IsValidNetworkSize(%d) result = 'true', want = 'false'", splitSize)
+		}
+	}
+}
 
 func TestCountIpsInInput(t *testing.T) {
 
@@ -39,9 +61,9 @@ func TestCountIpsInInput(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := CountIpsInInput(tt.args.subnet)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("CountIpsInInput() error = '%v', wantErr = '%v'", err, tt.wantErr)
+			got, errGot := CountIpsInInput(tt.args.subnet)
+			if (errGot != nil) != tt.wantErr {
+				t.Errorf("CountIpsInInput() error = '%v', wantErr = '%v'", errGot, tt.wantErr)
 				return
 			}
 			if got != tt.want {
@@ -90,9 +112,9 @@ func TestSplitNetwork(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := SplitNetworkIpV4(tt.network, tt.targetSize)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("SplitNetworkIpV4() error = '%v', wantErr = '%v'", err, tt.wantErr)
+			got, errGot := SplitNetworkIpV4(tt.network, tt.targetSize)
+			if (errGot != nil) != tt.wantErr {
+				t.Errorf("SplitNetworkIpV4() error = '%v', wantErr = '%v'", errGot, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(got, tt.want) {

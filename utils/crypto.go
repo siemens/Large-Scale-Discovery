@@ -16,16 +16,17 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"io"
+
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/crypto/pbkdf2"
-	"io"
 )
 
 // CreatePasswordHash creates a salted password hash from a given password
 func CreatePasswordHash(pwd string) (string, error) {
-	hash, err := bcrypt.GenerateFromPassword([]byte(pwd), bcrypt.DefaultCost+2)
-	if err != nil {
-		return "", err
+	hash, errHash := bcrypt.GenerateFromPassword([]byte(pwd), bcrypt.DefaultCost+2)
+	if errHash != nil {
+		return "", errHash
 	}
 	return string(hash), nil
 }

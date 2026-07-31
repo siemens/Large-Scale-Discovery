@@ -1,17 +1,19 @@
 /*
-* Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
-*
-* Copyright (c) Siemens AG, 2016-2024.
-*
-* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
-* directory or visit <https://opensource.org/licenses/MIT>.
-*
+ * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
+ *
+ * Copyright (c) Siemens AG, 2016-2026.
+ *
+ * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+ * directory or visit <https://opensource.org/licenses/MIT>.
+ *
+ * SPDX-License-Identifier: MIT
  */
 
 package database
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -20,20 +22,19 @@ import (
 	"gorm.io/gorm"
 )
 
+const EventLogin Event = "Login"                  // Successful user login
+const EventDbPassword Event = "Database Password" // Database password reset
+const EventScopeCreate Event = "Scope Created"    // Scan scope creation
+const EventScopeSecret Event = "Scope Secret"     // Scan scope secret reset
+const EventViewGrant Event = "User Granted"       // View access grant
+const EventViewToken Event = "Token Generated"    // View token creation
+const EventDatabaseAdd Event = "Database Added"   // Database server creation
+const EventApiToken Event = "API Token"           // API token creation
+
+// Event identifies an auditable user action
 type Event string
 
-// Definition of some standard event values
-const (
-	EventLogin       Event = "Login"
-	EventDbPassword  Event = "Database Password"
-	EventScopeCreate Event = "Scope Created"
-	EventScopeSecret Event = "Scope Secret"
-	EventViewGrant   Event = "User Granted"
-	EventViewToken   Event = "Token Generated"
-	EventDatabaseAdd Event = "Database Added"
-	EventApiToken    Event = "API Token"
-)
-
+// T_event represents an auditable user action persisted in the backend database
 type T_event struct {
 	// - Set the JSON ignore flag (json:"-") for sensitive columns that may NEVER be leaked by a JSON response.
 	// - Make columns "not null" if possible. Otherwise, use null-types (e.g. sql.NullString).
@@ -49,25 +50,48 @@ type T_event struct {
 	User *T_user `gorm:"foreignKey:IdTUser;constraint:OnUpdate:CASCADE,OnDelete:SET NULL" json:"user"` // User must be pointer *T_user, because it can be null OnDelete
 }
 
-// NewEvent creates an event log entry in the database.
-func NewEvent(user *T_user, eventType Event, eventDetail string) error {
+// BeforeSave sanitizes an event before GORM writes it to the database
+func (event *T_event) BeforeSave(tx *gorm.DB) error {
+
+	// Initialize sanitizer
+	b := bluemonday.StrictPolicy()
+
+	// Sanitize value
+	event.Email = b.Sanitize(event.Email)
+	event.Email = strings.ToLower(event.Email) // Standard format of e-mail addresses shall be lower case
+	tx.Statement.SetColumn("email", event.Email)
+
+	// Sanitize value
+	event.Event = Event(b.Sanitize(string(event.Event)))
+	tx.Statement.SetColumn("event", event.Event)
+
+	// Sanitize value
+	event.EventDetail = b.Sanitize(event.EventDetail)
+	tx.Statement.SetColumn("event_detail", event.EventDetail)
+
+	// Return nil as everything went fine
+	return nil
+}
+
+// LogEvent creates an event log entry in the database
+func LogEvent(userEntry *T_user, event Event, eventDetail string) error {
 
 	// Check if mandatory user information is available
-	if user.Id == 0 || user.Email == "" || !utils.IsPlausibleEmail(user.Email) || eventType == "" {
+	if userEntry.Id == 0 || userEntry.Email == "" || !utils.IsPlausibleEmail(userEntry.Email) || event == "" {
 		return fmt.Errorf("invalid event details")
 	}
 
-	// Check whether event type value is valid
-	if err := validEvent(eventType); err != nil {
-		return err
+	// Check whether event value is valid
+	if errEvent := validEvent(event); errEvent != nil {
+		return errEvent
 	}
 
 	// Prepare event entry
 	entry := T_event{
-		IdTUser:     user.Id,
-		Email:       user.Email,
+		IdTUser:     userEntry.Id,
+		Email:       userEntry.Email,
 		Timestamp:   time.Now(),
-		Event:       eventType,
+		Event:       event,
 		EventDetail: eventDetail,
 	}
 
@@ -81,71 +105,102 @@ func NewEvent(user *T_user, eventType Event, eventDetail string) error {
 	return nil
 }
 
-// BeforeSave is a GORM hook that's executed every time the user object is written to the DB. This should be used to
-// do some data sanitization, e.g. to strip illegal HTML tags in user attributes or to convert values to a certain
-// format.
-func (user *T_event) BeforeSave(tx *gorm.DB) error {
+// GetEvents returns optionally limited events of the requested kind at or after the optional timestamp
+func GetEvents(event Event, since time.Time, limit *int) ([]T_event, error) {
 
-	// Initialize sanitizer
-	b := bluemonday.StrictPolicy()
-
-	// Sanitize value
-	user.Email = b.Sanitize(user.Email)
-	user.Email = strings.ToLower(user.Email) // Standard format of e-mail addresses shall be lower case.
-	tx.Statement.SetColumn("email", user.Email)
-
-	// Sanitize value
-	user.Event = Event(b.Sanitize(string(user.Event)))
-	tx.Statement.SetColumn("event", user.Event)
-
-	// Sanitize value
-	user.EventDetail = b.Sanitize(user.EventDetail)
-	tx.Statement.SetColumn("event_detail", user.EventDetail)
-
-	// Return nil as everything went fine
-	return nil
-}
-
-func GetEvents(eventType Event, since time.Time) ([]T_event, error) {
-
-	// Check whether event type value is valid
-	if err := validEvent(eventType); err != nil {
-		return nil, err
+	// Check whether event value is valid
+	if errEvent := validEvent(event); errEvent != nil {
+		return nil, errEvent
 	}
 
-	// Prepare memory for result
-	var events []T_event
+	// Prepare query result
+	var eventEntries []T_event
 
 	// Query related events form database
 	q := backendDb.
 		Preload("User").
-		Where("event = ?", eventType).
-		Order("timestamp ASC")
+		Where("event = ?", event)
 
 	// Add where condition
 	if !since.IsZero() {
 		q = q.Where("timestamp >= ?", since)
 	}
 
+	// Restrict the query to the newest requested entries
+	if limit != nil && *limit >= 0 {
+		if *limit == 0 {
+			return []T_event{}, nil
+		}
+		q = q.Order("timestamp DESC").Order("id DESC").Limit(*limit)
+	} else {
+		q = q.Order("timestamp ASC").Order("id ASC")
+	}
+
 	// Execute query
-	errDb := q.Find(&events).Error
+	errDb := q.Find(&eventEntries).Error
 	if errDb != nil {
 		return nil, errDb
 	}
 
+	// Restore chronological order after selecting the newest limited entries
+	if limit != nil && *limit > 0 {
+		slices.Reverse(eventEntries)
+	}
+
 	// Return list of related events
-	return events, nil
+	return eventEntries, nil
 }
 
-// validEvent checks whether an event is an existing one
+// GetEventsAll returns all optionally limited events at or after the optional timestamp
+func GetEventsAll(since time.Time, limit *int) ([]T_event, error) {
+
+	// Prepare query result
+	var eventEntries []T_event
+
+	// Query related events form database
+	q := backendDb.
+		Model(&T_event{}).
+		Preload("User")
+
+	// Add where condition
+	if !since.IsZero() {
+		q = q.Where("timestamp >= ?", since)
+	}
+
+	// Restrict the query to the newest requested entries
+	if limit != nil && *limit >= 0 {
+		if *limit == 0 {
+			return []T_event{}, nil
+		}
+		q = q.Order("timestamp DESC").Order("id DESC").Limit(*limit)
+	} else {
+		q = q.Order("timestamp ASC").Order("id ASC")
+	}
+
+	// Execute query
+	errDb := q.Find(&eventEntries).Error
+	if errDb != nil {
+		return nil, errDb
+	}
+
+	// Restore chronological order after selecting the newest limited entries
+	if limit != nil && *limit > 0 {
+		slices.Reverse(eventEntries)
+	}
+
+	// Return list of related events
+	return eventEntries, nil
+}
+
+// validEvent checks whether an event is supported
 func validEvent(event Event) error {
 
-	// Check whether event type value is valid
+	// Check whether event value is valid
 	switch event {
 	case EventLogin, EventDbPassword, EventScopeCreate, EventScopeSecret, EventViewGrant, EventViewToken, EventDatabaseAdd, EventApiToken:
 		// Ok
 	default:
-		return fmt.Errorf("invalid event type '%s'", event)
+		return fmt.Errorf("invalid event '%s'", event)
 	}
 
 	// Return nil as everything went fine

@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2025.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -27,6 +27,13 @@ import (
 const NetworkSizeSkip = 327168 // Networks larger than this will be dropped
 const NetworkSizeSplit = 2048  // Networks larger than this will be split into smaller subnets
 
+// IsValidNetworkSize returns whether a size maps to an IPv4 CIDR block within the Nmap limit.
+func IsValidNetworkSize(splitSize uint32) bool {
+	return splitSize > 0 &&
+		splitSize <= NetworkSizeSplit &&
+		splitSize&(splitSize-1) == 0
+}
+
 // CountIpsInInput calculates the amount of possible IP addresses within a network range
 func CountIpsInInput(subnet string) (uint, error) {
 
@@ -44,9 +51,9 @@ func CountIpsInInput(subnet string) (uint, error) {
 	}
 
 	// Convert to IPNet struct
-	_, ipNet, err := net.ParseCIDR(subnet)
-	if err != nil {
-		return 0, err
+	_, ipNet, errParseCIDR := net.ParseCIDR(subnet)
+	if errParseCIDR != nil {
+		return 0, errParseCIDR
 	}
 
 	// Convert mask and address from BigEndian to uint32
@@ -87,17 +94,17 @@ func SplitNetworkIpV4(network string, targetSize uint32) ([]string, error) {
 	}
 
 	// Convert string to IPNet struct
-	_, ipv4Net, err := net.ParseCIDR(network)
-	if err != nil {
-		return nil, err
+	_, ipv4Net, errParseCIDR := net.ParseCIDR(network)
+	if errParseCIDR != nil {
+		return nil, errParseCIDR
 	}
 
 	// Calculate network size
 	ones, bits := ipv4Net.Mask.Size()
-	networkSize := uint32(math.Pow(2, float64(bits-ones)))
+	splitSize := uint32(math.Pow(2, float64(bits-ones)))
 
 	// Return network if it is already small enough
-	if targetSize >= networkSize {
+	if targetSize >= splitSize {
 		return []string{network}, nil
 	}
 
@@ -134,9 +141,9 @@ func GetOutboundIP() string {
 	// Establish logical connection, target does not actually need to be real.
 	// However, this fails if the specified network is unreachable, which can
 	// be the case if no default route is set (e.g., isolated systems)
-	conn, err := net.Dial("udp", "8.8.8.8:80")
-	if err != nil {
-		log.Fatal(err)
+	conn, errConn := net.Dial("udp", "8.8.8.8:80")
+	if errConn != nil {
+		log.Fatal(errConn)
 	}
 
 	// Cleanup connection
@@ -153,15 +160,15 @@ func GetOutboundIP() string {
 func GetLocalIp() (string, error) {
 
 	// Get routed interfaces
-	routedInterface, errInterfaces := nettest.RoutedInterface("ip", net.FlagUp|net.FlagBroadcast)
-	if errInterfaces != nil {
-		return "", errInterfaces
+	routedInterface, errRoutedInterface := nettest.RoutedInterface("ip", net.FlagUp|net.FlagBroadcast)
+	if errRoutedInterface != nil {
+		return "", errRoutedInterface
 	}
 
 	// Get address of routed interface
-	ifAddrs, errAddr := routedInterface.Addrs()
-	if errAddr != nil {
-		return "", errAddr
+	ifAddrs, errIfAddrs := routedInterface.Addrs()
+	if errIfAddrs != nil {
+		return "", errIfAddrs
 	}
 
 	// Check if ip got discovered
@@ -189,9 +196,9 @@ func GetLocalIp() (string, error) {
 func SslSocket(listenAddress string, certFile string, keyFile string) (net.Listener, error) {
 
 	// Load key files for RPC encryption
-	cert, errLoad := tls.LoadX509KeyPair(certFile, keyFile)
-	if errLoad != nil {
-		return nil, fmt.Errorf("could not load RPC keys: %s", errLoad)
+	cert, errCert := tls.LoadX509KeyPair(certFile, keyFile)
+	if errCert != nil {
+		return nil, fmt.Errorf("could not load RPC keys: %s", errCert)
 	}
 
 	// Create the TLS conf
@@ -201,9 +208,9 @@ func SslSocket(listenAddress string, certFile string, keyFile string) (net.Liste
 	tlsConf.Certificates = []tls.Certificate{cert}
 
 	// Open network socket
-	socket, errListen := tls.Listen("tcp", listenAddress, tlsConf)
-	if errListen != nil {
-		return nil, fmt.Errorf("could not open local port: %s", errListen)
+	socket, errSocket := tls.Listen("tcp", listenAddress, tlsConf)
+	if errSocket != nil {
+		return nil, fmt.Errorf("could not open local port: %s", errSocket)
 	}
 
 	// Return socket

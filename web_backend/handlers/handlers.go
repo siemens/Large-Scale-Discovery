@@ -1,11 +1,12 @@
 /*
-* Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
-*
-* Copyright (c) Siemens AG, 2016-2026.
-*
-* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
-* directory or visit <https://opensource.org/licenses/MIT>.
-*
+ * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
+ *
+ * Copyright (c) Siemens AG, 2016-2026.
+ *
+ * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+ * directory or visit <https://opensource.org/licenses/MIT>.
+ *
+ * SPDX-License-Identifier: MIT
  */
 
 package handlers
@@ -27,6 +28,7 @@ var BackendSettings = func() gin.HandlerFunc {
 		DevelopmentLogin        bool                     `json:"development_login"`
 		CredentialsRegistration bool                     `json:"credentials_registration"`
 		FrontendLinks           map[string][]config.Link `json:"frontend_links"`
+		TokenExpiryMaxDays      int                      `json:"token_expiry_max_days"`
 	}
 
 	// Return request handling function
@@ -48,6 +50,7 @@ var BackendSettings = func() gin.HandlerFunc {
 				DevelopmentLogin:        _build.DevMode,
 				CredentialsRegistration: credentialsRegistration,
 				FrontendLinks:           conf.FrontendLinks,
+				TokenExpiryMaxDays:      conf.ExpiryTokenMaxDays,
 			},
 		)
 	}

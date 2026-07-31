@@ -108,8 +108,8 @@ func GetIntValue(val interface{}) int {
 	case string:
 
 		// Parse string to integer
-		intVal, err := strconv.Atoi(v)
-		if err != nil {
+		intVal, errIntVal := strconv.Atoi(v)
+		if errIntVal != nil {
 			return 0
 		}
 		return intVal

@@ -14,108 +14,85 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
-	"strings"
-	"time"
 
 	"github.com/siemens/Large-Scale-Discovery/agent/config"
 	"golang.org/x/sync/errgroup"
 )
 
-var toolDetectTimeout = 5 * time.Second // Maximum time to wait for a tool version command
+// versions runs Nmap, SSLyze, and python version detection in parallel using the binary paths from
+// agent config and returns the discovered version strings. Returns an error if any tool command
+// fails to execute, which aborts agent startup. Npcap is not required on Linux, so versionNpcap
+// is always empty.
+func versions(paths config.Paths) (versionNmap, versionNpcap, versionSslyze, versionPython string, err error) {
 
-// versions runs nmap and sslyze version detection in parallel using the binary paths from
-// agent config and returns the discovered version strings. npcapVer is always empty on Linux.
-// On Linux, sslyze is invoked as a Python module ("python -m sslyze"), mirroring setup_linux.go.
-// All detections respect a 5-second timeout; empty strings are returned for any tool that is
-// unavailable or fails to respond.
-func versions(paths config.Paths) (versionNmap, versionNpcap, versionSslyze string) {
-
-	// Run both detections in parallel to bound total startup delay
+	// Run all detections in parallel to bound total startup delay
 	var g errgroup.Group
+	var errVersionNmap, errVersionSslyze, errVersionPython error
 	g.Go(func() error {
-		versionNmap = detectNmap(paths.Nmap)
-		return nil
+		versionNmap, errVersionNmap = detectNmap(paths.Nmap)
+		return nil // collect errors below to run all detections
 	})
 	g.Go(func() error {
-		versionSslyze = detectSslyze(paths.Python)
-		return nil
+		versionSslyze, errVersionSslyze = detectSslyze(paths.Python)
+		return nil // collect errors below to run all detections
+	})
+	g.Go(func() error {
+		versionPython, errVersionPython = detectPython(paths.Python)
+		return nil // collect errors below to run all detections
 	})
 	_ = g.Wait()
 
-	// npcap is Windows-only; always empty on Linux
-	versionNpcap = ""
+	// Return error if something went wrong
+	if errVersionNmap != nil {
+		return "", "", "", "", errVersionNmap
+	}
+	if errVersionSslyze != nil {
+		return "", "", "", "", errVersionSslyze
+	}
+	if errVersionPython != nil {
+		return "", "", "", "", errVersionPython
+	}
 
-	// Return nil as everything went fine
-	return
+	// Return detected versions
+	return versionNmap, "", versionSslyze, versionPython, nil
 }
 
-// detectNmap runs "nmap --version" via the supplied binary path with a bounded timeout and
-// returns the parsed nmap version string. Returns empty string when the binary is absent or times out.
-func detectNmap(nmapPath string) string {
+// detectSslyze runs "python -m sslyze -h" via the supplied python path with a bounded
+// timeout and returns the parsed version string. Returns an error if the command fails to execute.
+func detectSslyze(pythonPath string) (string, error) {
 
 	// Run with a bounded context to prevent blocking agent startup
 	ctx, cancel := context.WithTimeout(context.Background(), toolDetectTimeout)
 	defer cancel()
-	out, errRun := exec.CommandContext(ctx, nmapPath, "--version").Output()
-	if errRun != nil {
-		return ""
+	out, errOut := exec.CommandContext(ctx, pythonPath, "-m", "sslyze", "-h").Output()
+	if errOut != nil {
+		return "", fmt.Errorf("could not run SSLyze: %s", errOut)
 	}
 
-	// Return nil as everything went fine
-	return parseNmapVersion(string(out))
+	// Parse and validate version from command output
+	version := parseSslyzeVersion(string(out))
+
+	// Return detected version
+	return version, nil
 }
 
-// detectSslyze runs "python -m sslyze --version" via the supplied python path with a bounded
-// timeout and returns the parsed version string. Returns empty string when the binary is absent
-// or times out.
-func detectSslyze(pythonPath string) string {
+// detectPython runs "<pythonPath> --version" with a bounded timeout and returns the parsed
+// Python version string. Returns an error if the command fails to execute.
+func detectPython(pythonPath string) (string, error) {
 
 	// Run with a bounded context to prevent blocking agent startup
 	ctx, cancel := context.WithTimeout(context.Background(), toolDetectTimeout)
 	defer cancel()
-	out, errRun := exec.CommandContext(ctx, pythonPath, "-m", "sslyze", "--version").Output()
-	if errRun != nil {
-		return ""
+	out, errOut := exec.CommandContext(ctx, pythonPath, "--version").Output()
+	if errOut != nil {
+		return "", fmt.Errorf("could not run Python: %s", errOut)
 	}
 
-	// Return nil as everything went fine
-	return parseSslyzeVersion(string(out))
-}
+	// Parse and validate version from command output
+	version := parsePythonVersion(string(out))
 
-// parseNmapVersion extracts the Nmap version token from "nmap --version" output.
-// Expected first line format: "Nmap version X.YZ ( https://nmap.org )".
-// Returns empty string when the output does not match the expected format.
-func parseNmapVersion(output string) string {
-
-	// Only the first line carries the version
-	firstLine := strings.SplitN(output, "\n", 2)[0]
-	fields := strings.Fields(firstLine)
-
-	// Expect at least "Nmap version X.YZ"
-	if len(fields) >= 3 &&
-		strings.EqualFold(fields[0], "Nmap") &&
-		strings.EqualFold(fields[1], "version") {
-		return fields[2]
-	}
-
-	// Return empty string as version could not be determined
-	return ""
-}
-
-// parseSslyzeVersion extracts the SSLyze version token from "sslyze --version" output.
-// Expected output is a single line containing just the semver string, e.g. "5.2.0".
-// Returns empty string when the output contains spaces (unexpected format) or is empty.
-func parseSslyzeVersion(output string) string {
-
-	// Take the first line and strip whitespace
-	firstLine := strings.TrimSpace(strings.SplitN(output, "\n", 2)[0])
-
-	// A bare version token has no spaces
-	if firstLine != "" && !strings.ContainsAny(firstLine, " \t") {
-		return firstLine
-	}
-
-	// Return empty string as version could not be determined
-	return ""
+	// Return detected version
+	return version, nil
 }

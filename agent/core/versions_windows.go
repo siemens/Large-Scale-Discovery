@@ -14,139 +14,91 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
-	"strings"
-	"time"
 
 	"github.com/siemens/Large-Scale-Discovery/agent/config"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/windows/registry"
 )
 
-var toolDetectTimeout = 5 * time.Second // Maximum time to wait for a tool version command
-
-// versions runs nmap, npcap, and sslyze version detection in parallel using the binary paths
-// from agent config and returns the discovered version strings. npcap is detected via the
-// Windows registry following the GoScans discovery.CheckNpcap() pattern.
-// All detections respect a 5-second timeout; empty strings are returned for any tool that is
-// unavailable or fails to respond.
-func versions(paths config.Paths) (versionNmap, versionNpcap, versionSslyze string) {
+// versions runs Nmap, Npcap, and SSLyze version detection in parallel using the binary paths from
+// agent config and returns the discovered version strings. Returns an error if any tool command
+// fails to execute, which aborts agent startup. Python is not required on Windows, so versionPython
+// is always empty.
+func versions(paths config.Paths) (versionNmap, versionNpcap, versionSslyze, versionPython string, err error) {
 
 	// Run all detections in parallel to bound total startup delay
 	var g errgroup.Group
+	var errVersionNmap, errVersionSslyze error
 	g.Go(func() error {
-		versionNmap = detectNmap(paths.Nmap)
-		return nil
+		versionNmap, errVersionNmap = detectNmap(paths.Nmap)
+		return nil // collect errors below to run all detections
 	})
 	g.Go(func() error {
-		versionNpcap = detectNpcap()
-		return nil
+		versionSslyze, errVersionSslyze = detectSslyze(paths.Sslyze)
+		return nil // collect errors below to run all detections
 	})
-	g.Go(func() error {
-		versionSslyze = detectSslyze(paths.Sslyze)
-		return nil
-	})
+
+	// Read the optional registry value while the external commands are running
+	versionNpcap = detectNpcap()
 	_ = g.Wait()
 
-	// Return nil as everything went fine
-	return
-}
-
-// detectNmap runs "nmap --version" via the supplied binary path with a bounded timeout and
-// returns the parsed nmap version string. Returns empty string when the binary is absent or times out.
-func detectNmap(nmapPath string) string {
-
-	// Run with a bounded context to prevent blocking agent startup
-	ctx, cancel := context.WithTimeout(context.Background(), toolDetectTimeout)
-	defer cancel()
-	out, errRun := exec.CommandContext(ctx, nmapPath, "--version").Output()
-	if errRun != nil {
-		return ""
+	// Return error if something went wrong
+	if errVersionNmap != nil {
+		return "", "", "", "", errVersionNmap
+	}
+	if errVersionSslyze != nil {
+		return "", "", "", "", errVersionSslyze
 	}
 
-	// Return nil as everything went fine
-	return parseNmapVersion(string(out))
+	// Return detected versions
+	return versionNmap, versionNpcap, versionSslyze, "", nil
 }
 
-// detectNpcap reads the Npcap version from the Windows registry, following the GoScans
-// discovery.CheckNpcap() pattern (SOFTWARE\WOW6432Node\Npcap and SOFTWARE\Npcap).
-// Returns empty string when Npcap is not installed.
+// detectNpcap reads the Npcap display version from its Windows uninstall entry
 func detectNpcap() string {
 
-	// Try the WOW6432Node path first, then the native path, mirroring Npcap's own installer
+	// Check both registry locations used by 32-bit and native Npcap installers
 	paths := []string{
-		`SOFTWARE\WOW6432Node\Npcap`,
-		`SOFTWARE\Npcap`,
+		`SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\NpcapInst`,
+		`SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\NpcapInst`,
 	}
 	for _, path := range paths {
 
-		// Open the registry key; skip on error and try the next path
-		k, errOpen := registry.OpenKey(registry.LOCAL_MACHINE, path, registry.QUERY_VALUE)
-		if errOpen != nil {
+		// Open the uninstall entry and try the next registry location if unavailable
+		key, errKey := registry.OpenKey(registry.LOCAL_MACHINE, path, registry.QUERY_VALUE)
+		if errKey != nil {
 			continue
 		}
 
-		// Read the default value, which holds the version string
-		val, _, errGet := k.GetStringValue("")
-		_ = k.Close()
-		if errGet == nil && val != "" {
-			return val
+		// Read the version shown by Windows Apps and Features
+		version, _, errGet := key.GetStringValue("DisplayVersion")
+		_ = key.Close()
+		if errGet == nil && version != "" {
+			return version
 		}
 	}
 
-	// Return empty string as Npcap was not found in the registry
+	// Return an empty version when Npcap is absent or has no uninstall metadata
 	return ""
 }
 
-// detectSslyze runs "sslyze --version" via the supplied executable path with a bounded timeout
-// and returns the parsed version string. Returns empty string when the binary is absent or times out.
-func detectSslyze(sslyzePath string) string {
+// detectSslyze runs "sslyze -h" via the supplied executable path with a bounded timeout
+// and returns the parsed version string. Returns an error if the command fails to execute.
+func detectSslyze(sslyzePath string) (string, error) {
 
 	// Run with a bounded context to prevent blocking agent startup
 	ctx, cancel := context.WithTimeout(context.Background(), toolDetectTimeout)
 	defer cancel()
-	out, errRun := exec.CommandContext(ctx, sslyzePath, "--version").Output()
-	if errRun != nil {
-		return ""
+	out, errOut := exec.CommandContext(ctx, sslyzePath, "-h").Output()
+	if errOut != nil {
+		return "", fmt.Errorf("could not run SSLyze: %s", errOut)
 	}
 
-	// Return nil as everything went fine
-	return parseSslyzeVersion(string(out))
-}
+	// Parse and validate version from command output
+	version := parseSslyzeVersion(string(out))
 
-// parseNmapVersion extracts the Nmap version token from "nmap --version" output.
-// Expected first line format: "Nmap version X.YZ ( https://nmap.org )".
-// Returns empty string when the output does not match the expected format.
-func parseNmapVersion(output string) string {
-
-	// Only the first line carries the version
-	firstLine := strings.SplitN(output, "\n", 2)[0]
-	fields := strings.Fields(firstLine)
-
-	// Expect at least "Nmap version X.YZ"
-	if len(fields) >= 3 &&
-		strings.EqualFold(fields[0], "Nmap") &&
-		strings.EqualFold(fields[1], "version") {
-		return fields[2]
-	}
-
-	// Return empty string as version could not be determined
-	return ""
-}
-
-// parseSslyzeVersion extracts the SSLyze version token from "sslyze --version" output.
-// Expected output is a single line containing just the semver string, e.g. "5.2.0".
-// Returns empty string when the output contains spaces (unexpected format) or is empty.
-func parseSslyzeVersion(output string) string {
-
-	// Take the first line and strip whitespace
-	firstLine := strings.TrimSpace(strings.SplitN(output, "\n", 2)[0])
-
-	// A bare version token has no spaces
-	if firstLine != "" && !strings.ContainsAny(firstLine, " \t") {
-		return firstLine
-	}
-
-	// Return empty string as version could not be determined
-	return ""
+	// Return detected version
+	return version, nil
 }

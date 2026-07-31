@@ -1,11 +1,12 @@
 /*
-* Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
-*
-* Copyright (c) Siemens AG, 2016-2025.
-*
-* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
-* directory or visit <https://opensource.org/licenses/MIT>.
-*
+ * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
+ *
+ * Copyright (c) Siemens AG, 2016-2026.
+ *
+ * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+ * directory or visit <https://opensource.org/licenses/MIT>.
+ *
+ * SPDX-License-Identifier: MIT
  */
 
 package core
@@ -16,6 +17,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/lestrrat-go/httprc/v3"
 	"github.com/lestrrat-go/jwx/v3/jwk"
@@ -24,12 +30,9 @@ import (
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/Large-Scale-Discovery/_build"
 	"github.com/siemens/Large-Scale-Discovery/utils"
+	"github.com/siemens/Large-Scale-Discovery/web_backend/core/loaders"
 	"github.com/siemens/Large-Scale-Discovery/web_backend/database"
 	"golang.org/x/oauth2"
-	"io"
-	"net/http"
-	"strings"
-	"time"
 )
 
 // init automatically registers the authenticator implemented in this file. If you don't want this authenticator,
@@ -125,7 +128,7 @@ OpenID Connect enables scenarios where one login can be used across multiple app
 sign-on (SSO).
 
 
----- Java Web Token ----
+---- JSON Web Token ----
 
 An ID Token is a specifically formatted string of characters known as a JSON Web Token, or JWT.
 A JWT may look like gibberish, but the "Client can extract information embedded in the JWT such as a user ID,
@@ -136,15 +139,10 @@ With OIDC, there’s also a standard way the "Client can request additional iden
 
 */
 
-// oauthStateName is used in the communication between the user-agent and Authentication Server. It is used to identify
-// the authentication session in step 2 of the authentication process for a given user.
-const oauthStateName = "oauth"
-
-// oauthStateExpiry is the expiration time of the validity of the authentication token.
-// It can happen that there is a significant delay between during authentication with the Authentication Server and
-// the user - for instance if the user has to find his credentials. The validity duration of the token does not have
-// a significant impact on the security of the system.
-const oauthStateExpiry = 10 * time.Minute
+const oauthStateName = "oauth"                   // Identifies the authentication session during the OAuth flow
+const oauthStateExpiry = 10 * time.Minute        // Allows enough time to complete authentication
+const oauthDiscoveryTimeout = 15 * time.Second   // Bounds OpenID provider metadata retrieval
+const oauthDiscoveryMaxBytes int64 = 1024 * 1024 // Limits memory used by an untrusted provider response
 
 // openIDConfig contains all endpoint configuration items required for the proper communication between the
 // "Authorization Server" and the backend server. It is used to unmarshal the configuration request received from the
@@ -186,6 +184,7 @@ type openIDConfig struct {
 	BackchannelUserCodeParameterSupported                     bool     `json:"backchannel_user_code_parameter_supported"`
 }
 
+// AuthenticatorOauth authenticates users through an OpenID Connect provider
 type AuthenticatorOauth struct {
 	name                 string
 	domains              []string
@@ -230,7 +229,11 @@ func (a *AuthenticatorOauth) Init(conf map[string]interface{}) error {
 	if !okAuthConf {
 		return fmt.Errorf("authenticator configuration empty")
 	}
-	conf = authConf.(map[string]interface{})
+	authenticatorConf, okAuthenticatorConf := authConf.(map[string]interface{})
+	if !okAuthenticatorConf {
+		return fmt.Errorf("invalid authenticator configuration")
+	}
+	conf = authenticatorConf
 
 	// Check whether required arguments are available and valid
 	val, okVal := conf["departments"]
@@ -279,7 +282,7 @@ func (a *AuthenticatorOauth) Init(conf map[string]interface{}) error {
 		return fmt.Errorf("missing oauth claims mapping")
 	}
 	oauthClaims := make(map[string]string, len(oauthClaimsMapping))
-	for _, claim := range []string{"user_mail", "user_name", "user_surname", "user_company", "user_department"} {
+	for _, claim := range []string{"user_mail", "user_name", "user_surname", "user_company", "user_department", "user_gid"} {
 		c, okC := oauthClaimsMapping[claim]
 		cVal, okCVal := c.(string)
 		if claim == "user_mail" && (!okC || !okCVal || len(cVal) == 0) {
@@ -291,18 +294,31 @@ func (a *AuthenticatorOauth) Init(conf map[string]interface{}) error {
 	// Prepare memory for oauth config struct
 	confOpenID := openIDConfig{}
 
-	// Read oauth config from oauth config URL
-	confJson, errGet := http.Get(oauthConfUrl)
-	if errGet != nil {
-		return fmt.Errorf("could not request oauth config: %s", errGet)
+	// Read OAuth configuration with a lifecycle-bound timeout
+	discoveryCtx, discoveryCancel := context.WithTimeout(coreCtx, oauthDiscoveryTimeout)
+	defer discoveryCancel()
+	request, errRequest := http.NewRequestWithContext(discoveryCtx, http.MethodGet, oauthConfUrl, nil)
+	if errRequest != nil {
+		return fmt.Errorf("could not prepare OAuth config request: %w", errRequest)
 	}
-	marshaled, errRead := io.ReadAll(confJson.Body)
-	if errRead != nil {
-		return fmt.Errorf("could not request oauth config: %s", errRead)
+	confJson, errConfJson := http.DefaultClient.Do(request)
+	if errConfJson != nil {
+		return fmt.Errorf("could not request OAuth config: %w", errConfJson)
+	}
+	defer func() { _ = confJson.Body.Close() }()
+	if confJson.StatusCode < http.StatusOK || confJson.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("could not request OAuth config: provider returned HTTP %d", confJson.StatusCode)
+	}
+	marshaled, errMarshaled := io.ReadAll(io.LimitReader(confJson.Body, oauthDiscoveryMaxBytes+1))
+	if errMarshaled != nil {
+		return fmt.Errorf("could not read OAuth config: %w", errMarshaled)
+	}
+	if int64(len(marshaled)) > oauthDiscoveryMaxBytes {
+		return fmt.Errorf("could not read OAuth config: response exceeds %d bytes", oauthDiscoveryMaxBytes)
 	}
 	errUnmarshal := json.Unmarshal(marshaled, &confOpenID)
 	if errUnmarshal != nil {
-		return fmt.Errorf("could not request oauth config: %s", errUnmarshal)
+		return fmt.Errorf("could not parse OAuth config: %w", errUnmarshal)
 	}
 
 	// Initialize oauth config
@@ -317,29 +333,29 @@ func (a *AuthenticatorOauth) Init(conf map[string]interface{}) error {
 		Scopes:      []string{oauthScope},
 	}
 
-	// Prepare context
-	ctx := context.Background()
+	// Prepare cache lifecycle context
+	cacheCtx := coreCtx
 
-	// Prepare public key url cache
-	c, errC := jwk.NewCache(ctx, httprc.NewClient())
-	if errC != nil {
-		return fmt.Errorf("could not create cache for public key URL: %s", errC)
+	// Prepare the public-key URL cache
+	cache, errCache := jwk.NewCache(cacheCtx, httprc.NewClient())
+	if errCache != nil {
+		return fmt.Errorf("could not create cache for public key URL: %w", errCache)
 	}
 
-	// Register public key url in cache to keep it refreshed automatically in the background
-	errReg := c.Register(ctx, oauthPublicKeyUrl)
+	// Register public key URL in cache to keep it refreshed automatically in the background
+	errReg := cache.Register(cacheCtx, oauthPublicKeyUrl)
 	if errReg != nil {
-		return fmt.Errorf("could not register public key URL: %s", errReg)
+		return fmt.Errorf("could not register public key URL: %w", errReg)
 	}
 
 	// Execute initial fetch of public keys
-	if _, errRefresh := c.Refresh(ctx, oauthPublicKeyUrl); errRefresh != nil {
-		return fmt.Errorf("could not fetch public key set from oauth provider: %s", errRefresh)
+	if _, errRefresh := cache.Refresh(cacheCtx, oauthPublicKeyUrl); errRefresh != nil {
+		return fmt.Errorf("could not fetch public key set from OAuth provider: %w", errRefresh)
 	}
 
 	// Prepare parametrized get function to retrieve cached and regularly updated key set
 	fnGetKeySet := func() (jwk.Set, error) {
-		return c.Lookup(ctx, oauthPublicKeyUrl)
+		return cache.Lookup(cacheCtx, oauthPublicKeyUrl)
 	}
 
 	// Prepare redirect URL
@@ -379,9 +395,9 @@ func (a *AuthenticatorOauth) redirect() gin.HandlerFunc {
 		logger := GetContextLogger(ctx)
 
 		// Create random token for preserving state
-		n, errSeed := rand.Read(stateBytes)
-		if errSeed != nil || n != len(stateBytes) {
-			logger.Errorf("Could not generate random state token: %s", errSeed)
+		bytesRead, errBytesRead := rand.Read(stateBytes)
+		if errBytesRead != nil || bytesRead != len(stateBytes) {
+			logger.Errorf("Could not generate random state token: %s", errBytesRead)
 			RespondInternalError(ctx)
 			return
 		}
@@ -469,7 +485,7 @@ func (a *AuthenticatorOauth) login() gin.HandlerFunc {
 
 		// Extract the JWT token
 		oauthToken, errOauthToken := a.oauthConfig.Exchange(
-			context.Background(),
+			ctx.Request.Context(),
 			code,
 			oauth2.SetAuthURLParam("redirect_uri", callbackUrl), // .Exchange() requires absolute redirect URL for verification
 		)
@@ -502,7 +518,7 @@ func (a *AuthenticatorOauth) login() gin.HandlerFunc {
 			jwt.WithValidate(true), // Validate JWT token attributes like expiry
 			jwt.WithKeySet( // Use keys from public key URL to validate JWT token signature
 				keySet,
-				jws.WithInferAlgorithmFromKey(true)), // Try plausible algorithms, as publik key URL does not describe applicable algorithms
+				jws.WithInferAlgorithmFromKey(true)), // Try plausible algorithms, as public key URL does not describe applicable algorithms
 		)
 		if errOauthJwtToken != nil {
 			logger.Errorf("Could not parse access token: %s", errOauthJwtToken)
@@ -516,6 +532,7 @@ func (a *AuthenticatorOauth) login() gin.HandlerFunc {
 		var userSurname string
 		var userCompany string
 		var userDepartment string
+		var userGid string
 
 		// Log available claims for easier debugging
 		var msg []string
@@ -530,7 +547,7 @@ func (a *AuthenticatorOauth) login() gin.HandlerFunc {
 				var val time.Time
 				errGet = oauthJwtToken.Get(k, &val)
 				msg = append(msg, fmt.Sprintf("%s: %s", k, val))
-			case k == "amr":
+			case k == "amr" || k == "roles":
 				var val []interface{}
 				errGet = oauthJwtToken.Get(k, &val)
 				msg = append(msg, fmt.Sprintf("%s: %v", k, val))
@@ -581,6 +598,12 @@ func (a *AuthenticatorOauth) login() gin.HandlerFunc {
 				logger.Warningf("Invalid claim '%s' to extract user department: %s", a.oauthClaimsMapping["user_department"], errGet)
 			}
 		}
+		if a.oauthClaimsMapping["user_gid"] != "" {
+			errGet = oauthJwtToken.Get(a.oauthClaimsMapping["user_gid"], &userGid)
+			if errGet != nil {
+				logger.Warningf("Invalid claim '%s' to extract user GID: %s", a.oauthClaimsMapping["user_gid"], errGet)
+			}
+		}
 
 		// Check if received email address is plausible
 		if !utils.IsPlausibleEmail(userEmail) {
@@ -619,70 +642,67 @@ func (a *AuthenticatorOauth) login() gin.HandlerFunc {
 		// Query for user with given email address
 		userEntry, errUserEntry := database.GetUserByMail(userEmail)
 		if errUserEntry != nil {
-			logger.Errorf("Could not query existing users: %s", errUserEntry)
+			logger.Errorf("Could not query user '%s': %s", userEmail, errUserEntry)
 			ctx.Redirect(http.StatusTemporaryRedirect, internalErrRedirect)
 			return
 		}
 
 		// Check if user exists
-		var userExisting = userEntry != nil
+		isNewUser := false
+		if userEntry == nil {
 
-		// Prepare memory for user
-		var user *database.T_user
+			// Generate new oauth user
+			// Empty password field indicates alternative auth method, such as oAuth
+			userEntry = database.NewUser(userEmail, userCompany, userDepartment, userGid, userName, userSurname)
 
-		// Check if user exists
-		if userExisting {
+			// Update new user flag
+			isNewUser = true
 
-			// Take user from query result
-			user = userEntry
+		} else {
 
 			// Update values from SSO provider (might be overridden below by loader)
-			user.Name = userName
-			user.Surname = userSurname
-			user.Company = userCompany
-			user.Department = userDepartment
+			userEntry.Name = userName
+			userEntry.Surname = userSurname
+			userEntry.Company = userCompany
+			userEntry.Department = userDepartment
+			userEntry.Gid = userGid
 
 			// Check if user can authenticate via oauth
-			if len(user.Password.String) != 0 {
+			if len(userEntry.Password.String) != 0 {
 				logger.Debugf("User not an oauth user.")
 				ctx.Redirect(http.StatusTemporaryRedirect, authErrRedirect)
 				return
 			}
-		} else {
-
-			// Generate new oauth user
-			// Empty password indicates alternative auth method, such as oAuth
-			user = database.NewUser(userEmail, userCompany, userDepartment, userName, userSurname)
 		}
 
 		// Get appropriate loader
-		loader := GetLoader(logger, user.Email)
+		loader := loaders.GetLoader(logger, userEntry.Email)
 
 		// Update user
 		// ATTENTION: RefreshUser might update user attributes, but does not yet commit them!
-		errTemporary, errInternal, errPublic := loader.RefreshUser(logger, user)
+		errTemporary, errPublic, errInternal := loader.RefreshUser(logger, userEntry)
 
 		// Abort if there was an error and return response based on error kind
 		if len(errPublic) > 0 {
 
 			// Decide how to log situation based on whether the user was already registered or is new
-			if userExisting {
+			if isNewUser {
 				if errInternal != nil {
-					logger.Errorf("Unexpected invalid user data for user '%s': %s", user.Email, errInternal)
+					logger.Debugf("Invalid registration data for user '%s': %s", userEntry.Email, errInternal)
 				} else {
-					logger.Errorf(
-						"Unexpected invalid user data for user '%s': %s",
-						user.Email,
+					logger.Debugf(
+						"Invalid registration data for user '%s': %s",
+						userEntry.Email,
 						strings.ToLower(strings.Trim(errPublic, ".")),
 					)
 				}
 			} else {
 				if errInternal != nil {
-					logger.Debugf("Invalid registration data for user '%s': %s", user.Email, errInternal)
+					logger.Errorf("Unexpected invalid user data for user '%s': %s", userEntry.Email, errInternal)
 				} else {
-					logger.Debugf(
-						"Invalid registration data for user '%s': %s",
-						user.Email,
+					logger.Errorf(
+						"Unexpected invalid user data for user '%s': %s",
+						userEntry.Email,
 						strings.ToLower(strings.Trim(errPublic, ".")),
 					)
 				}
@@ -692,26 +712,26 @@ func (a *AuthenticatorOauth) login() gin.HandlerFunc {
 			ctx.Redirect(http.StatusTemporaryRedirect, authErrRedirect)
 			return
 		} else if errTemporary != nil {
-			logger.Warningf("Could not update user data for user '%s': %s", user.Email, errTemporary)
-			if userExisting {
-				// Let existing user pass based on cached data - might need urgent access to turn something off
-			} else {
+			logger.Warningf("Could not update user data for user '%s': %s", userEntry.Email, errTemporary)
+			if isNewUser {
 				ctx.Redirect(http.StatusTemporaryRedirect, tempErrRedirect)
 				return
+			} else {
+				// Let existing user pass based on cached data - might need urgent access to turn something off
 			}
 		} else if errInternal != nil {
-			logger.Errorf("Could not load user data for user '%s': %s", user.Email, errInternal)
-			if userExisting {
-				// Let existing user pass based on cached data - might need urgent access to turn something off
-			} else {
+			logger.Errorf("Could not load user data for user '%s': %s", userEntry.Email, errInternal)
+			if isNewUser {
 				ctx.Redirect(http.StatusTemporaryRedirect, internalErrRedirect)
 				return
+			} else {
+				// Let existing user pass based on cached data - might need urgent access to turn something off
 			}
 		}
 
 		// Create new user if it wasn't existing
-		if !userExisting {
-			errCreate := user.Create()
+		if isNewUser {
+			errCreate := userEntry.Create()
 			if errCreate != nil {
 				logger.Errorf("Could not create new user '%s': %s", userEmail, errCreate)
 				ctx.Redirect(http.StatusTemporaryRedirect, internalErrRedirect)
@@ -721,7 +741,7 @@ func (a *AuthenticatorOauth) login() gin.HandlerFunc {
 
 		// Update login-related user attributes and write changes
 		// ATTENTION: Commits all changed user attributes!
-		errUser, errLogin := doLogin(logger, user, a.allowedDepartments, ctx.Request.Host)
+		errUser, errLogin := doLogin(logger, userEntry, a.allowedDepartments, ctx.Request.Host)
 		if errUser != nil {
 			logger.Debugf("Login not allowed for user '%s': '%s'.", userEmail, errUser)
 			ctx.Redirect(http.StatusTemporaryRedirect, authErrRedirect)
@@ -735,33 +755,36 @@ func (a *AuthenticatorOauth) login() gin.HandlerFunc {
 		// Tell client to interpret response as HTML
 		ctx.Writer.Header().Add("Content-Type", "text/html")
 
-		// Lower content security policy level for this response, as it is necessary to execute some inline JS
+		// Tighten CSP for this response: only the inline script (nonce-gated) is needed.
+		// The nonce was generated by MwSetSecurityHeaders and stored in the gin context.
+		nonce := ctx.GetString("csp-nonce")
 		ctx.Writer.Header().Del("Content-Security-Policy")
-		ctx.Writer.Header().Add("Content-Security-Policy", "default-src 'unsafe-inline'")
+		ctx.Writer.Header().Add("Content-Security-Policy",
+			fmt.Sprintf("default-src 'none'; script-src 'nonce-%s'; base-uri 'none'", nonce))
 
 		// Create a JWT token in order to log in the user after authentication
-		jwtToken, expires := createJwt(user.Id, user.LogoutCount)
+		jwtToken, expires := createJwt(userEntry.Id, userEntry.LogoutCount)
 		token := Token{
 			AccessToken: jwtToken,
 			Expire:      expires,
 		}
 
 		// Marshall token struct into JSON string
-		tokenJson, errJson := json.Marshal(token)
-		if errJson != nil {
+		tokenJson, errTokenJson := json.Marshal(token)
+		if errTokenJson != nil {
 			ctx.Redirect(http.StatusTemporaryRedirect, internalErrRedirect)
 			return
 		}
 
 		// Return JavaScript snippet placing the JWT in the session storage and redirect the user-agent index page.
-		js := fmt.Sprintf(`
+		js := fmt.Sprintf(`<!DOCTYPE html>
 			<html>
-			<script>
+			<script nonce="%s">
 				sessionStorage.setItem("token",  JSON.stringify(%s));
 				window.location.href = "/";
 			</script>
 			</html>
-		`, tokenJson)
+		`, nonce, tokenJson)
 
 		// Respond with HTML/JavaScript page preparing the client's session store
 		ctx.String(200, js)

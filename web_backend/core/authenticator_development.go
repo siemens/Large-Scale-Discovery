@@ -1,11 +1,12 @@
 /*
-* Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
-*
-* Copyright (c) Siemens AG, 2016-2026.
-*
-* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
-* directory or visit <https://opensource.org/licenses/MIT>.
-*
+ * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
+ *
+ * Copyright (c) Siemens AG, 2016-2026.
+ *
+ * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+ * directory or visit <https://opensource.org/licenses/MIT>.
+ *
+ * SPDX-License-Identifier: MIT
  */
 
 package core
@@ -16,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/siemens/Large-Scale-Discovery/_build"
 	"github.com/siemens/Large-Scale-Discovery/utils"
+	"github.com/siemens/Large-Scale-Discovery/web_backend/core/loaders"
 	"github.com/siemens/Large-Scale-Discovery/web_backend/database"
 )
 
@@ -29,6 +31,7 @@ func init() {
 	}
 }
 
+// AuthenticatorDevelopment provides local credential authentication for development deployments
 type AuthenticatorDevelopment struct {
 	domains  []string
 	entryUrl string
@@ -140,16 +143,16 @@ func (a *AuthenticatorDevelopment) register() gin.HandlerFunc {
 		}
 
 		// Generate new development user
-		user := database.NewUser(userEmail, userEmail, "", name, surname)
+		newUser := database.NewUser(userEmail, userEmail, "", "", name, surname)
 
 		// Get appropriate loader
-		loader := GetLoader(logger, user.Email)
+		loader := loaders.GetLoader(logger, newUser.Email)
 
 		// Update user
 		if loader != nil {
 
 			// ATTENTION: RefreshUser might update user attributes, but does not yet commit them!
-			errTemporary, errPublic, errInternal := loader.RefreshUser(logger, user)
+			errTemporary, errPublic, errInternal := loader.RefreshUser(logger, newUser)
 
 			// Abort if there was an error and return response based on error kind
 			if len(errPublic) > 0 {
@@ -176,7 +179,7 @@ func (a *AuthenticatorDevelopment) register() gin.HandlerFunc {
 		}
 
 		// Create new user
-		errCreate := user.Create()
+		errCreate := newUser.Create()
 		if errCreate != nil {
 			logger.Errorf("Could not create new user '%s': %s", userEmail, errCreate)
 			RespondInternalError(ctx) // Return generic error information
@@ -263,7 +266,7 @@ func (a *AuthenticatorDevelopment) login() gin.HandlerFunc {
 		}
 
 		// Get appropriate loader
-		loader := GetLoader(logger, userEntry.Email)
+		loader := loaders.GetLoader(logger, userEntry.Email)
 
 		// Update user
 		if loader != nil {

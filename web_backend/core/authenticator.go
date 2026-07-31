@@ -1,11 +1,12 @@
 /*
-* Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
-*
-* Copyright (c) Siemens AG, 2016-2026.
-*
-* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
-* directory or visit <https://opensource.org/licenses/MIT>.
-*
+ * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
+ *
+ * Copyright (c) Siemens AG, 2016-2026.
+ *
+ * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+ * directory or visit <https://opensource.org/licenses/MIT>.
+ *
+ * SPDX-License-Identifier: MIT
  */
 
 package core
@@ -25,10 +26,11 @@ import (
 var authenticators []Authenticator                // List of registered authenticators to be initialized
 var authenticatorsLookup map[string]Authenticator // Map of initialized authentication module, referenced by user domain for quick lookup
 
+// Authenticator initializes and exposes one configured authentication mechanism
 type Authenticator interface {
-	Domains() []string
-	Init(conf map[string]interface{}) error
-	EntryUrl() string
+	Domains() []string                      // Domains returns the user domains handled by this authenticator
+	Init(conf map[string]interface{}) error // Init initializes the authenticator from its configuration
+	EntryUrl() string                       // EntryUrl returns the optional authentication entry URL
 }
 
 // EntryUrl checks whether there is a certain authentication entry URL the user should be redirected to,
@@ -154,17 +156,18 @@ func authenticatorAllowed(userEmail string, authenticator Authenticator) error {
 // Returns internalError, if something else went wrong.
 func doLogin(
 	logger scanUtils.Logger,
-	user *database.T_user,
+	userEntry *database.T_user,
 	allowedDepartments []string,
 	vhost string,
 ) (errUser, errInternal error) {
+
 	// Do some plausibility check
-	if user == nil || user.Email == "" || user.Id == 0 || user.Company == "" || user.Created.IsZero() {
+	if userEntry == nil || userEntry.Email == "" || userEntry.Id == 0 || userEntry.Company == "" || userEntry.Created.IsZero() {
 		return nil, fmt.Errorf("invalid user struct")
 	}
 
 	// Update attributes
-	user.LastLogin = time.Now()
+	userEntry.LastLogin = time.Now()
 
 	// Check if user is member of an allowed company department
 	if len(allowedDepartments) > 0 {
@@ -173,38 +176,38 @@ func doLogin(
 		demo := true
 		for _, dep := range allowedDepartments {
 			dep = strings.ToUpper(dep)
-			depUser := strings.ToUpper(user.Department)
+			depUser := strings.ToUpper(userEntry.Department)
 			if depUser == dep || strings.HasPrefix(depUser, dep+" ") {
 				demo = false
 			}
 		}
 
 		// Revoke potentially active sessions and API token if user switches to demo user
-		if !user.Demo && demo {
-			user.LogoutCount += 1
-			user.ApiTokenRevision += 1
+		if !userEntry.Demo && demo {
+			userEntry.LogoutCount += 1
+			userEntry.ApiTokenRevision += 1
 		}
 
 		// Flip demo flag of user if necessary
-		user.Demo = demo
+		userEntry.Demo = demo
 	}
 
 	// Save updated attributes. Additional attributes outside of this function may have been updated by a loader
 	// plugin, so save should update all user attributes, except the sensitive/internal ones (ID, e-mail, password,
 	// admin, db password). A loader may also have set a user to inactive.
-	_, errSave := user.Save(
-		"company", "department", "last_login", "active", "name", "surname", "gender", "demo", "certificate")
+	_, errSave := userEntry.Save(
+		"company", "department", "gid", "last_login", "logout_count", "api_token_revision", "active", "name", "surname", "gender", "demo", "certificate")
 	if errSave != nil {
 		return nil, errSave
 	}
 
 	// Check if user is set active
-	if !user.Active {
+	if !userEntry.Active {
 
 		// Disable user on databases if it turned inactive
-		errToggle := manager.RpcDisableDbUser(logger, rpcClient, user.Email)
+		errToggle := manager.RpcDisableDbUser(logger, rpcClient, userEntry.Email)
 		if errToggle != nil {
-			logger.Warningf("Could not disable DB user '%s' during login.", user.Email)
+			logger.Warningf("Could not disable DB user '%s' during login.", userEntry.Email)
 		}
 
 		// Return error because user is invalid
@@ -212,7 +215,7 @@ func doLogin(
 	}
 
 	// Log event
-	errEvent := database.NewEvent(user, database.EventLogin, vhost)
+	errEvent := database.LogEvent(userEntry, database.EventLogin, vhost)
 	if errEvent != nil {
 		logger.Errorf("Could not create event log: %s", errEvent)
 		return nil, errEvent
@@ -253,8 +256,10 @@ func createJwt(userId uint64, revision uint) (string, time.Time) {
 	return tokenSigned, expires
 }
 
-// CreateApiJwt generates a long-lived JWT API access token for a given user
-func CreateApiJwt(userId uint64, apiRevision uint, expiryApi time.Duration) (string, time.Time) {
+// CreateApiJwt generates a long-lived API access JWT for a given user. API tokens carry
+// Kind=JwtKindApi and use the user's ApiTokenRevision for replay invalidation instead of
+// LogoutCount, so they survive interactive logout and can be revoked independently.
+func CreateApiJwt(userId uint64, apiRevision uint, expiryApi time.Duration) (string, time.Time, error) {
 
 	// Define token expiry
 	expires := time.Now().Add(expiryApi)
@@ -272,11 +277,12 @@ func CreateApiJwt(userId uint64, apiRevision uint, expiryApi time.Duration) (str
 	}
 
 	// Sign JWT token
-	// ATTENTION: The signed token is NOT encrypted, it's just encoded and whatever is contained can be
-	//            recovered/read by the client!
 	token := jwt.NewWithClaims(jwt.GetSigningMethod(jwtAlgorithm), tk)
-	tokenSigned, _ := token.SignedString([]byte(jwtSecret))
+	tokenSigned, errTokenSigned := token.SignedString([]byte(jwtSecret))
+	if errTokenSigned != nil {
+		return "", time.Time{}, errTokenSigned
+	}
 
 	// Return generated token
-	return tokenSigned, expires
+	return tokenSigned, expires, nil
 }

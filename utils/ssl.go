@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2025.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -23,13 +23,13 @@ import (
 // TlsConfigFactory returns a secure SSL connection configuration
 func TlsConfigFactory() *tls.Config {
 	// Return TLS config
-	// Good cipher suites are maintained by Golang and shouldn't be manually set, unless you really know what you
-	// are doing: https://github.com/golang/go/issues/41068. Just make sure to always compile wit a current Golang
+	// Good cipher suites are maintained by Go and shouldn't be manually set unless you really know what you
+	// are doing: https://github.com/golang/go/issues/41068. Just make sure to always compile with a current Go
 	// version.
 	return &tls.Config{
 		MinVersion:       tls.VersionTLS12,
 		MaxVersion:       tls.VersionTLS13,
-		CurvePreferences: []tls.CurveID{tls.CurveP521, tls.CurveP384, tls.CurveP256},
+		CurvePreferences: []tls.CurveID{tls.X25519, tls.CurveP521, tls.CurveP384, tls.CurveP256},
 		CipherSuites: []uint16{
 			// Limit cipher suites to secure ones https://ciphersuite.info/cs/
 			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
@@ -39,7 +39,6 @@ func TlsConfigFactory() *tls.Config {
 			tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 			tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
 		},
-		PreferServerCipherSuites: true,
 	}
 }
 
@@ -48,20 +47,20 @@ func TlsConfigFactory() *tls.Config {
 func TlsConfigFactoryPinned(publicKeyPath string) (*tls.Config, error) {
 
 	// Read public key
-	b, errRead := os.ReadFile(publicKeyPath)
-	if errRead != nil {
-		return nil, errRead
+	certificateBytes, errCertificateBytes := os.ReadFile(publicKeyPath)
+	if errCertificateBytes != nil {
+		return nil, errCertificateBytes
 	}
 
 	// Generate fingerprint of broker's public key
-	fingerprint, _ := pem.Decode(b)
+	fingerprint, _ := pem.Decode(certificateBytes)
 	if fingerprint == nil {
 		return nil, fmt.Errorf("could not prepare fingerprint from '%s'", publicKeyPath)
 	}
 
 	// Parse certificate
-	cert, err := x509.ParseCertificate(fingerprint.Bytes)
-	if err != nil {
+	cert, errCert := x509.ParseCertificate(fingerprint.Bytes)
+	if errCert != nil {
 		return nil, fmt.Errorf("could not parse fingerprint from '%s'", publicKeyPath)
 	}
 

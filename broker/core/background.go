@@ -12,7 +12,6 @@ package core
 
 import (
 	"errors"
-	"fmt"
 	"math"
 	"time"
 
@@ -26,12 +25,13 @@ import (
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/GoScans/webcrawler"
 	"github.com/siemens/GoScans/webenum"
-	"github.com/siemens/Large-Scale-Discovery/broker/brokerdb"
+	"github.com/siemens/Large-Scale-Discovery/broker/database"
 	"github.com/siemens/Large-Scale-Discovery/broker/memory"
-	"github.com/siemens/Large-Scale-Discovery/broker/scopedb"
+	brokerscopedb "github.com/siemens/Large-Scale-Discovery/broker/scopedb"
 	"github.com/siemens/Large-Scale-Discovery/log"
 	manager "github.com/siemens/Large-Scale-Discovery/manager/core"
 	managerdb "github.com/siemens/Large-Scale-Discovery/manager/database"
+	"github.com/siemens/Large-Scale-Discovery/manager/scopedb"
 	"github.com/siemens/Large-Scale-Discovery/utils"
 	"github.com/vburenin/nsync"
 )
@@ -56,7 +56,7 @@ func backgroundTasks() {
 	// Log potential panics before letting them move on
 	defer func() {
 		if r := recover(); r != nil {
-			logger.Errorf(fmt.Sprintf("Panic: %s%s", r, scanUtils.StacktraceIndented("\t")))
+			logger.Errorf("Panic: %s%s", r, scanUtils.StacktraceIndented("\t"))
 			panic(r)
 		}
 	}()
@@ -66,9 +66,11 @@ func backgroundTasks() {
 
 	// Initialize scan task cleanup interval
 	chCleanExceeded := time.NewTicker(cleanupInterval)
+	defer chCleanExceeded.Stop()
 
 	// Initialize scope stats submit interval
 	chSubmitStats := time.NewTicker(submitInterval)
+	defer chSubmitStats.Stop()
 
 	// Loop and handle background tasks until context expires
 	for {
@@ -86,8 +88,15 @@ func backgroundTasks() {
 		// Submit the latest scan scope stats to the manager
 		case <-chSubmitStats.C:
 
+			// Log action
 			logger.Debugf("Submitting latest scope stats.")
-			go submitStats(logger)
+
+			// Launch action in background. Wait for it on shutdown.
+			wgBackgroundTask.Add(1)
+			go func() {
+				defer wgBackgroundTask.Done()
+				submitStats(logger)
+			}()
 
 		// Submit the latest scan scope stats to the manager
 		case <-chCleanExceeded.C:
@@ -102,16 +111,36 @@ func backgroundTasks() {
 			}
 
 		// Clear notified scan scope from memory
-		case notification := <-chNotification:
+		case notification, ok := <-chNotification:
 
-			// Execute cleanup of changed scan scopes asynchronously, so that we can directly go back to listening
-			// for further changes...
+			// Stop when the notification subscriber terminates
+			if !ok {
+				return
+			}
+
+			// Log action
 			logger.Debugf("Cleaning outdated data from memory.")
-			go cleanMemory(logger, notification)
+
+			// Execute cleanup of changed scan scopes asynchronously, so that we can directly
+			// go back to listening for further changes. Wait for it on shutdown.
+			wgBackgroundTask.Add(1)
+			go func(notification manager.ReplyNotification) {
+				defer wgBackgroundTask.Done()
+				cleanMemory(logger, notification)
+			}(notification)
 
 		// Clear all scan scopes from memory, there might have been notifications missed
-		case <-chNotificationReconnect:
+		case _, ok := <-chNotificationReconnect:
+
+			// Stop when the notification subscriber terminates
+			if !ok {
+				return
+			}
+
+			// Log action
 			logger.Debugf("Removing all scan scopes from memory.")
+
+			// Clear scopes from memory
 			memory.ClearScopes()
 		}
 	}
@@ -123,35 +152,35 @@ func cleanMemory(logger scanUtils.Logger, notification manager.ReplyNotification
 	// Log potential panics before letting them move on
 	defer func() {
 		if r := recover(); r != nil {
-			logger.Errorf(fmt.Sprintf("Panic: %s%s", r, scanUtils.StacktraceIndented("\t")))
+			logger.Errorf("Panic: %s%s", r, scanUtils.StacktraceIndented("\t"))
 			panic(r)
 		}
 	}()
 
-	// Clean remaining scan targets of faded scan scopes form brokerdb
-	errDel := brokerdb.CleanScopeTargets(notification.RemainingScopeIds)
+	// Clean remaining scan targets of faded scan scopes form broker database
+	errDel := database.CleanScopeTargets(notification.RemainingScopeIds)
 	if errDel != nil {
 		logger.Warningf("Could not clean remaining scan targets of faded scan scopes: %s", errDel)
 	}
 
 	// Get map of cached scan scopes for cleanup
-	cachedScopes := memory.GetScopes()
+	scopeEntries := memory.GetScopes()
 
 	// Remove updated scan scopes from memory to force on-demand reload with latest data
 	for _, updateScopeId := range notification.UpdateScopeIds {
-		scanScope, cached := cachedScopes[updateScopeId]
+		scopeEntry, cached := scopeEntries[updateScopeId]
 		if cached {
-			memory.RemoveScope(scanScope.Secret)
-			logger.Infof("Scan scope '%s' (ID %d) removed from memory.", scanScope.Name, scanScope.Id)
+			memory.RemoveScope(scopeEntry.Secret)
+			logger.Infof("Scan scope '%s' (ID %d) removed from memory.", scopeEntry.Name, scopeEntry.Id)
 		}
 	}
 
 	// Clean faded scan scopes form memory
-	for cachedScopeId, cachedScope := range cachedScopes {
-		if !utils.Uint64Contained(cachedScopeId, notification.RemainingScopeIds) {
-			memory.RemoveScope(cachedScope.Secret)
+	for scopeEntryId, scopeEntry := range scopeEntries {
+		if !utils.Uint64Contained(scopeEntryId, notification.RemainingScopeIds) {
+			memory.RemoveScope(scopeEntry.Secret)
 			logger.Infof(
-				"Scan scope '%s' (ID %d) cleaned from memory.", cachedScope.Name, cachedScope.Id)
+				"Scan scope '%s' (ID %d) cleaned from memory.", scopeEntry.Name, scopeEntry.Id)
 		}
 	}
 
@@ -169,25 +198,24 @@ func cleanMemory(logger scanUtils.Logger, notification manager.ReplyNotification
 	}
 }
 
-// cleanExceeded cleans exceeded scans by removing their target entries from the brokerdb and updating their info
-// entries in the scope db
+// cleanExceeded removes exceeded broker targets and marks their scope-database entries failed
 func cleanExceeded(logger scanUtils.Logger) {
 
 	// Define cleanup procedure
-	fnCleanup := func(scanScope *managerdb.T_scan_scope) {
+	fnCleanup := func(scopeEntry *managerdb.T_scan_scope) {
 
 		// Log potential panics before letting them move on
 		defer func() {
 			if r := recover(); r != nil {
-				logger.Errorf(fmt.Sprintf("Panic: %s%s", r, scanUtils.StacktraceIndented("\t")))
+				logger.Errorf("Panic: %s%s", r, scanUtils.StacktraceIndented("\t"))
 				panic(r)
 			}
 		}()
 
-		// Open scope's database
-		scopeDb, errHandle := managerdb.GetScopeDbHandle(logger, scanScope)
-		if errHandle != nil {
-			logger.Errorf("Could not open scope database: %s", errHandle)
+		// Open the scope database through the shared manager package
+		scopeDb, errScopeDb := scopedb.GetScopeDbHandle(logger, scopeEntry)
+		if errScopeDb != nil {
+			logger.Errorf("Could not open scope database: %s", errScopeDb)
 			return
 		}
 
@@ -195,38 +223,38 @@ func cleanExceeded(logger scanUtils.Logger) {
 		logger.Debugf("Cleaning exceeded '%s' scans.", discovery.Label)
 
 		// Read '--min-hostgroup' value
-		nmapHostgroup := extractMinHostgroup(scanScope.ScanSettings.DiscoveryNmapArgs)
+		nmapHostgroup := extractMinHostgroup(scopeEntry.ScanSettings.DiscoveryNmapArgs)
 		if nmapHostgroup == 0 {
 			nmapHostgroup = defaultNmapMinHostgroup
 		}
 
 		// Extract '--host-timeout' value
-		nmapHosttimeoutMinutes := extractHostTimeoutMinutes(scanScope.ScanSettings.DiscoveryNmapArgs)
+		nmapHosttimeoutMinutes := extractHostTimeoutMinutes(scopeEntry.ScanSettings.DiscoveryNmapArgs)
 		if nmapHosttimeoutMinutes == 0 {
 			nmapHosttimeoutMinutes = defaultNmapHosttimeoutMinutes
 		}
 
-		// Clean exceeded discovery scan inputs in scope db, setting status and scan_finished timestamp
-		countDiscovery, errCleanDiscovery := scopedb.CleanExceededDiscovery(
+		// Clean exceeded discovery scan inputs in scope database, setting status and scan_finished timestamp
+		countDiscovery, errCountDiscovery := brokerscopedb.CleanExceededDiscovery(
 			scopeDb,
 			nmapHostgroup,
 			int(math.Ceil(nmapHosttimeoutMinutes)),
 		)
-		if errCleanDiscovery != nil {
+		if errCountDiscovery != nil {
 			logger.Warningf(
-				"Could not clean exceeded '%s' scans of scope '%s' (ID %d) from scope db: %s",
+				"Could not clean exceeded '%s' scans of scope '%s' (ID %d) from scope database: %s",
 				discovery.Label,
-				scanScope.Name,
-				scanScope.Id,
-				errCleanDiscovery,
+				scopeEntry.Name,
+				scopeEntry.Id,
+				errCountDiscovery,
 			)
 		} else if countDiscovery > 0 {
 			logger.Infof(
-				"Set %d exceeded '%s' scans of scope '%s' (ID %d) to '%s' in scope db.",
+				"Set %d exceeded '%s' scans of scope '%s' (ID %d) to '%s' in scope database.",
 				countDiscovery,
 				discovery.Label,
-				scanScope.Name,
-				scanScope.Id,
+				scopeEntry.Name,
+				scopeEntry.Id,
 				scanUtils.StatusFailed,
 			)
 		}
@@ -251,19 +279,19 @@ func cleanExceeded(logger scanUtils.Logger) {
 			case banner.Label:
 				maxScanTimeMinutes = 20 // Banner scan module does not have a configurable timeout because it should not take long
 			case nfs.Label:
-				maxScanTimeMinutes = scanScope.ScanSettings.NfsScanTimeoutMinutes
+				maxScanTimeMinutes = scopeEntry.ScanSettings.NfsScanTimeoutMinutes
 			case nuclei.Label:
-				maxScanTimeMinutes = scanScope.ScanSettings.NucleiScanTimeoutMinutes
+				maxScanTimeMinutes = scopeEntry.ScanSettings.NucleiScanTimeoutMinutes
 			case smb.Label:
-				maxScanTimeMinutes = scanScope.ScanSettings.SmbScanTimeoutMinutes
+				maxScanTimeMinutes = scopeEntry.ScanSettings.SmbScanTimeoutMinutes
 			case ssl.Label:
-				maxScanTimeMinutes = scanScope.ScanSettings.SslScanTimeoutMinutes
+				maxScanTimeMinutes = scopeEntry.ScanSettings.SslScanTimeoutMinutes
 			case ssh.Label:
-				maxScanTimeMinutes = scanScope.ScanSettings.SshScanTimeoutMinutes
+				maxScanTimeMinutes = scopeEntry.ScanSettings.SshScanTimeoutMinutes
 			case webcrawler.Label:
-				maxScanTimeMinutes = scanScope.ScanSettings.WebcrawlerScanTimeoutMinutes
+				maxScanTimeMinutes = scopeEntry.ScanSettings.WebcrawlerScanTimeoutMinutes
 			case webenum.Label:
-				maxScanTimeMinutes = scanScope.ScanSettings.WebenumScanTimeoutMinutes
+				maxScanTimeMinutes = scopeEntry.ScanSettings.WebenumScanTimeoutMinutes
 			default:
 				logger.Errorf("Invalid module label '%s'.", label)
 				continue
@@ -274,52 +302,56 @@ func cleanExceeded(logger scanUtils.Logger) {
 			maxScanTime = maxScanTime + (time.Minute * 10) // Add buffer for potential networking/processing delays
 			startedBefore := time.Now().Add(-maxScanTime)
 
-			// Update exceeded module scans in scope db, setting status and scan_finished timestamp
-			countScopedb, errCleanScopedb := scopedb.CleanExceeded(scopeDb, label, startedBefore)
-			if errCleanScopedb != nil {
+			// Update exceeded module scans in scope database, setting status and scan_finished timestamp
+			countScopeDb, errCountScopeDb := brokerscopedb.CleanExceeded(scopeDb, label, startedBefore)
+			if errCountScopeDb != nil {
 				logger.Warningf(
-					"Could not clean exceeded '%s' scans of scope '%s' (ID %d) from scope db: %s",
+					"Could not clean exceeded '%s' scans of scope '%s' (ID %d) from scope database: %s",
 					label,
-					scanScope.Name,
-					scanScope.Id,
-					errCleanScopedb,
+					scopeEntry.Name,
+					scopeEntry.Id,
+					errCountScopeDb,
 				)
-			} else if countScopedb > 0 {
+			} else if countScopeDb > 0 {
 				logger.Infof(
-					"Set %d exceeded '%s' scans of scope '%s' (ID %d) to '%s' in scope db.",
-					countScopedb,
+					"Set %d exceeded '%s' scans of scope '%s' (ID %d) to '%s' in scope database.",
+					countScopeDb,
 					label,
-					scanScope.Name,
-					scanScope.Id,
+					scopeEntry.Name,
+					scopeEntry.Id,
 					scanUtils.StatusFailed,
 				)
 			}
 
-			// Remove exceeded module inputs from brokerdb
-			countBrokerdb, errCleanBrokerdb := brokerdb.CleanExceeded(scanScope, label, startedBefore)
-			if errCleanBrokerdb != nil {
+			// Remove exceeded module inputs from broker database
+			countBrokerDb, errCountBrokerDb := database.CleanExceeded(scopeEntry, label, startedBefore)
+			if errCountBrokerDb != nil {
 				logger.Warningf(
-					"Could not clean exceeded '%s' scans of scope '%s' (ID %d) from broker db: %s",
+					"Could not clean exceeded '%s' scans of scope '%s' (ID %d) from broker database: %s",
 					label,
-					scanScope.Name,
-					scanScope.Id,
-					errCleanBrokerdb,
+					scopeEntry.Name,
+					scopeEntry.Id,
+					errCountBrokerDb,
 				)
-			} else if countBrokerdb > 0 {
+			} else if countBrokerDb > 0 {
 				logger.Infof(
-					"Removed %d exceeded '%s' scans of scope '%s' (ID %d) from broker db.",
-					countBrokerdb,
+					"Removed %d exceeded '%s' scans of scope '%s' (ID %d) from broker database.",
+					countBrokerDb,
 					label,
-					scanScope.Name,
-					scanScope.Id,
+					scopeEntry.Name,
+					scopeEntry.Id,
 				)
 			}
 		}
 	}
 
-	// Iterate and clean all scan scopes
-	for _, scanScope := range memory.GetScopes() {
-		go fnCleanup(&scanScope)
+	// Iterate and clean all scan scopes. Wait for it on shutdown.
+	for _, scopeEntry := range memory.GetScopes() {
+		wgBackgroundTask.Add(1)
+		go func(scopeEntry managerdb.T_scan_scope) {
+			defer wgBackgroundTask.Done()
+			fnCleanup(&scopeEntry)
+		}(scopeEntry)
 	}
 }
 
@@ -330,7 +362,7 @@ func submitStats(logger scanUtils.Logger) {
 	// Log potential panics before letting them move on
 	defer func() {
 		if r := recover(); r != nil {
-			logger.Errorf(fmt.Sprintf("Panic: %s%s", r, scanUtils.StacktraceIndented("\t")))
+			logger.Errorf("Panic: %s%s", r, scanUtils.StacktraceIndented("\t"))
 			panic(r)
 		}
 	}()
@@ -355,35 +387,21 @@ func submitStats(logger scanUtils.Logger) {
 		// Group scan agent stats by scan scope ID
 		agentsByScope := make(map[uint64][]managerdb.T_scan_agent)
 		for _, agent := range agents {
-
-			// Get scope specific slice
-			scopeAgents, ok := agentsByScope[agent.IdTScanScope]
-
-			// Initialize scan agent slice for scan scope if not yet existing
-			if !ok {
-				agentsByScope[agent.IdTScanScope] = make([]managerdb.T_scan_agent, 0, 1)
-				scopeAgents = agentsByScope[agent.IdTScanScope]
-			}
-
-			// Attach new scan agent statistics
-			scopeAgents = append(scopeAgents, agent)
-
-			// Update referenced scopes
-			agentsByScope[agent.IdTScanScope] = scopeAgents
+			agentsByScope[agent.IdTScanScope] = append(agentsByScope[agent.IdTScanScope], agent)
 		}
 
 		// Get known scan scopes from memory
-		scopes := memory.GetScopes()
+		scopeEntries := memory.GetScopes()
 
 		// Collect per-module queue stats for each scope
 		statsByScope := make(map[uint64]utils.JsonMap)
-		for scopeId := range scopes {
-			scopeStats, errScopeStats := brokerdb.GetScopeStats(scopeId)
+		for scopeEntryId := range scopeEntries {
+			scopeStats, errScopeStats := database.GetScopeStats(scopeEntryId)
 			if errScopeStats != nil {
-				logger.Warningf("Could not query scope stats of scan scope %d: %s", scopeId, errScopeStats)
+				logger.Warningf("Could not query scope stats of scan scope %d: %s", scopeEntryId, errScopeStats)
 				continue
 			}
-			statsByScope[scopeId] = scopeStats
+			statsByScope[scopeEntryId] = scopeStats
 		}
 
 		// Send updated agent and queue stats to manager via RPC. Additional scan progress stats will be queried

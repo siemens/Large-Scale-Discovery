@@ -12,18 +12,25 @@ package core
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/siemens/GoScans/discovery"
+	"github.com/siemens/GoScans/discovery/ot"
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/Large-Scale-Discovery/agent/config"
 	broker "github.com/siemens/Large-Scale-Discovery/broker/core"
 )
 
+// otListenerOnce ensures the OT listener is initialized only once
+var otListenerOnce sync.Once
+
 // launchDiscoveryOt performs an OT discovery: the agent self-detects its network segment(s) and runs
 // Nmap (with OT-aware settings already injected by the broker) plus the OT discovery protocols
-// (PROFINET DCP, EtherCAT, LLDP, NDP, mDNS) on each detected subnet. The result merges hosts from
-// Nmap and the OT protocols. The detected subnets are reported back so the broker can populate
+// (PROFINET DCP, EtherCAT, LLDP, NDP, mDNS) on each detected subnet. The passive OT listener is
+// started on the first invocation and remains alive for the agent lifetime so that passively captured
+// hosts accumulate across scan iterations. The result merges hosts from Nmap, active OT protocols,
+// and the passive listener cache. The detected subnets are reported back so the broker can populate
 // t_discovery.Input for display.
 func launchDiscoveryOt(
 	logger scanUtils.Logger,
@@ -31,7 +38,7 @@ func launchDiscoveryOt(
 	nmapArgs []string,
 	networkTimeout time.Duration,
 	excludeDomains []string,
-	conf *config.AgentConfig,
+	conf *config.Agent,
 	rpcResult broker.ArgsSaveScanResult,
 ) broker.ArgsSaveScanResult {
 
@@ -46,6 +53,24 @@ func launchDiscoveryOt(
 	// Determine interfaces to scan: configured list (if non-empty) or all non-loopback IPv4 ones.
 	targetInterfaces := getInterfaces(conf.OtInterfaces)
 
+	// Start the passive OT listener on the first OT scan. It is pinned to the agent-level context
+	// so it survives across all subsequent scan iterations without ever restarting.
+	// Passive hosts are cached by the listener inside GoScans and drained into scan OT scan results automatically.
+	otListenerOnce.Do(func() {
+
+		// Prepare list of interface names
+		ifaces := make([]string, 0, len(targetInterfaces))
+		for _, iface := range targetInterfaces {
+			ifaces = append(ifaces, iface.Name)
+		}
+
+		// Start passive listening for OT devices which will continue running from now on
+		errListener := ot.StartPassiveListener(coreCtx, logger, ifaces...)
+		if errListener != nil {
+			logger.Warningf("Could not start OT passive listeners: %s", errListener)
+		}
+	})
+
 	// Run discovery for each detected interface/subnet, merging all hosts into one result.
 	for _, targetInterface := range targetInterfaces {
 
@@ -55,7 +80,7 @@ func launchDiscoveryOt(
 
 		// Execute OT scan iteration
 		logger.Infof("Executing OT scan on interface '%s' with subnet '%s'.", targetInterface.Name, targetInterface.Cidr)
-		resultOtScan, errOtScan := executeDiscoveryScan(
+		resultOtScan, errResultOtScan := executeDiscoveryScan(
 			logger,
 			label,
 			targetV4,
@@ -66,15 +91,15 @@ func launchDiscoveryOt(
 			excludeDomains,
 			targetInterface.Name, // Triggers OT protocols (PROFINET DCP, EtherCAT, LLDP, NDP, mDNS) on this interface
 		)
-		if errOtScan != nil {
+		if errResultOtScan != nil {
 
 			// Log issue
-			logger.Errorf("%s scan initialization failed: %s", label, errOtScan)
+			logger.Errorf("%s scan initialization failed: %s", label, errResultOtScan)
 
 			// Forward issue to broker
 			rpcResult.Result = &discovery.Result{
 				Exception: true,
-				Status:    fmt.Sprintf("%s scan initialization failed: %s", label, errOtScan.Error()),
+				Status:    fmt.Sprintf("%s scan initialization failed: %s", label, errResultOtScan.Error()),
 			}
 
 			// Shutdown agent as this is a critical issue
@@ -116,7 +141,7 @@ func launchDiscoveryIt(
 	nmapArgsPreScan []string,
 	networkTimeout time.Duration,
 	excludeDomains []string,
-	conf *config.AgentConfig,
+	conf *config.Agent,
 	rpcResult broker.ArgsSaveScanResult,
 ) broker.ArgsSaveScanResult {
 
@@ -150,8 +175,8 @@ func launchDiscoveryIt(
 	var resultPreScan *discovery.Result
 	if len(nmapArgsPreScan) > 0 {
 		logger.Debugf("Executing pre-scan.")
-		var errPreScan error
-		resultPreScan, errPreScan = executeDiscoveryScan(
+		var errResultPreScan error
+		resultPreScan, errResultPreScan = executeDiscoveryScan(
 			logger,
 			label,
 			targetV4,
@@ -162,15 +187,15 @@ func launchDiscoveryIt(
 			excludeDomains,
 			"",
 		)
-		if errPreScan != nil {
+		if errResultPreScan != nil {
 
 			// Log issue
-			logger.Errorf("%s scan initialization failed: %s", label, errPreScan)
+			logger.Errorf("%s scan initialization failed: %s", label, errResultPreScan)
 
 			// Forward issue to broker
 			rpcResult.Result = &discovery.Result{
 				Exception: true,
-				Status:    fmt.Sprintf("%s scan initialization failed: %s", label, errPreScan.Error()),
+				Status:    fmt.Sprintf("%s scan initialization failed: %s", label, errResultPreScan.Error()),
 			}
 
 			// Shutdown agent as this is a critical issue
@@ -190,7 +215,7 @@ func launchDiscoveryIt(
 
 	// Execute actual scan of the target
 	logger.Debugf("Executing main scan.")
-	result, errScan := executeDiscoveryScan(
+	result, errResult := executeDiscoveryScan(
 		logger,
 		label,
 		targetV4,
@@ -201,15 +226,15 @@ func launchDiscoveryIt(
 		excludeDomains,
 		"",
 	)
-	if errScan != nil {
+	if errResult != nil {
 
 		// Log issue
-		logger.Errorf("%s scan initialization failed: %s", label, errScan)
+		logger.Errorf("%s scan initialization failed: %s", label, errResult)
 
 		// Forward issue to broker
 		rpcResult.Result = &discovery.Result{
 			Exception: true,
-			Status:    fmt.Sprintf("%s scan initialization failed: %s", label, errScan.Error()),
+			Status:    fmt.Sprintf("%s scan initialization failed: %s", label, errResult.Error()),
 		}
 
 		// Shutdown agent as this is a critical issue

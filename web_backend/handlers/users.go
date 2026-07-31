@@ -1,11 +1,12 @@
 /*
-* Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
-*
-* Copyright (c) Siemens AG, 2016-2026.
-*
-* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
-* directory or visit <https://opensource.org/licenses/MIT>.
-*
+ * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
+ *
+ * Copyright (c) Siemens AG, 2016-2026.
+ *
+ * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+ * directory or visit <https://opensource.org/licenses/MIT>.
+ *
+ * SPDX-License-Identifier: MIT
  */
 
 package handlers
@@ -49,35 +50,25 @@ var Users = func() gin.HandlerFunc {
 
 		// Prepare memory for list of groups
 		var userEntries = make([]database.T_user, 0) // Initialize empty slice to avoid returning nil to frontend
-		var errUserEntries error
 
-		// Query users depending on whether user is admin or not
+		// Query all user entries before applying user-specific access restrictions
+		userEntriesUnfiltered, errUserEntriesUnfiltered := database.GetUsers()
+		if errUserEntriesUnfiltered != nil {
+			logger.Errorf("Could not query existing users: %s", errUserEntriesUnfiltered)
+			core.RespondInternalError(ctx) // Return generic error information
+			return
+		}
+
+		// Return all user entries to administrators without further filtering
 		if contextUser.Admin {
-
-			// Query all entries
-			userEntries, errUserEntries = database.GetUsers()
-			if errUserEntries != nil {
-				logger.Errorf("Could not query existing users: %s", errUserEntries)
-				core.RespondInternalError(ctx) // Return generic error information
-				return
-			}
-
+			userEntries = userEntriesUnfiltered
 		} else {
-
-			// Query all entries
-			var userEntriesUnfiltered []database.T_user
-			userEntriesUnfiltered, errUserEntries = database.GetUsers()
-			if errUserEntries != nil {
-				logger.Errorf("Could not query existing users: %s", errUserEntries)
-				core.RespondInternalError(ctx) // Return generic error information
-				return
-			}
 
 			// Filter for enabled users of the same company
 			userEntries = make([]database.T_user, 0, len(userEntriesUnfiltered)) // Resize slice to avoid redundant resizing
-			for _, entry := range userEntriesUnfiltered {
-				if entry.Active && entry.Company == contextUser.Company {
-					userEntries = append(userEntries, entry)
+			for _, userEntry := range userEntriesUnfiltered {
+				if userEntry.Active && userEntry.Company == contextUser.Company {
+					userEntries = append(userEntries, userEntry)
 				}
 			}
 		}
@@ -202,9 +193,9 @@ var UserUpdate = func() gin.HandlerFunc {
 		}
 
 		// Save updated attributes
-		saved, errSave := userEntry.Save("active", "admin", "demo", "name", "surname", "company")
-		if errSave != nil {
-			logger.Errorf("Could not update user entry: %s", errSave)
+		saved, errSaved := userEntry.Save("active", "admin", "demo", "name", "surname", "company")
+		if errSaved != nil {
+			logger.Errorf("Could not update user entry: %s", errSaved)
 			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
@@ -428,11 +419,17 @@ var UserResetDbPassword = func(smtpConnection *utils.Smtp) gin.HandlerFunc {
 		// Get user from context storage
 		contextUser := core.GetContextUser(ctx)
 
+		// Prevent demo accounts from creating credentials for live scan databases
+		if contextUser.Demo {
+			core.RespondAuthError(ctx)
+			return
+		}
+
 		// Generate password
-		dbPassword, errPassword := utils.GenerateToken(
+		dbPassword, errDbPassword := utils.GenerateToken(
 			strings.Replace(utils.AlphaNumCaseSymbol, "?", "", -1), 15) // Drop question mark from character set, as gorm has issues with them
-		if errPassword != nil {
-			logger.Errorf("Could not generate user password: %s", errPassword)
+		if errDbPassword != nil {
+			logger.Errorf("Could not generate user password: %s", errDbPassword)
 			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
@@ -461,9 +458,9 @@ var UserResetDbPassword = func(smtpConnection *utils.Smtp) gin.HandlerFunc {
 		contextUser.DbPasswordHash = dbPasswordHash
 
 		// Save updated attributes
-		saved, errSave := contextUser.Save("db_password")
-		if errSave != nil {
-			logger.Errorf("Could not update user entry: %s", errSave)
+		saved, errSaved := contextUser.Save("db_password")
+		if errSaved != nil {
+			logger.Errorf("Could not update user entry: %s", errSaved)
 			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
@@ -554,7 +551,7 @@ var UserResetDbPassword = func(smtpConnection *utils.Smtp) gin.HandlerFunc {
 		}
 
 		// Log event
-		errEvent := database.NewEvent(contextUser, database.EventDbPassword, "")
+		errEvent := database.LogEvent(contextUser, database.EventDbPassword, "")
 		if errEvent != nil {
 			logger.Errorf("Could not create event log: %s", errEvent)
 			core.RespondInternalError(ctx) // Return generic error information
@@ -633,34 +630,42 @@ var UserFeedback = func(smtpConnection *utils.Smtp) gin.HandlerFunc {
 		)
 
 		// Send email with contact message
-		errSend := smtp.SendMail(
-			smtpConnection.Server,
-			smtpConnection.Port,
-			smtpConnection.Username,
-			smtpConnection.Password,
-			smtpConnection.Sender,
-			smtpConnection.Recipients,
-			smtpConnection.EncryptionCerts,
-			subject,
-			[]byte(message),
-			nil,
-			"",
-			nil,
-			nil,
-			false,
-		)
-		if errSend != nil {
-			logger.Errorf(
-				"Could not send contact mail: %s. \nFrom: %s %s (%s)\nSubject: %s\nMessage: %s",
-				errSend,
-				contextUser.Name,
-				contextUser.Surname,
-				contextUser.Email,
-				req.Subject,
-				req.Message,
+		if _build.DevMode {
+
+			// Log action
+			logger.Infof("Skipping feedback e-mail during development.")
+			logger.Infof("Feedback from '%s %s' (%s): %s", contextUser.Name, contextUser.Surname, contextUser.Email, req.Message)
+
+		} else {
+			errSend := smtp.SendMail(
+				smtpConnection.Server,
+				smtpConnection.Port,
+				smtpConnection.Username,
+				smtpConnection.Password,
+				smtpConnection.Sender,
+				smtpConnection.Recipients,
+				smtpConnection.EncryptionCerts,
+				subject,
+				[]byte(message),
+				nil,
+				"",
+				nil,
+				nil,
+				false,
 			)
-			core.RespondInternalError(ctx) // Return generic error information
-			return
+			if errSend != nil {
+				logger.Errorf(
+					"Could not send contact mail: %s. \nFrom: %s %s (%s)\nSubject: %s\nMessage: %s",
+					errSend,
+					contextUser.Name,
+					contextUser.Surname,
+					contextUser.Email,
+					req.Subject,
+					req.Message,
+				)
+				core.RespondInternalError(ctx) // Return generic error information
+				return
+			}
 		}
 
 		// Return response
@@ -714,7 +719,16 @@ var UserApiToken = func(smtpConnection *utils.Smtp) gin.HandlerFunc {
 		conf := config.GetConfig()
 
 		// Mint the new API token
-		token, expiresAt := core.CreateApiJwt(contextUser.Id, contextUser.ApiTokenRevision, conf.Jwt.ExpiryApi)
+		token, expiresAt, errToken := core.CreateApiJwt(
+			contextUser.Id,
+			contextUser.ApiTokenRevision,
+			conf.Jwt.ExpiryApi,
+		)
+		if errToken != nil {
+			logger.Errorf("Could not create API token for user '%s': %s", contextUser.Email, errToken)
+			core.RespondInternalError(ctx)
+			return
+		}
 
 		// Prepare response body. Token is only populated as a fallback below.
 		body := responseBody{
@@ -798,7 +812,7 @@ var UserApiToken = func(smtpConnection *utils.Smtp) gin.HandlerFunc {
 		}
 
 		// Log event
-		errEvent := database.NewEvent(
+		errEvent := database.LogEvent(
 			contextUser,
 			database.EventApiToken,
 			"expires="+expiresAt.Format(time.RFC3339),

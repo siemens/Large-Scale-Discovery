@@ -23,29 +23,33 @@ import (
 	"github.com/siemens/GoScans/discovery"
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/Large-Scale-Discovery/_build"
-	"github.com/siemens/Large-Scale-Discovery/broker/brokerdb"
 	"github.com/siemens/Large-Scale-Discovery/broker/config"
+	"github.com/siemens/Large-Scale-Discovery/broker/database"
 	"github.com/siemens/Large-Scale-Discovery/broker/memory"
 	"github.com/siemens/Large-Scale-Discovery/log"
 	manager "github.com/siemens/Large-Scale-Discovery/manager/core"
 	managerdb "github.com/siemens/Large-Scale-Discovery/manager/database"
+	"github.com/siemens/Large-Scale-Discovery/manager/scopedb"
 	"github.com/siemens/Large-Scale-Discovery/utils"
 	"github.com/vburenin/nsync"
 )
 
-var coreCtx, coreCtxCancelFunc = context.WithCancel(context.Background()) // Agent context and context cancellation function. Agent should terminate when context is closed
+var coreCtx, coreCtxCancelFunc = context.WithCancel(context.Background()) // Broker context and cancellation function. Broker should terminate when the context is closed.
 var shutdownOnce sync.Once                                                // Helper variable to prevent shutdown from doing its work multiple times.
-var rpcInflight sync.WaitGroup                                            // Tracks in-flight RPC handlers to allow graceful shutdown
+var rpcAdmissionLock sync.Mutex                                           // Serializes RPC admission with shutdown
+var rpcInflight sync.WaitGroup                                            // Tracks RPC handlers admitted before shutdown
+var wgBackgroundLoop sync.WaitGroup                                       // Tracks the background scheduler loop
+var wgBackgroundTask sync.WaitGroup                                       // Tracks tasks launched by the background scheduler
 var startupTime time.Time                                                 // Time when the broker launched
 var rpcServerCrt string                                                   // Certificate used by the listening RPC server
 var rpcServerKey string                                                   // Key used by the listening RPC server
 var rpcClient *utils.Client                                               // RPC client struct handling RPC connections and requests
 var rpcScopeLock = nsync.NewNamedMutex()                                  // Named mutex to prevent parallel manager queries for the same scan scope
 
-var errInvalidScopeSecret = fmt.Errorf("invalid secret")
-var errScopeNotAvailable = fmt.Errorf("scan scope not available")
+// Scan scope secret does not match the requested scope
+var errInvalidScopeSecret = errors.New("invalid secret")
 
-// Init initializes the broker and all of its parameters
+// Init initializes the broker and its dependencies
 func Init() error {
 
 	// Get global logger
@@ -54,25 +58,25 @@ func Init() error {
 	// Get config
 	conf := config.GetConfig()
 
-	// Lookup agent IP
-	localIp, errIp := utils.GetLocalIp()
-	if errIp != nil {
-		return fmt.Errorf("could not read local ip: %s", errIp)
+	// Look up broker IP
+	localIp, errLocalIp := utils.GetLocalIp()
+	if errLocalIp != nil {
+		return fmt.Errorf("could not read local ip: %s", errLocalIp)
 	}
 
-	// Lookup agent hostname
-	localHostname, errHostname := os.Hostname()
-	if errHostname != nil {
-		return fmt.Errorf("could not read local hostname: %s", errHostname)
+	// Look up broker hostname
+	localHostname, errLocalHostname := os.Hostname()
+	if errLocalHostname != nil {
+		return fmt.Errorf("could not read local hostname: %s", errLocalHostname)
 	}
 
 	// Set the name to use in DB connections
-	managerdb.SetConnectionName(fmt.Sprintf("Broker_%s_%s", localHostname, localIp))
+	scopedb.SetConnectionName(fmt.Sprintf("Broker_%s_%s", localHostname, localIp))
 
 	// Set maximum db connections according to configuration. This value must be below the amount configured in the
 	// database itself, otherwise queries may fail. Also consider, that other applications might connect with multiple
 	// parallel connections.
-	managerdb.SetMaxConnectionsDefault(conf.DbConnections)
+	scopedb.SetMaxConnectionsDefault(conf.DbConnections)
 
 	// Prepare broker key and certificate path
 	if conf.ListenSsl {
@@ -102,16 +106,16 @@ func Init() error {
 		return errRemoteCrt
 	}
 
-	// Initialize brokerdb
-	errOpen := brokerdb.Init()
+	// Initialize broker database
+	errOpen := database.Open()
 	if errOpen != nil {
-		return fmt.Errorf("could not open brokerdb: %s", errOpen)
+		return fmt.Errorf("could not open broker database: %s", errOpen)
 	}
 
 	// Create or update the db tables
-	errMigrate := brokerdb.AutoMigrate()
+	errMigrate := database.AutoMigrate()
 	if errMigrate != nil {
-		return fmt.Errorf("could not migrate broker db: %s", errMigrate)
+		return fmt.Errorf("could not migrate broker database: %s", errMigrate)
 	}
 
 	// Initialize RPC client manager facing.
@@ -124,14 +128,24 @@ func Init() error {
 		select {
 		case <-coreCtx.Done():
 			return nil
-		case <-rpcClient.Established():
+		case _, ok := <-rpcClient.Established():
+
+			// Stop when the RPC client terminates
+			if !ok {
+				return nil
+			}
 		}
 	}
 
 	// Launch background tasks to be executed on a regular basis, e.g.:
 	// 	- listening for scope changes on the manager to update cached scope data
 	//	- writing cached scan scope stats to the manager
-	go backgroundTasks()
+	// Wait for it on shutdown.
+	wgBackgroundLoop.Add(1)
+	go func() {
+		defer wgBackgroundLoop.Done()
+		backgroundTasks()
+	}()
 
 	// Set startup time. There is a certain time windows where scan agents can send accumulated scan results, before
 	// timed out scans are cleaned up.
@@ -154,10 +168,8 @@ func Init() error {
 func Run() error {
 
 	// Only launch if shutdown is not already in progress
-	select {
-	case <-coreCtx.Done():
+	if coreCtx.Err() != nil {
 		return nil
-	default:
 	}
 
 	// Get global logger
@@ -180,7 +192,7 @@ func Run() error {
 	)
 }
 
-// Shutdown terminates the application context, which causes associated components to gracefully shut down
+// Shutdown terminates the application context, which causes associated components to gracefully shut down.
 func Shutdown() {
 	shutdownOnce.Do(func() {
 
@@ -188,27 +200,34 @@ func Shutdown() {
 		logger := log.GetLogger()
 		logger.Infof("Shutting down.")
 
-		// Close agent context. Waiting goroutines will abort if it is closed.
+		// Close core context while holding the admission lock so no RPC handler can pass its shutdown check without
+		// being registered in the wait group before shutdown starts waiting
+		rpcAdmissionLock.Lock()
 		coreCtxCancelFunc()
+		rpcAdmissionLock.Unlock()
 
-		// Wait for in-flight RPC handlers to finish before tearing down resources
-		rpcInflight.Wait()
+		// Wait until the scheduler cannot launch more work
+		wgBackgroundLoop.Wait()
 
-		// Disconnect from manager
+		// Disconnect from the manager before waiting so blocked RPC calls are released by shutdown
 		if rpcClient != nil {
 			rpcClient.Disconnect()
 		}
 
-		// Close the scope db connections
-		errs := managerdb.CloseScopeDbs()
+		// Join admitted handlers and background workers after their remote calls have been interrupted
+		rpcInflight.Wait()
+		wgBackgroundTask.Wait()
+
+		// Close the scope database connections
+		errs := scopedb.CloseScopeDbs()
 		for _, err := range errs {
-			logger.Errorf("Could not close scope DB connection: %s", err)
+			logger.Errorf("Could not close scope database connection: %s", err)
 		}
 
-		// Make sure broker db gets closed on exit
-		errBroker := brokerdb.Close()
+		// Make sure broker database gets closed on exit
+		errBroker := database.Close()
 		if errBroker != nil {
-			logger.Errorf("Could not close broker DB connection: '%s'", errBroker)
+			logger.Errorf("Could not close broker database connection: '%s'", errBroker)
 		}
 	})
 }
@@ -218,15 +237,16 @@ func Shutdown() {
 // goroutines will wait for it, search memory again, and potentially try requesting from the manager again.
 // If there is an RPC connection issue, the primary goroutine (requesting the scan scope from the manager) will keep
 // trying, until the RPC request succeeded.
-// If the scan scope was neither found in memory, nor on the manager, an errScopeNotAvailable error is returned.
+// Returns errInvalidScopeSecret if the scope secret is unknown to the manager.
+// Returns ErrRpcGeneric if the scope could not be retrieved (e.g. broker shutting down, configuration issue).
 // ATTENTION: Scan results can be dropped if a scan scope is unknown, but not if it just couldn't be retrieved!
 // ATTENTION: Make sure client's don't pile up subsequent requests, as long as the previous ones didn't return!
 func getScanScope(logger scanUtils.Logger, scopeSecret string) (*managerdb.T_scan_scope, error) {
 
 	// Search scan scope in memory
-	cachedScope, cached := memory.GetScope(scopeSecret)
+	scopeEntries, cached := memory.GetScope(scopeSecret)
 	if cached {
-		return &cachedScope, nil
+		return &scopeEntries, nil
 	}
 
 	// Acquire lock if it is not yet taken. Allow parallel requests for different scope secrets.
@@ -246,9 +266,15 @@ func getScanScope(logger scanUtils.Logger, scopeSecret string) (*managerdb.T_sca
 		defer rpcScopeLock.Unlock(scopeSecret)
 
 		// Check if scan scope is now available in memory, the primary RPC request might have retrieved it.
-		cachedScope, cached = memory.GetScope(scopeSecret)
+		scopeEntries, cached = memory.GetScope(scopeSecret)
 		if cached {
-			return &cachedScope, nil
+			return &scopeEntries, nil
+		}
+
+		// If the broker is shutting down the primary may have aborted for that reason —
+		// don't mis-report the secret as invalid.
+		if coreCtx.Err() != nil {
+			return nil, utils.ErrRpcGeneric // Abort, due to shut down request. Reason already logged by call.
 		}
 
 		// Return error because scan scope secret is unknown
@@ -266,57 +292,64 @@ func getScanScope(logger scanUtils.Logger, scopeSecret string) (*managerdb.T_sca
 	conf := config.GetConfig()
 
 	// Prepare memory for RPC result
-	var scanScope managerdb.T_scan_scope
-	var errRpc error
+	var scopeEntry managerdb.T_scan_scope
+	var errScopeEntry error
 
 	// Keep trying until RPC request (connection) succeeded. Subsequent RPC requests for the same scan scope
 	// will block and wait for this to complete.
 	for {
 
 		// Request scope with full details from manager
-		scanScope, errRpc = manager.RpcGetScopeFull(logger, rpcClient, conf.ManagerSecretPrivilege, scopeSecret)
-		if errors.Is(errRpc, utils.ErrRpcConnectivity) {
+		scopeEntry, errScopeEntry = manager.RpcGetScopeFull(logger, rpcClient, conf.ManagerSecretPrivilege, scopeSecret)
+		if errors.Is(errScopeEntry, utils.ErrRpcConnectivity) {
 
-			// Wait for RPC re-connection and retry
+			// Wait for RPC reconnection and retry
 			select {
 			case <-coreCtx.Done():
-				return nil, errScopeNotAvailable // Abort, due to shutdown request
-			case <-rpcClient.Established():
-				continue // Retry
+				return nil, utils.ErrRpcGeneric // Abort, due to shut down request. Reason already logged by call.
+			case _, ok := <-rpcClient.Established():
+
+				// Stop when the RPC client terminates
+				if !ok {
+					return nil, utils.ErrRpcGeneric
+				}
+
+				// Retry
+				continue
 			}
 
-		} else if errRpc != nil && errRpc.Error() == manager.ErrInvalidPrivilege.Error() { // Errors received from RPC lose their original type!!
-			return nil, errScopeNotAvailable
-		} else if errRpc != nil {
-			return nil, errScopeNotAvailable // Was already reported by the rpcClient.
+		} else if errors.Is(errScopeEntry, manager.ErrInvalidPrivilege) {
+			return nil, utils.ErrRpcGeneric // Abort, due to configuration issue. Reason already logged by call.
+		} else if errScopeEntry != nil {
+			return nil, utils.ErrRpcGeneric // Abort, due to manager issue. Reason already logged by call.
 		}
 
 		// Abort if used scan scope secret didn't return a valid scan scope. The manager does not return an error if
 		// the scope secret was invalid, because it would trigger a critical log message in the RPC client, although
 		// it's legit.
-		if scanScope.Id == 0 {
+		if scopeEntry.Id == 0 {
 			logger.Infof("Invalid scope secret '%s...'.", scopeSecret[0:5])
 			return nil, errInvalidScopeSecret
 		}
 
 		// Add loaded scan scope to memory for future usage
-		logger.Debugf("Loaded scan scope '%s' (ID %d).", scanScope.Name, scanScope.Id)
-		memory.AddScope(scopeSecret, scanScope)
+		logger.Debugf("Loaded scan scope '%s' (ID %d).", scopeEntry.Name, scopeEntry.Id)
+		memory.AddScope(scopeSecret, scopeEntry)
 
 		// Clean queued targets for modules that are disabled in the freshly loaded settings
-		errClean := brokerdb.CleanScopeTargetsDisabled(logger, &scanScope)
+		errClean := database.CleanScopeTargetsDisabled(logger, &scopeEntry)
 		if errClean != nil {
 			logger.Warningf("Could not clean disabled sub module targets from scan scope '%s' (ID %d): %s",
-				scanScope.Name, scanScope.Id, errClean)
+				scopeEntry.Name, scopeEntry.Id, errClean)
 		}
 
 		// Return scan scope as retrieved from the manager
-		return &scanScope, nil
+		return &scopeEntry, nil
 	}
 }
 
 // checkCycle checks whether a cycle has completed and triggers the initialization of a new one
-func checkCycle(logger scanUtils.Logger, scanScope *managerdb.T_scan_scope) (initialized bool, err error) {
+func checkCycle(logger scanUtils.Logger, scopeEntry *managerdb.T_scan_scope) (initialized bool, err error) {
 
 	// Skip cycle check for the first few minutes after startup because agents might not have connected
 	// and the amount of currently active scan scope discovery tasks is unclear.
@@ -326,19 +359,19 @@ func checkCycle(logger scanUtils.Logger, scanScope *managerdb.T_scan_scope) (ini
 	}
 
 	// Open scope's database
-	scopeDb, errHandle := managerdb.GetScopeDbHandle(logger, scanScope)
-	if errHandle != nil {
-		return false, fmt.Errorf("could not open scope database: %s", errHandle)
+	scopeDb, errScopeDb := scopedb.GetScopeDbHandle(logger, scopeEntry)
+	if errScopeDb != nil {
+		return false, fmt.Errorf("could not open scope database: %s", errScopeDb)
 	}
 
 	// Check if there is anything in this scope yet
 	var contentCount int64
-	errDb := scopeDb.Model(&managerdb.T_discovery{}).
+	errDb := scopeDb.Model(&scopedb.T_discovery{}).
 		Where("enabled = ?", true).
 		Limit(1). // Fastest way to find out if there is something in the table
 		Count(&contentCount).Error
 	if errDb != nil {
-		return false, fmt.Errorf("could not count enabled targets in scope db: %s", errDb)
+		return false, fmt.Errorf("could not count enabled targets in scope database: %s", errDb)
 	}
 
 	// Skip initialization if there is nothing to initialize
@@ -353,7 +386,7 @@ func checkCycle(logger scanUtils.Logger, scanScope *managerdb.T_scan_scope) (ini
 	for _, recentAgent := range recentAgents {
 
 		// Only check scan scope's agents
-		if recentAgent.IdTScanScope == scanScope.Id {
+		if recentAgent.IdTScanScope == scopeEntry.Id {
 
 			// Iterate scan task modules
 			for module, moduleCount := range recentAgent.Tasks {
@@ -368,13 +401,13 @@ func checkCycle(logger scanUtils.Logger, scanScope *managerdb.T_scan_scope) (ini
 
 	// Count remaining scan targets in the current scan cycle
 	var remainingTasks int64
-	errDb2 := scopeDb.Model(&managerdb.T_discovery{}).
+	errDb2 := scopeDb.Model(&scopedb.T_discovery{}).
 		Where("scan_started IS NULL"). // Not active elements only
 		Where("enabled IS TRUE").      // Enabled elements only
 		Limit(1).                      // Finding a single case is already enough to decide
 		Count(&remainingTasks).Error
 	if errDb2 != nil {
-		return false, fmt.Errorf("could not count remaining targets in scope db: %s", errDb2)
+		return false, fmt.Errorf("could not count remaining targets in scope database: %s", errDb2)
 	}
 
 	// Skip initialization if there are discovery inputs left
@@ -385,13 +418,13 @@ func checkCycle(logger scanUtils.Logger, scanScope *managerdb.T_scan_scope) (ini
 
 	// Count incomplete scan targets in the current scan cycle
 	var incompleteTasks int64
-	errDb3 := scopeDb.Model(&managerdb.T_discovery{}).
+	errDb3 := scopeDb.Model(&scopedb.T_discovery{}).
 		Where("scan_finished IS NULL"). // Not active elements only
 		Where("enabled IS TRUE").       // Enabled elements only
 		Limit(1).                       // Finding a single case is already enough to decide
 		Count(&incompleteTasks).Error
 	if errDb3 != nil {
-		return false, fmt.Errorf("could not count incomplete targets in scope db: %s", errDb3)
+		return false, fmt.Errorf("could not count incomplete targets in scope database: %s", errDb3)
 	}
 
 	// Skip initialization if there are incomplete targets and active tasks.
@@ -405,19 +438,38 @@ func checkCycle(logger scanUtils.Logger, scanScope *managerdb.T_scan_scope) (ini
 	}
 
 	// Log cycle reset
-	logger.Infof("Initiating new scan cycle for '%s' (ID: %d).", scanScope.Name, scanScope.Id)
+	logger.Infof("Initiating new scan cycle for '%s' (ID: %d).", scopeEntry.Name, scopeEntry.Id)
 
 	// Execute scan cycle reset via manager
-	errNewCycle := manager.RpcNewCycle(logger, rpcClient, scanScope.Id)
+	errNewCycle := manager.RpcNewCycle(logger, rpcClient, scopeEntry.Id)
 	if errNewCycle != nil {
 		return false, fmt.Errorf(
 			"could not initialize new cycle for scope '%s' (ID %d): %s",
-			scanScope.Name,
-			scanScope.Id,
+			scopeEntry.Name,
+			scopeEntry.Id,
 			errNewCycle,
 		)
 	}
 
 	// Return initialized flag or error
 	return true, nil
+}
+
+// beginRpc admits an RPC handler unless shutdown has started and registers it before releasing the admission lock.
+func beginRpc() bool {
+
+	// Acquire admission lock and make sure it is released again
+	rpcAdmissionLock.Lock()
+	defer rpcAdmissionLock.Unlock()
+
+	// Check core context validity
+	if coreCtx.Err() != nil {
+		return false
+	}
+
+	// Increase RPC inflight counter
+	rpcInflight.Add(1)
+
+	// Signal access
+	return true
 }

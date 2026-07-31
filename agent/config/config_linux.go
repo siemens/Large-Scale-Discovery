@@ -102,9 +102,9 @@ func (p *Paths) UnmarshalJSON(b []byte) error {
 	var raw aux
 
 	// Unmarshal serialized JSON into temporary auxiliary structure
-	err := json.Unmarshal(b, &raw)
-	if err != nil {
-		return err
+	errUnmarshal := json.Unmarshal(b, &raw)
+	if errUnmarshal != nil {
+		return errUnmarshal
 	}
 
 	// Check if paths are set
@@ -118,19 +118,19 @@ func (p *Paths) UnmarshalJSON(b []byte) error {
 	// Convert the paths to an absolute ones if necessary
 	nmap := raw.Nmap
 	if !filepath.IsAbs(nmap) {
-		var errAbs error
-		nmap, errAbs = filepath.Abs(nmap)
-		if errAbs != nil {
-			return errAbs
+		var errNmap error
+		nmap, errNmap = filepath.Abs(nmap)
+		if errNmap != nil {
+			return errNmap
 		}
 	}
 
 	python := raw.Python
 	if !filepath.IsAbs(python) {
-		var errAbs error
-		python, errAbs = filepath.Abs(python)
-		if errAbs != nil {
-			return errAbs
+		var errPython error
+		python, errPython = filepath.Abs(python)
+		if errPython != nil {
+			return errPython
 		}
 	}
 
@@ -197,9 +197,9 @@ func (m *Modules) UnmarshalJSON(b []byte) error {
 	var raw aux
 
 	// Unmarshal serialized JSON into temporary auxiliary structure
-	err := json.Unmarshal(b, &raw)
-	if err != nil {
-		return err
+	errUnmarshal := json.Unmarshal(b, &raw)
+	if errUnmarshal != nil {
+		return errUnmarshal
 	}
 
 	// Update struct with de-serialized values

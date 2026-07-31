@@ -13,18 +13,17 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
-	"sync"
 
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/Large-Scale-Discovery/_build"
 	"github.com/siemens/Large-Scale-Discovery/log"
+	"github.com/siemens/Large-Scale-Discovery/utils/config"
 	"go.uber.org/zap/zapcore"
 )
 
-var agentConfig = &AgentConfig{} // Global configuration
-var agentConfigLock sync.Mutex   // Lock required to avoid simultaneous requesting/updating of config
+// configAgent stores the loaded agent configuration
+var configAgent = config.NewConfig[Agent]()
 var templateCredentialsLdap = CredentialsGssapi{
 	Credentials: Credentials{
 		Comment:  "If *no* explicit LDAP credentials are configured, implicit authentication will be tried on Windows. Implicit authentication does not work on Linux and queries would be skipped.",
@@ -54,102 +53,23 @@ var templateCredentialsWeb = Credentials{
 	Password: "",
 }
 
-// Init initializes the configuration module and loads a JSON configuration. If JSON is not existing, a default
-// configuration will be generated.
-func Init(configFile string) error {
-	if errFile := scanUtils.IsValidFile(configFile); errFile != nil {
-		defaultConf := defaultAgentConfigFactory()
-		errSave := Save(&defaultConf, configFile)
-		if errSave != nil {
-			return fmt.Errorf("could not initialize configuration in '%s': %s", configFile, errSave)
-		} else {
-			return fmt.Errorf("no configuration, created default in '%s'", configFile)
-		}
-	} else {
-		errLoad := Load(configFile)
-		if errLoad != nil {
-			return errLoad
-		} else {
-			return nil
-		}
-	}
-}
+// Init initializes the configuration module and loads a JSON configuration. If the file does not exist, a default
+// configuration is generated.
+func Init(confPath string) error { return configAgent.Init(confPath, defaultAgentConfigFactory) }
 
-// Load reads a configuration from a file, de-serializes it and sets it as the global configuration
-func Load(path string) error {
+// Load reads a configuration from a file, deserializes it, and sets it as the global configuration.
+func Load(confPath string) error { return configAgent.Load(confPath) }
 
-	// Lock global config before initializing an update
-	agentConfigLock.Lock()
-	defer agentConfigLock.Unlock()
+// Set sets a passed configuration as the global configuration.
+func Set(conf *Agent) { configAgent.Set(conf) }
 
-	// Prepare new config, don't work on the global values
-	newConfig := &AgentConfig{}
-
-	// Read file content
-	rawJson, errLoad := os.ReadFile(path)
-	if errLoad != nil {
-		return errLoad
-	}
-
-	// Parse JSON
-	errUnmarshal := json.Unmarshal(rawJson, newConfig)
-	if errUnmarshal != nil {
-		return errUnmarshal
-	}
-
-	// Replace global configuration with new one
-	agentConfig = newConfig
-
-	// Return nil to indicate successful config update
-	return nil
-}
-
-// Set sets a passed configuration as the global configuration
-func Set(conf *AgentConfig) {
-
-	// Lock global config before initializing an update
-	agentConfigLock.Lock()
-	defer agentConfigLock.Unlock()
-
-	// Replace global configuration with new one
-	agentConfig = conf
-}
-
-// Save serializes a given configuration and writes it to a file
-func Save(conf *AgentConfig, path string) error {
-
-	// Lock global config, because the given config pointer might be the global config
-	agentConfigLock.Lock()
-	defer agentConfigLock.Unlock()
-
-	// Serialize to JSON
-	file, errMarshal := json.MarshalIndent(conf, "", "    ")
-	if errMarshal != nil {
-		return errMarshal
-	}
-
-	// Write JSON to file
-	errWrite := os.WriteFile(path, file, 0644)
-	if errWrite != nil {
-		return errWrite
-	}
-
-	// Return nil to indicate successful storage
-	return nil
-}
+// Save serializes a given configuration and writes it to a file.
+func Save(conf *Agent, path string) error { return configAgent.Save(conf, path) }
 
 // GetConfig returns a pointer to the current global configuration.
-func GetConfig() *AgentConfig {
+func GetConfig() *Agent { return configAgent.Get() }
 
-	// The global configuration might get updated regularly to allow user updating settings without aborting scans
-	agentConfigLock.Lock()
-	defer agentConfigLock.Unlock()
-
-	// Return current global configuration
-	return agentConfig
-}
-
-func defaultAgentConfigFactory() AgentConfig {
+func defaultAgentConfigFactory() Agent {
 
 	// Prepare default logging settings and adapt for agent
 	logging := log.DefaultLogSettingsFactory()
@@ -164,7 +84,7 @@ func defaultAgentConfigFactory() AgentConfig {
 	}
 
 	// Prepare default agent config
-	conf := AgentConfig{
+	conf := Agent{
 		BrokerAddress:  "localhost:3333",
 		ScopeSecrets:   scopeSecrets,
 		Paths:          templatePaths,
@@ -212,9 +132,9 @@ func (m *ModuleBanner) UnmarshalJSON(b []byte) error {
 	raw.MaxInstances = -1
 
 	// Unmarshal serialized JSON into temporary auxiliary structure
-	err := json.Unmarshal(b, &raw)
-	if err != nil {
-		return err
+	errUnmarshal := json.Unmarshal(b, &raw)
+	if errUnmarshal != nil {
+		return errUnmarshal
 	}
 
 	// Fix invalid settings
@@ -249,9 +169,9 @@ func (m *ModuleDiscovery) UnmarshalJSON(b []byte) error {
 	raw.MaxInstances = -1
 
 	// Unmarshal serialized JSON into temporary auxiliary structure
-	err := json.Unmarshal(b, &raw)
-	if err != nil {
-		return err
+	errUnmarshal := json.Unmarshal(b, &raw)
+	if errUnmarshal != nil {
+		return errUnmarshal
 	}
 
 	// Fix invalid settings
@@ -291,9 +211,9 @@ func (m *ModuleNfs) UnmarshalJSON(b []byte) error {
 	raw.MaxInstances = -1
 
 	// Unmarshal serialized JSON into temporary auxiliary structure
-	err := json.Unmarshal(b, &raw)
-	if err != nil {
-		return err
+	errUnmarshal := json.Unmarshal(b, &raw)
+	if errUnmarshal != nil {
+		return errUnmarshal
 	}
 
 	// Fix invalid settings
@@ -322,9 +242,9 @@ func (m *ModuleNuclei) UnmarshalJSON(b []byte) error {
 	raw.MaxInstances = -1
 
 	// Unmarshal serialized JSON into temporary auxiliary structure
-	err := json.Unmarshal(b, &raw)
-	if err != nil {
-		return err
+	errUnmarshal := json.Unmarshal(b, &raw)
+	if errUnmarshal != nil {
+		return errUnmarshal
 	}
 
 	// Fix invalid settings
@@ -353,9 +273,9 @@ func (m *ModuleSsh) UnmarshalJSON(b []byte) error {
 	raw.MaxInstances = -1
 
 	// Unmarshal serialized JSON into temporary auxiliary structure
-	err := json.Unmarshal(b, &raw)
-	if err != nil {
-		return err
+	errUnmarshal := json.Unmarshal(b, &raw)
+	if errUnmarshal != nil {
+		return errUnmarshal
 	}
 
 	// Fix invalid settings
@@ -387,9 +307,9 @@ func (m *ModuleSsl) UnmarshalJSON(b []byte) error {
 	raw.MaxInstances = -1
 
 	// Unmarshal serialized JSON into temporary auxiliary structure
-	err := json.Unmarshal(b, &raw)
-	if err != nil {
-		return err
+	errUnmarshal := json.Unmarshal(b, &raw)
+	if errUnmarshal != nil {
+		return errUnmarshal
 	}
 
 	// Fix invalid settings
@@ -430,9 +350,9 @@ func (m *ModuleWebcrawler) UnmarshalJSON(b []byte) error {
 	raw.MaxInstances = -1
 
 	// Unmarshal serialized JSON into temporary auxiliary structure
-	err := json.Unmarshal(b, &raw)
-	if err != nil {
-		return err
+	errUnmarshal := json.Unmarshal(b, &raw)
+	if errUnmarshal != nil {
+		return errUnmarshal
 	}
 
 	// Fix invalid settings
@@ -468,9 +388,9 @@ func (m *ModuleWebenum) UnmarshalJSON(b []byte) error {
 	raw.MaxInstances = -1
 
 	// Unmarshal serialized JSON into temporary auxiliary structure
-	err := json.Unmarshal(b, &raw)
-	if err != nil {
-		return err
+	errUnmarshal := json.Unmarshal(b, &raw)
+	if errUnmarshal != nil {
+		return errUnmarshal
 	}
 
 	// Fix invalid settings
@@ -485,8 +405,8 @@ func (m *ModuleWebenum) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-type AgentConfig struct {
-	// The root configuration object tying all configuration segments together.
+// Agent is the root configuration object tying all agent settings together.
+type Agent struct {
 	BrokerAddress  string         `json:"broker_address"`
 	ScopeSecrets   []string       `json:"scope_secrets"`
 	Paths          Paths          `json:"paths"`
@@ -496,16 +416,16 @@ type AgentConfig struct {
 	OtInterfaces   []string       `json:"ot_interfaces"` // The network interface to run the OT scans on, e.g. "eth0". Only relevant for OT scan scopes. Empty list scans all non-loopback interfaces.
 }
 
-func (c *AgentConfig) UnmarshalJSON(b []byte) error {
+func (conf *Agent) UnmarshalJSON(b []byte) error {
 
 	// Prepare temporary auxiliary data structure to load raw JSON data
-	type aux AgentConfig
+	type aux Agent
 	var raw aux
 
 	// Unmarshal serialized JSON into temporary auxiliary structure
-	err := json.Unmarshal(b, &raw)
-	if err != nil {
-		return err
+	errUnmarshal := json.Unmarshal(b, &raw)
+	if errUnmarshal != nil {
+		return errUnmarshal
 	}
 
 	// Check if there is at least one scope secret defined
@@ -521,7 +441,7 @@ func (c *AgentConfig) UnmarshalJSON(b []byte) error {
 	}
 
 	// Update struct with de-serialized values
-	*c = AgentConfig(raw)
+	*conf = Agent(raw)
 
 	// Return nil as everything went fine
 	return nil

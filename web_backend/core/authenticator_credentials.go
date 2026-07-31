@@ -1,11 +1,12 @@
 /*
-* Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
-*
-* Copyright (c) Siemens AG, 2016-2026.
-*
-* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
-* directory or visit <https://opensource.org/licenses/MIT>.
-*
+ * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
+ *
+ * Copyright (c) Siemens AG, 2016-2026.
+ *
+ * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+ * directory or visit <https://opensource.org/licenses/MIT>.
+ *
+ * SPDX-License-Identifier: MIT
  */
 
 package core
@@ -17,6 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/siemens/Large-Scale-Discovery/_build"
 	"github.com/siemens/Large-Scale-Discovery/utils"
+	"github.com/siemens/Large-Scale-Discovery/web_backend/core/loaders"
 	"github.com/siemens/Large-Scale-Discovery/web_backend/database"
 )
 
@@ -33,6 +35,7 @@ func init() {
 
 const passMinLength = 12
 
+// AuthenticatorCredentials authenticates users against credentials stored by the manager
 type AuthenticatorCredentials struct {
 	domains      []string
 	entryUrl     string
@@ -172,9 +175,9 @@ func (a *AuthenticatorCredentials) register() gin.HandlerFunc {
 		}
 
 		// Calculate password hash
-		passwordHash, errHash := utils.CreatePasswordHash(req.Password)
-		if errHash != nil {
-			logger.Errorf("Could not calculate password hash: %s", errHash)
+		passwordHash, errPasswordHash := utils.CreatePasswordHash(req.Password)
+		if errPasswordHash != nil {
+			logger.Errorf("Could not calculate password hash: %s", errPasswordHash)
 			RespondInternalError(ctx) // Return generic error information
 			return
 		}
@@ -190,20 +193,20 @@ func (a *AuthenticatorCredentials) register() gin.HandlerFunc {
 		}
 
 		// Generate new credentials user
-		user := database.NewUser(userEmail, userEmail, "", name, surname)
-		user.Password = sql.NullString{
+		newUser := database.NewUser(userEmail, userEmail, "", "", name, surname)
+		newUser.Password = sql.NullString{
 			String: passwordHash,
 			Valid:  true,
 		}
 
 		// Get appropriate loader
-		loader := GetLoader(logger, user.Email)
+		loader := loaders.GetLoader(logger, newUser.Email)
 
 		// Update user
 		if loader != nil {
 
 			// ATTENTION: RefreshUser might update user attributes, but does not yet commit them!
-			errTemporary, errPublic, errInternal := loader.RefreshUser(logger, user)
+			errTemporary, errPublic, errInternal := loader.RefreshUser(logger, newUser)
 
 			// Abort if there was an error and return response based on error kind
 			if len(errPublic) > 0 {
@@ -230,7 +233,7 @@ func (a *AuthenticatorCredentials) register() gin.HandlerFunc {
 		}
 
 		// Create new user
-		errCreate := user.Create()
+		errCreate := newUser.Create()
 		if errCreate != nil {
 			logger.Errorf("Could not create new user '%s': %s", userEmail, errCreate)
 			RespondInternalError(ctx) // Return generic error information
@@ -340,7 +343,7 @@ func (a *AuthenticatorCredentials) login() gin.HandlerFunc {
 		}
 
 		// Get appropriate loader
-		loader := GetLoader(logger, userEntry.Email)
+		loader := loaders.GetLoader(logger, userEntry.Email)
 
 		// Update user
 		if loader != nil {

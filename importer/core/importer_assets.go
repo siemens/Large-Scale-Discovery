@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2025.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -11,7 +11,7 @@
 package core
 
 import (
-	managerdb "github.com/siemens/Large-Scale-Discovery/manager/database"
+	"github.com/siemens/Large-Scale-Discovery/manager/scopedb"
 )
 
 // init automatically registers this import type during importer initialization. This way, you can add your custom
@@ -36,10 +36,11 @@ func (i *ImporterAssets) Init(conf map[string]interface{}) error {
 // be changed accordingly.
 func (i *ImporterAssets) Import(
 	filters Filters, // Filters set for the scan scope to select desired assets from repository
-) ([]managerdb.T_discovery, error) {
+	_ uint32,
+) ([]scopedb.T_discovery, error) {
 
 	// TODO Implement, loading list of scan inputs from remote repository
-	// Optional synchronization settings (filters) can be found in scanScope.Attributes[...]
+	// Optional synchronization settings (filters) can be found in scopeEntry.Attributes[...]
 
 	// Return results or error
 	return nil, nil

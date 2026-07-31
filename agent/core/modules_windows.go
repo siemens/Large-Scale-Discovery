@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2024.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -33,9 +33,9 @@ func launchSmb(
 
 	// Get tagged logger
 	logger := log.GetLogger().Tagged(fmt.Sprintf("%s-%d", label, scanTask.Id))
-	logger.Debugf("Initializing scan.")
+	logger.Debugf("Initializing '%s' scan for scope '%s'.", label, scanTask.ScopeName)
 
-	// Catch potential panics to gracefully log issue
+	// Log potential panics before letting them move on
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -118,7 +118,7 @@ func newSslScanner(
 	target string,
 	port int,
 	vhosts []string,
-	conf *config.AgentConfig,
+	conf *config.Agent,
 ) (*ssl.Scanner, error) {
 	return ssl.NewScanner(
 		logger,

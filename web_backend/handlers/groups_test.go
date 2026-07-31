@@ -1,11 +1,12 @@
 /*
-* Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
-*
-* Copyright (c) Siemens AG, 2016-2026.
-*
-* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
-* directory or visit <https://opensource.org/licenses/MIT>.
-*
+ * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
+ *
+ * Copyright (c) Siemens AG, 2016-2026.
+ *
+ * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+ * directory or visit <https://opensource.org/licenses/MIT>.
+ *
+ * SPDX-License-Identifier: MIT
  */
 
 package handlers
@@ -15,7 +16,7 @@ import (
 	"testing"
 )
 
-// TestGroups_Admin verifies that an admin receives all groups (empty DB returns 200).
+// TestGroups_Admin_Returns200 verifies that an admin receives all groups (empty DB returns 200).
 func TestGroups_Admin_Returns200(t *testing.T) {
 	ctx, w := newCtx(nil, adminUser())
 	Groups()(ctx)
@@ -24,7 +25,7 @@ func TestGroups_Admin_Returns200(t *testing.T) {
 	}
 }
 
-// TestGroups_NonAdmin verifies that a non-admin receives their own groups (empty DB returns 200).
+// TestGroups_NonAdmin_Returns200 verifies that a non-admin receives their own groups (empty DB returns 200).
 func TestGroups_NonAdmin_Returns200(t *testing.T) {
 	ctx, w := newCtx(nil, regularUser())
 	Groups()(ctx)
@@ -33,7 +34,7 @@ func TestGroups_NonAdmin_Returns200(t *testing.T) {
 	}
 }
 
-// TestGroupCreate_NonAdmin verifies that a non-admin user is rejected with 401.
+// TestGroupCreate_NonAdmin_Returns401 verifies that a non-admin user is rejected with 401.
 func TestGroupCreate_NonAdmin_Returns401(t *testing.T) {
 	ctx, w := newCtx(nil, regularUser())
 	GroupCreate()(ctx)
@@ -42,7 +43,7 @@ func TestGroupCreate_NonAdmin_Returns401(t *testing.T) {
 	}
 }
 
-// TestGroupCreate_Admin_BadBody verifies that a malformed request body returns 400.
+// TestGroupCreate_Admin_BadBody_Returns400 verifies that a malformed request body returns 400.
 func TestGroupCreate_Admin_BadBody_Returns400(t *testing.T) {
 	ctx, w := badBodyCtx(adminUser())
 	GroupCreate()(ctx)
@@ -51,7 +52,7 @@ func TestGroupCreate_Admin_BadBody_Returns400(t *testing.T) {
 	}
 }
 
-// TestGroupCreate_Admin_EmptyName verifies that an empty group name returns a 200 with an error body.
+// TestGroupCreate_Admin_EmptyName_Returns200Error verifies that an empty group name returns a 200 with an error body.
 func TestGroupCreate_Admin_EmptyName_Returns200Error(t *testing.T) {
 	type req struct {
 		Name string `json:"name"`
@@ -63,7 +64,7 @@ func TestGroupCreate_Admin_EmptyName_Returns200Error(t *testing.T) {
 	}
 }
 
-// TestGroupUpdate_NonAdmin verifies that a non-admin user is rejected with 401.
+// TestGroupUpdate_NonAdmin_Returns401 verifies that a non-admin user is rejected with 401.
 func TestGroupUpdate_NonAdmin_Returns401(t *testing.T) {
 	ctx, w := newCtx(nil, regularUser())
 	GroupUpdate()(ctx)
@@ -72,7 +73,7 @@ func TestGroupUpdate_NonAdmin_Returns401(t *testing.T) {
 	}
 }
 
-// TestGroupUpdate_Admin_BadBody verifies that a malformed request body returns 400.
+// TestGroupUpdate_Admin_BadBody_Returns400 verifies that a malformed request body returns 400.
 func TestGroupUpdate_Admin_BadBody_Returns400(t *testing.T) {
 	ctx, w := badBodyCtx(adminUser())
 	GroupUpdate()(ctx)
@@ -81,7 +82,7 @@ func TestGroupUpdate_Admin_BadBody_Returns400(t *testing.T) {
 	}
 }
 
-// TestGroupUpdate_Admin_ZeroId verifies that an ID of zero returns a 200 with an error body.
+// TestGroupUpdate_Admin_ZeroId_Returns200Error verifies that an ID of zero returns a 200 with an error body.
 func TestGroupUpdate_Admin_ZeroId_Returns200Error(t *testing.T) {
 	ctx, w := newCtx(idReq{Id: 0}, adminUser())
 	GroupUpdate()(ctx)
@@ -90,7 +91,7 @@ func TestGroupUpdate_Admin_ZeroId_Returns200Error(t *testing.T) {
 	}
 }
 
-// TestGroupDelete_NonAdmin verifies that a non-admin user is rejected with 401.
+// TestGroupDelete_NonAdmin_Returns401 verifies that a non-admin user is rejected with 401.
 func TestGroupDelete_NonAdmin_Returns401(t *testing.T) {
 	ctx, w := newCtx(nil, regularUser())
 	GroupDelete()(ctx)
@@ -99,7 +100,7 @@ func TestGroupDelete_NonAdmin_Returns401(t *testing.T) {
 	}
 }
 
-// TestGroupDelete_Admin_BadBody verifies that a malformed request body returns 400.
+// TestGroupDelete_Admin_BadBody_Returns400 verifies that a malformed request body returns 400.
 func TestGroupDelete_Admin_BadBody_Returns400(t *testing.T) {
 	ctx, w := badBodyCtx(adminUser())
 	GroupDelete()(ctx)
@@ -108,7 +109,7 @@ func TestGroupDelete_Admin_BadBody_Returns400(t *testing.T) {
 	}
 }
 
-// TestGroupDelete_Admin_ZeroId verifies that an ID of zero returns a 200 with an error body.
+// TestGroupDelete_Admin_ZeroId_Returns200Error verifies that an ID of zero returns a 200 with an error body.
 func TestGroupDelete_Admin_ZeroId_Returns200Error(t *testing.T) {
 	ctx, w := newCtx(idReq{Id: 0}, adminUser())
 	GroupDelete()(ctx)

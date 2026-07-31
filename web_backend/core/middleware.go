@@ -1,19 +1,23 @@
 /*
-* Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
-*
-* Copyright (c) Siemens AG, 2016-2026.
-*
-* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
-* directory or visit <https://opensource.org/licenses/MIT>.
-*
+ * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
+ *
+ * Copyright (c) Siemens AG, 2016-2026.
+ *
+ * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+ * directory or visit <https://opensource.org/licenses/MIT>.
+ *
+ * SPDX-License-Identifier: MIT
  */
 
 package core
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/http/httputil"
 	"os"
 	"strconv"
@@ -45,11 +49,38 @@ func MwInitializeRequest() gin.HandlerFunc {
 		logger := log.GetLogger().Tagged(uuid)
 
 		// Log received request
-		logger.Debugf("%s %s from %s.",
-			ctx.Request.Method,
-			ctx.Request.URL.String(),
-			ctx.Request.RemoteAddr,
-		)
+		if ctx.RemoteIP() == ctx.ClientIP() {
+			logger.Debugf("%s %s from %s.",
+				ctx.Request.Method,
+				ctx.Request.URL.String(),
+				ctx.Request.RemoteAddr,
+			)
+		} else {
+			logger.Debugf("%s %s from %s (Client IP: %s).",
+				ctx.Request.Method,
+				ctx.Request.URL.String(),
+				ctx.Request.RemoteAddr,
+				ctx.ClientIP(), // Attention, client IP extracted from HTTP headers might be spoofed
+			)
+		}
+
+		// Attention, client IP extracted from HTTP headers might be spoofed
+		var clientHeaders []string
+		xff := ctx.GetHeader("X-Forwarded-For")
+		if xff != "" {
+			clientHeaders = append(clientHeaders, fmt.Sprintf("X-Forwarded-For=%s", xff))
+		}
+		xri := ctx.GetHeader("X-Real-IP")
+		if xri != "" {
+			clientHeaders = append(clientHeaders, fmt.Sprintf("X-Real-IP=%s", xri))
+		}
+		fwd := ctx.GetHeader("Forwarded")
+		if fwd != "" {
+			clientHeaders = append(clientHeaders, fmt.Sprintf("Forwarded=%s", fwd))
+		}
+		if len(clientHeaders) > 0 {
+			logger.Debugf("Remote IP headers: %s", strings.Join(clientHeaders, "; "))
+		}
 
 		// Log middleware execution
 		logger.Debugf("Preparing request storage.")
@@ -68,6 +99,7 @@ func MwInitializeRequest() gin.HandlerFunc {
 	}
 }
 
+// MwPanicHandler recovers request panics, logs diagnostic context, and returns a safe error response
 func MwPanicHandler() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 
@@ -79,10 +111,10 @@ func MwPanicHandler() gin.HandlerFunc {
 
 		// Recover from panics
 		defer func() {
-			if err := recover(); err != nil {
+			if r := recover(); r != nil {
 
 				// Check for a broken connection, as it is not really a condition that warrants a panic stack trace.
-				if ne, ok := err.(*net.OpError); ok {
+				if ne, ok := r.(*net.OpError); ok {
 					var se *os.SyscallError
 					if errors.As(ne.Err, &se) {
 						if strings.Contains(strings.ToLower(se.Error()), "broken pipe") ||
@@ -113,7 +145,7 @@ func MwPanicHandler() gin.HandlerFunc {
 				logger.Errorf(
 					"HTTP request panicked!\n\tRequest:\n\t\t| %s\n\tError:\n\t\t| %s\n\tStacktrace:\n\t\t| %s",
 					req,
-					err,
+					r,
 					scanUtils.StacktraceIndented("\t\t| "),
 				)
 				logger.Debugf("Aborting request.")
@@ -187,8 +219,9 @@ func MwSetSecurityHeaders() gin.HandlerFunc {
 		// Set "IE No Open" policy
 		headers.Set("X-Download-Options", "noopen")
 
-		// Set XSS filter header
-		headers.Set("X-XSS-Protection", "1; mode=block")
+		// Explicitly disable the legacy XSS auditor — it was removed from Chrome/Firefox
+		// and can introduce XSS vulnerabilities in old IE. CSP handles this properly.
+		headers.Set("X-XSS-Protection", "0")
 
 		// Set referrer policy
 		headers.Set("Referrer-Policy", "no-referrer")
@@ -199,16 +232,46 @@ func MwSetSecurityHeaders() gin.HandlerFunc {
 		headers.Set("Pragma", "no-cache")
 		headers.Set("Expires", "0")
 
-		// Set content security policy
+		// Generate a per-request nonce for PrimeVue's runtime <style> injection and
+		// for the OIDC callback inline script. The nonce is shared via gin context so
+		// other handlers can embed it in responses.
+		var nonceBuf [16]byte
+		if _, errNonce := rand.Read(nonceBuf[:]); errNonce != nil {
+			logger.Errorf("Could not generate CSP nonce: %v", errNonce)
+			respondError(ctx, http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
+			ctx.Abort()
+			return
+		}
+		nonce := hex.EncodeToString(nonceBuf[:])
+		ctx.Set("csp-nonce", nonce)
+
+		// Set content security policy.
+		// script-src: 'self' only — the Vite build uses vue.runtime.esm-bundler (no runtime
+		//   template compiler) and @intlify/unplugin-vue-i18n pre-compiles translations at
+		//   build time, so no new Function() calls remain; 'unsafe-eval' is not needed.
+		// style-src: 'self' for the Vite-bundled CSS + nonce for PrimeVue's runtime
+		//   <style> injection (Aura theme engine injects component styles at runtime).
+		// style-src-attr: PrimeVue sets inline style attributes on elements (e.g. DataTable
+		//   column widths, overlay positioning). Nonces cannot cover style attributes, so
+		//   'unsafe-inline' is scoped to style-src-attr only, keeping <style> elements
+		//   nonce-gated via style-src.
+		// form-action: restricts where forms may submit; not covered by default-src fallback.
+		// worker-src: no web workers or service workers used; explicit 'none' is safer than
+		//   relying on the default-src fallback chain.
 		policy := ""
 		policy += fmt.Sprintf("%s %s; ", "default-src", "'self'")
-		policy += fmt.Sprintf("%s %s; ", "script-src", "'self' 'unsafe-eval'")                               // 'unsafe-eval' required by KnockoutJS framework :(
-		policy += fmt.Sprintf("%s %s; ", "font-src", "'self' data: https://fonts.gstatic.com")               // 'https://fonts.gstatic.com' required by SemanticUi
-		policy += fmt.Sprintf("%s %s; ", "img-src", "'self' data:")                                          // 'data:' required by SemanticUi
-		policy += fmt.Sprintf("%s %s; ", "style-src", "'self' 'unsafe-inline' https://fonts.googleapis.com") // 'https://fonts.googleapis.com' required by SemanticUi.
+		policy += fmt.Sprintf("%s %s; ", "script-src", "'self'")
+		policy += fmt.Sprintf("%s %s 'nonce-%s'; ", "style-src", "'self'", nonce)
+		policy += fmt.Sprintf("%s %s; ", "style-src-attr", "'unsafe-inline'")
+		policy += fmt.Sprintf("%s %s; ", "connect-src", "'self'")
+		policy += fmt.Sprintf("%s %s; ", "img-src", "'self' data:")
+		policy += fmt.Sprintf("%s %s; ", "font-src", "'self'")
+		policy += fmt.Sprintf("%s %s; ", "object-src", "'none'")
+		policy += fmt.Sprintf("%s %s; ", "base-uri", "'self'")
+		policy += fmt.Sprintf("%s %s; ", "form-action", "'self'")
+		policy += fmt.Sprintf("%s %s; ", "worker-src", "'none'")
+		policy += fmt.Sprintf("%s %s; ", "frame-ancestors", "'none'")
 		policy = strings.TrimSuffix(policy, "; ")
-		headers.Set("X-Webkit-CSP", policy)
-		headers.Set("X-Content-Security-Policy", policy)
 		headers.Set("Content-Security-Policy", policy)
 
 		// Set custom security relevant response headers
@@ -219,7 +282,7 @@ func MwSetSecurityHeaders() gin.HandlerFunc {
 	}
 }
 
-// MwAbortOptionsRequest aborts OPTIONS requests, as they should not get executed in the backend
+// MwAbortOptionsRequest aborts OPTIONS requests because they should not reach backend handlers
 func MwAbortOptionsRequest() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 
@@ -235,7 +298,7 @@ func MwAbortOptionsRequest() gin.HandlerFunc {
 		// Abort OPTIONS requests
 		if ctx.Request.Method == "OPTIONS" {
 			logger.Debugf("Aborted OPTIONS request.")
-			ctx.AbortWithStatus(200)
+			ctx.AbortWithStatus(http.StatusOK)
 			return
 		}
 
@@ -244,7 +307,7 @@ func MwAbortOptionsRequest() gin.HandlerFunc {
 	}
 }
 
-// MwJwtAuthentication is a middleware validating every request for valid authentication details
+// MwJwtAuthentication validates protected requests and stores the authenticated user in their context
 func MwJwtAuthentication() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 
@@ -288,13 +351,13 @@ func MwJwtAuthentication() gin.HandlerFunc {
 		// Read and parse token
 		assertion := &Jwt{}
 		tokenPart := splits[1] // Grab the token part, what we are truly interested in
-		token, err := jwt.ParseWithClaims(tokenPart, assertion, func(token *jwt.Token) (interface{}, error) {
+		token, errToken := jwt.ParseWithClaims(tokenPart, assertion, func(token *jwt.Token) (interface{}, error) {
 			return []byte(jwtSecret), nil
 		})
 
 		// Stop validation if token could not be parsed
-		if err != nil {
-			logger.Debugf("Authentication failed. Authentication token exceeded: %s", err)
+		if errToken != nil {
+			logger.Debugf("Authentication failed. Authentication token exceeded: %s", errToken)
 			RespondAuthError(ctx)
 			return // Return, without processing further middleware plugins
 		}
@@ -320,14 +383,16 @@ func MwJwtAuthentication() gin.HandlerFunc {
 			return
 		}
 
-		// Stop if user is invalid
+		// Check if user entry exists
 		if userEntry == nil {
 			logger.Warningf("Authentication failed. User with ID %d is not existing.", assertion.UserId)
 			RespondAuthError(ctx)
 			return
 		}
 
-		// Determine expected revision depending on JWT kind
+		// Abort login if JWT revision does not match the user's matching counter. Web tokens are
+		// validated against LogoutCount (bumped on each logout), API tokens against ApiTokenRevision
+		// (bumped whenever a new API token is issued).
 		var expectedRevision uint
 		if assertion.Kind == JwtKindApi {
 			expectedRevision = userEntry.ApiTokenRevision
@@ -335,9 +400,8 @@ func MwJwtAuthentication() gin.HandlerFunc {
 			expectedRevision = userEntry.LogoutCount
 		}
 
-		// Abort login if JWT revision does not match expected revision
 		if assertion.Revision != expectedRevision {
-			logger.Warningf("Authentication failed. Token revision invalid.")
+			logger.Debugf("Authentication failed. Outdated authentication token.")
 			RespondAuthError(ctx)
 			return // Return, without processing further middleware plugins
 		}
@@ -365,9 +429,10 @@ func MwJwtAuthentication() gin.HandlerFunc {
 			}
 		}
 
-		// Set user and JWT kind in current request context on server side. Handlers can use this data subsequently.
-		getContextStorage(ctx).CurrentUser = userEntry
-		getContextStorage(ctx).CurrentJwtKind = assertion.Kind
+		// Set user in current request context on server side. Handlers can use this data subsequently.
+		storage := getContextStorage(ctx)
+		storage.CurrentUser = userEntry
+		storage.CurrentJwtKind = assertion.Kind
 
 		// Success, step to next middleware plugin, if existing
 		ctx.Next() // Should only be called in middleware handlers!

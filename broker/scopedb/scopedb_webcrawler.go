@@ -12,16 +12,15 @@ package scopedb
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/jackc/pgconn"
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/GoScans/webcrawler"
 	managerdb "github.com/siemens/Large-Scale-Discovery/manager/database"
+	"github.com/siemens/Large-Scale-Discovery/manager/scopedb"
 	"github.com/siemens/Large-Scale-Discovery/utils"
 	"gorm.io/gorm"
 )
@@ -29,98 +28,26 @@ import (
 // PrepareWebcrawlerResult creates an info entry in the database to indicate an active process.
 func PrepareWebcrawlerResult(
 	logger scanUtils.Logger,
-	scanScope *managerdb.T_scan_scope,
+	scopeEntry *managerdb.T_scan_scope,
 	idsTDiscoveryService []uint64,
 	scanStarted sql.NullTime,
 	scanIp string,
 	scanHostname string,
 	wg *sync.WaitGroup,
 ) {
-
-	// Log potential panics before letting them move on
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf(fmt.Sprintf("Panic: %s%s", r, scanUtils.StacktraceIndented("\t")))
-			panic(r)
-		}
-	}()
-
-	// Notify the WaitGroup that we're done
-	defer wg.Done()
-
-	// Log action
-	logger.Debugf("Preparing webcrawler info entry.")
-
-	// Return if there were no results to be created
-	if len(idsTDiscoveryService) == 0 {
-		logger.Debugf("No discovery services for webcrawler info entries provided.")
-		return
-	}
-
-	// Open scope's database
-	scopeDb, errHandle := managerdb.GetScopeDbHandle(logger, scanScope)
-	if errHandle != nil {
-		logger.Errorf("Could not open scope database: %s", errHandle)
-		return
-	}
-
-	// Iterate service IDs to create database info entries for
-	infoEntries := make([]managerdb.T_webcrawler, 0, len(idsTDiscoveryService))
-	for _, idTDiscoveryService := range idsTDiscoveryService {
-
-		// Prepare info entry
-		infoEntries = append(infoEntries, managerdb.T_webcrawler{
-			IdTDiscoveryService: idTDiscoveryService,
-			ColumnsScan: managerdb.ColumnsScan{
-				ScanStarted:  scanStarted,
-				ScanFinished: sql.NullTime{Valid: false},
-				ScanStatus:   scanUtils.StatusRunning,
-				ScanIp:       scanIp,
-				ScanHostname: scanHostname,
-			},
-		})
-	}
-
-	// Create info entries, if not yet existing. It might exist from a previous scan attempt (if the scan crashed).
-	// This check which is applied here is specific to postgres.
-	// Use a new gorm session and force a limit on how many Entries can be batched, as we otherwise might
-	// exceed the database's limit of 65535 parameters
-	errDb := scopeDb.
-		Session(&gorm.Session{CreateBatchSize: managerdb.MaxBatchSizeWebcrawler}).
-		Create(&infoEntries).Error
-
-	// Extract Postgres error if existing
-	var errPg *pgconn.PgError
-	errors.As(errDb, &errPg)
-
-	// Handle database errors
-	if errPg != nil && errPg.Code == "23505" { // Code for Postgres' unique constraint violation
-
-		// Fall back to inserting the entries one by one to ensure as many entries as possible being added to the db
-		for _, entry := range infoEntries {
-			errDb2 := scopeDb.Create(&entry).Error
-
-			// Extract Postgres error if existing
-			var errPg2 *pgconn.PgError
-			errors.As(errDb2, &errPg2)
-
-			// Handle database errors
-			if errPg2 != nil && errPg2.Code == "23505" { // Code for Postgres' unique constraint violation
-				logger.Debugf("Webcrawler info entry %d already existing.", entry.IdTDiscoveryService)
-			} else if errDb2 != nil {
-				logger.Errorf("Webcrawler info entry %d could not be created: %s", entry.IdTDiscoveryService, errDb2)
-			}
-		}
-	} else if errDb != nil {
-		logger.Errorf("Webcrawler info entries could not be created: %s", errDb)
-	}
+	prepareInfoEntry(logger, scopeEntry, idsTDiscoveryService, scanStarted, scanIp, scanHostname, wg,
+		"webcrawler", scopedb.MaxBatchSizeWebcrawler,
+		func(id uint64, cols scopedb.ColumnsScan) scopedb.T_webcrawler {
+			return scopedb.T_webcrawler{IdTDiscoveryService: id, ColumnsScan: cols}
+		},
+	)
 }
 
 // SaveWebcrawlerResult parses a result and adds its data into the database. Furthermore, it sets the "scan_finished"
 // timestamp to indicate a completed process.
 func SaveWebcrawlerResult(
 	logger scanUtils.Logger,
-	scanScope *managerdb.T_scan_scope,
+	scopeEntry *managerdb.T_scan_scope,
 	idTDiscoveryService uint64, // T_discovery_services ID this result belongs to
 	result *webcrawler.Result,
 ) error {
@@ -129,12 +56,12 @@ func SaveWebcrawlerResult(
 	logger.Debugf("Saving webcrawler scan result.")
 
 	// Open scope's database
-	scopeDb, errHandle := managerdb.GetScopeDbHandle(logger, scanScope)
-	if errHandle != nil {
-		return fmt.Errorf("could not open scope database: %s", errHandle)
+	scopeDb, errScopeDb := scopedb.GetScopeDbHandle(logger, scopeEntry)
+	if errScopeDb != nil {
+		return fmt.Errorf("could not open scope database: %s", errScopeDb)
 	}
 
-	// Start transaction on the scoped db. The new Transaction function will commit if the provided function
+	// Start transaction on the scope database. The new Transaction function will commit if the provided function
 	// returns nil and rollback if an error is returned.
 	return scopeDb.Transaction(func(txScopeDb *gorm.DB) error {
 		// Check the condition of the info entry stored in the database. It got created the first time the target was
@@ -150,30 +77,30 @@ func SaveWebcrawlerResult(
 		// 			   allow users proper investigations in case of IDS alerts).
 
 		// Prepare memory for result
-		var infoEntry = managerdb.T_webcrawler{}
-		var infoEntryCount int64
+		var webcrawlerEntry = scopedb.T_webcrawler{}
+		var webcrawlerEntryCount int64
 
 		// Query info entry
 		errDb := txScopeDb.Where("id_t_discovery_service = ?", idTDiscoveryService).
-			First(&infoEntry).
-			Count(&infoEntryCount).Error
+			First(&webcrawlerEntry).
+			Count(&webcrawlerEntryCount).Error
 		if errDb != nil {
-			return fmt.Errorf("could not find associated info entry in scope db: %s", errDb)
+			return fmt.Errorf("could not find associated info entry in scope database: %s", errDb)
 		}
 
 		// Check if info entry was found
-		if infoEntryCount != 1 {
+		if webcrawlerEntryCount != 1 {
 			logger.Infof("Dropping webcrawler result of vanished discovery result.") // Scan database might have been reset or cleaned up
 			return nil
 		}
 
 		// Add scan results, if this is the first result delivered (scan_finished not yet set)
-		if !infoEntry.ScanFinished.Valid {
+		if !webcrawlerEntry.ScanFinished.Valid {
 
 			// Add scan results
-			joinedStates, errAdd := addWebcrawlerResults(logger, txScopeDb, infoEntry.Id, idTDiscoveryService, result)
-			if errAdd != nil {
-				return fmt.Errorf("could not insert result into scope db: %s", errAdd)
+			joinedStates, errJoinedStates := addWebcrawlerResults(logger, txScopeDb, webcrawlerEntry.Id, idTDiscoveryService, result)
+			if errJoinedStates != nil {
+				return fmt.Errorf("could not insert result into scope database: %s", errJoinedStates)
 			}
 
 			// If the outer status is not a success or the concatenated one is empty, we'd rather want to display the
@@ -183,18 +110,18 @@ func SaveWebcrawlerResult(
 			}
 
 			// Add scan status to info entry.
-			infoEntry.ScanStatus = joinedStates
+			webcrawlerEntry.ScanStatus = joinedStates
 		}
 
 		// Update finished timestamp. Set or update it to the current time.
-		infoEntry.ScanFinished = sql.NullTime{Time: time.Now(), Valid: true}
+		webcrawlerEntry.ScanFinished = sql.NullTime{Time: time.Now(), Valid: true}
 
 		// Update db with changes
-		errDb2 := txScopeDb.Model(&infoEntry).
+		errDb2 := txScopeDb.Model(&webcrawlerEntry).
 			Where("id_t_discovery_service = ?", idTDiscoveryService).
-			Updates(infoEntry).Error
+			Updates(webcrawlerEntry).Error
 		if errDb2 != nil {
-			return fmt.Errorf("could not update entry in scope db: %s", errDb2)
+			return fmt.Errorf("could not update entry in scope database: %s", errDb2)
 		}
 
 		// Return nil as everything went fine
@@ -214,8 +141,8 @@ func addWebcrawlerResults(
 
 	// Prepare entry slices. We need a slice of pointers for the vhosts, as we need the same reference in order to set
 	// it in the respective page entries.
-	vhostEntries := make([]*managerdb.T_webcrawler_vhost, 0, len(result.Data))
-	pageEntries := make([]managerdb.T_webcrawler_page, 0, 20)
+	webcrawlerVhostEntries := make([]*scopedb.T_webcrawler_vhost, 0, len(result.Data))
+	webcrawlerPageEntries := make([]scopedb.T_webcrawler_page, 0, 20)
 
 	// We need to first create the vhost entries, as gorm will add appropriate IDs during the Create. These IDs are then
 	// needed as a foreign key in the page entries.
@@ -242,7 +169,7 @@ func addWebcrawlerResults(
 		sanitizedDiscoveredDownloads := utils.ValidUtf8String(strings.Join(vhost.DiscoveredDownloads, DbValueSeparator))
 
 		// Prepare data entry
-		vhostEntry := &managerdb.T_webcrawler_vhost{
+		webcrawlerVhostEntry := &scopedb.T_webcrawler_vhost{
 			IdTDiscoveryService: idTDiscoveryService,
 			IdTWebcrawler:       tWebcrawlerInfoId,
 			Status:              vhost.Status,
@@ -257,7 +184,7 @@ func addWebcrawlerResults(
 			DiscoveredVhosts:    sanitizedDiscoveredVhosts,
 			DiscoveredDownloads: sanitizedDiscoveredDownloads,
 		}
-		vhostEntries = append(vhostEntries, vhostEntry)
+		webcrawlerVhostEntries = append(webcrawlerVhostEntries, webcrawlerVhostEntry)
 
 		for _, page := range vhost.Pages {
 
@@ -272,7 +199,7 @@ func addWebcrawlerResults(
 			sanitizedHtmlContent := utils.ToValidUtf8String(page.HtmlContent)
 
 			// Prepare page entry
-			pageEntries = append(pageEntries, managerdb.T_webcrawler_page{
+			webcrawlerPageEntries = append(webcrawlerPageEntries, scopedb.T_webcrawler_page{
 				IdTDiscoveryService: idTDiscoveryService,
 				IdTWebcrawler:       tWebcrawlerInfoId,
 				Depth:               page.Depth,
@@ -290,7 +217,7 @@ func addWebcrawlerResults(
 				HtmlContentLength:   len(sanitizedHtmlContent),
 				RawLinks:            strings.Join(page.RawLinks, DbValueSeparator),
 
-				TWebcrawlerVhost: vhostEntry, // Need to use the struct, as we don't know the ID yet
+				TWebcrawlerVhost: webcrawlerVhostEntry, // Need to use the struct, as we don't know the ID yet
 			})
 		}
 	}
@@ -299,18 +226,18 @@ func addWebcrawlerResults(
 	// page entries. In this case gorm would:
 	// - insert pages, detect that the corresponding vhost entries are not existing
 	// - create the missing vhosts (correctly) according to the vhost struct in the page
-	// - try to create the vhosts from the vhostEntries slice again
-	// Of course we could also let gorm create the hosts this way and not call create on the vhostEntries slice, but it
+	// - try to create the vhosts from the webcrawlerVhostEntries slice again
+	// Of course we could also let gorm create the hosts this way and not call create on the webcrawlerVhostEntries slice, but it
 	// might be not as obvious
 	// Empty slices would result in an error and we don't consider an empty slice an error, as there might simply be no
 	// results
-	if len(vhostEntries) > 0 {
+	if len(webcrawlerVhostEntries) > 0 {
 
 		// Use a new gorm session and force a limit on how many Entries can be batched, as we otherwise might
 		// exceed the database's' limit of 65535 parameters
 		errDb := txScopeDb.
-			Session(&gorm.Session{CreateBatchSize: managerdb.MaxBatchSizeWebcrawlerVhost}).
-			Create(&vhostEntries).Error
+			Session(&gorm.Session{CreateBatchSize: scopedb.MaxBatchSizeWebcrawlerVhost}).
+			Create(&webcrawlerVhostEntries).Error
 		if errDb != nil {
 			return "", fmt.Errorf("%w (vhosts)", errDb) // Wrapped error with prefix/suffix for coherent message
 		}
@@ -318,13 +245,13 @@ func addWebcrawlerResults(
 
 	// Insert pages into db. Empty slices would result in an error and we don't consider an empty slice an error, as
 	// there might simply be no results
-	if len(pageEntries) > 0 {
+	if len(webcrawlerPageEntries) > 0 {
 
 		// Use a new gorm session and force a limit on how many Entries can be batched, as we otherwise might
 		// exceed the database's limit of 65535 parameters
 		errDb := txScopeDb.
-			Session(&gorm.Session{CreateBatchSize: managerdb.MaxBatchSizeWebcrawlerPage}).
-			Create(&pageEntries).Error
+			Session(&gorm.Session{CreateBatchSize: scopedb.MaxBatchSizeWebcrawlerPage}).
+			Create(&webcrawlerPageEntries).Error
 		if errDb != nil {
 			return "", fmt.Errorf("%w (pages)", errDb) // Wrapped error with prefix/suffix for coherent message
 		}

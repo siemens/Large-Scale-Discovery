@@ -22,8 +22,6 @@ import (
 	"github.com/siemens/Large-Scale-Discovery/utils"
 )
 
-var ErrInvalidPrivilege = fmt.Errorf("invalid privilege secret")
-
 //
 // ATTENTION: This RPC endpoint does return scan scope data INCLUDING SENSITIVE attributes, such as, scope secret and
 // 			  database credentials. This RPC endpoint may only be called with a valid privilege token.
@@ -38,16 +36,12 @@ var ErrInvalidPrivilege = fmt.Errorf("invalid privilege secret")
 //	log messages.
 func (s *Manager) GetScopeFull(rpcArgs *ArgsScopeFull, rpcReply *ReplyScanScope) error {
 
-	// Track request so shutdown waits for it to complete
-	rpcInflight.Add(1)
-	defer rpcInflight.Done()
-
-	// Reject request if shutdown is already in progress, the client can retry later
-	select {
-	case <-coreCtx.Done():
-		return utils.ErrRpcConnectivity
-	default:
+	// Reject requests once shutdown starts.
+	// beginRpc already increments rpcInflight before proceeding.
+	if !beginRpc() {
+		return utils.ErrRpcGeneric
 	}
+	defer rpcInflight.Done() // Release rpcInflight count that was set by beginRpc.
 
 	// Generate UUID for context
 	uuid := shortuuid.New()[0:10] // Shorten uuid, doesn't need to be that long

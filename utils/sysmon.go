@@ -31,6 +31,7 @@ type SystemData struct {
 	VersionNmap     string  `json:"version_nmap"`
 	VersionNpcap    string  `json:"version_npcap"`
 	VersionSslyze   string  `json:"version_sslyze"`
+	VersionPython   string  `json:"version_python"`
 }
 
 type SystemMonitor struct {
@@ -62,12 +63,12 @@ func (sm *SystemMonitor) Run(interval time.Duration) {
 
 	// Read static hardware characteristics once; these do not change across measurements
 	cpuCores, _ := cpu.Counts(true)
-	cpuInfos, errCpuInfo := cpu.Info()
+	cpuInfos, errCpuInfos := cpu.Info()
 	memStatic, errMemStatic := mem.VirtualMemory()
 
 	// Extract CPU frequency
 	var cpuMhz float64
-	if errCpuInfo == nil && len(cpuInfos) > 0 {
+	if errCpuInfos == nil && len(cpuInfos) > 0 {
 		cpuMhz = cpuInfos[0].Mhz
 	}
 
@@ -96,23 +97,27 @@ func (sm *SystemMonitor) Run(interval time.Duration) {
 		}
 
 		// Measure for x amount of time (blocking)
-		cRate, errCpu := cpu.Percent(interval, false)
-		if errCpu != nil {
+		cpuRate, errCpuRate := cpu.Percent(interval, false)
+		if errCpuRate != nil {
 			measurement.CpuRate = -1
 		} else {
-			measurement.CpuRate = cRate[0]
+			measurement.CpuRate = cpuRate[0]
 		}
 
 		// Get system memory usage
-		vmem, errMem := mem.VirtualMemory()
-		if errMem != nil {
+		memRate, errMemRate := mem.VirtualMemory()
+		if errMemRate != nil {
 			measurement.MemoryRate = -1
 		} else {
-			measurement.MemoryRate = vmem.UsedPercent
+			measurement.MemoryRate = memRate.UsedPercent
 		}
 
 		// Update latest measurement data
-		sm.chNew <- measurement
+		select {
+		case sm.chNew <- measurement:
+		case <-sm.ctx.Done():
+			return
+		}
 	}
 
 	// Launch initial measurement
@@ -151,5 +156,12 @@ func (sm *SystemMonitor) Shutdown() {
 
 // Get retrieves the last known system usage data
 func (sm *SystemMonitor) Get() SystemData {
-	return <-sm.chRead
+
+	// Return promptly with an empty snapshot when monitor shutdown wins the request race
+	select {
+	case data := <-sm.chRead:
+		return data
+	case <-sm.ctx.Done():
+		return SystemData{}
+	}
 }

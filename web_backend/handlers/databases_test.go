@@ -1,11 +1,12 @@
 /*
-* Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
-*
-* Copyright (c) Siemens AG, 2016-2026.
-*
-* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
-* directory or visit <https://opensource.org/licenses/MIT>.
-*
+ * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
+ *
+ * Copyright (c) Siemens AG, 2016-2026.
+ *
+ * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+ * directory or visit <https://opensource.org/licenses/MIT>.
+ *
+ * SPDX-License-Identifier: MIT
  */
 
 package handlers
@@ -15,7 +16,7 @@ import (
 	"testing"
 )
 
-// TestDatabases_NonAdmin verifies that a non-admin user is rejected with 401.
+// TestDatabases_NonAdmin_Returns401 verifies that a non-admin user is rejected with 401.
 func TestDatabases_NonAdmin_Returns401(t *testing.T) {
 	ctx, w := newCtx(nil, regularUser())
 	Databases()(ctx)
@@ -24,7 +25,7 @@ func TestDatabases_NonAdmin_Returns401(t *testing.T) {
 	}
 }
 
-// TestDatabases_Admin verifies that an admin triggers an RPC call and receives 503 when RPC is down.
+// TestDatabases_Admin_RpcUnavailable_Returns503 verifies that an admin triggers an RPC call and receives 503 when RPC is down.
 func TestDatabases_Admin_RpcUnavailable_Returns503(t *testing.T) {
 	ctx, w := newCtx(nil, adminUser())
 	Databases()(ctx)
@@ -33,7 +34,7 @@ func TestDatabases_Admin_RpcUnavailable_Returns503(t *testing.T) {
 	}
 }
 
-// TestDatabaseRemove_NonAdmin verifies that a non-admin user is rejected with 401.
+// TestDatabaseRemove_NonAdmin_Returns401 verifies that a non-admin user is rejected with 401.
 func TestDatabaseRemove_NonAdmin_Returns401(t *testing.T) {
 	ctx, w := newCtx(nil, regularUser())
 	DatabaseRemove()(ctx)
@@ -42,7 +43,7 @@ func TestDatabaseRemove_NonAdmin_Returns401(t *testing.T) {
 	}
 }
 
-// TestDatabaseRemove_Admin_BadBody verifies that a malformed request body returns 400.
+// TestDatabaseRemove_Admin_BadBody_Returns400 verifies that a malformed request body returns 400.
 func TestDatabaseRemove_Admin_BadBody_Returns400(t *testing.T) {
 	ctx, w := badBodyCtx(adminUser())
 	DatabaseRemove()(ctx)
@@ -51,7 +52,7 @@ func TestDatabaseRemove_Admin_BadBody_Returns400(t *testing.T) {
 	}
 }
 
-// TestDatabaseRemove_Admin_ZeroId verifies that an ID of zero returns a 200 with an error body.
+// TestDatabaseRemove_Admin_ZeroId_Returns200Error verifies that an ID of zero returns a 200 with an error body.
 func TestDatabaseRemove_Admin_ZeroId_Returns200Error(t *testing.T) {
 	ctx, w := newCtx(idReq{Id: 0}, adminUser())
 	DatabaseRemove()(ctx)
@@ -60,7 +61,7 @@ func TestDatabaseRemove_Admin_ZeroId_Returns200Error(t *testing.T) {
 	}
 }
 
-// TestDatabaseRemove_Admin_ValidId verifies that a valid ID triggers an RPC call and returns 503 when RPC is down.
+// TestDatabaseRemove_Admin_ValidId_RpcUnavailable_Returns503 verifies that a valid ID triggers an RPC call and returns 503 when RPC is down.
 func TestDatabaseRemove_Admin_ValidId_RpcUnavailable_Returns503(t *testing.T) {
 	ctx, w := newCtx(idReq{Id: 1}, adminUser())
 	DatabaseRemove()(ctx)
@@ -69,7 +70,7 @@ func TestDatabaseRemove_Admin_ValidId_RpcUnavailable_Returns503(t *testing.T) {
 	}
 }
 
-// TestDatabaseAddUpdate_NonAdmin verifies that a non-admin user is rejected with 401.
+// TestDatabaseAddUpdate_NonAdmin_Returns401 verifies that a non-admin user is rejected with 401.
 func TestDatabaseAddUpdate_NonAdmin_Returns401(t *testing.T) {
 	ctx, w := newCtx(nil, regularUser())
 	DatabaseAddUpdate()(ctx)
@@ -78,7 +79,7 @@ func TestDatabaseAddUpdate_NonAdmin_Returns401(t *testing.T) {
 	}
 }
 
-// TestDatabaseAddUpdate_Admin_BadBody verifies that a malformed request body returns 400.
+// TestDatabaseAddUpdate_Admin_BadBody_Returns400 verifies that a malformed request body returns 400.
 func TestDatabaseAddUpdate_Admin_BadBody_Returns400(t *testing.T) {
 	ctx, w := badBodyCtx(adminUser())
 	DatabaseAddUpdate()(ctx)
@@ -87,7 +88,7 @@ func TestDatabaseAddUpdate_Admin_BadBody_Returns400(t *testing.T) {
 	}
 }
 
-// TestDatabaseAddUpdate_Admin_EmptyName verifies that an empty database name returns a 200 with an error body.
+// TestDatabaseAddUpdate_Admin_EmptyName_Returns200Error verifies that an empty database name returns a 200 with an error body.
 func TestDatabaseAddUpdate_Admin_EmptyName_Returns200Error(t *testing.T) {
 	type req struct {
 		Name string `json:"name"`
@@ -99,7 +100,7 @@ func TestDatabaseAddUpdate_Admin_EmptyName_Returns200Error(t *testing.T) {
 	}
 }
 
-// TestDatabaseAddUpdate_Admin_EmptyDialect verifies that an empty dialect returns a 200 with an error body.
+// TestDatabaseAddUpdate_Admin_EmptyDialect_Returns200Error verifies that an empty dialect returns a 200 with an error body.
 func TestDatabaseAddUpdate_Admin_EmptyDialect_Returns200Error(t *testing.T) {
 	type req struct {
 		Name    string `json:"name"`

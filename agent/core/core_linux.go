@@ -37,7 +37,7 @@ func initModules(scanScopeSecrets []string) {
 	})
 }
 
-// launch crates a task for a given scan module if there is an implementation for this OS
+// launch launches a task for a given scan module if there is an implementation for this OS
 func launch(logger scanUtils.Logger, chOut chan broker.ArgsSaveScanResult, scanTask *broker.ScanTask) {
 
 	// Execute scan based on module type

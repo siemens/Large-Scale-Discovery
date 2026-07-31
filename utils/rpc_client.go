@@ -25,6 +25,7 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
+// ReconnectInterval defines the delay between background RPC connection attempts
 const ReconnectInterval = time.Second * 5
 
 // IsRpcConnectionError validates a given error and checks whether it is a kind of error indicating connectivity issues
@@ -38,18 +39,24 @@ func IsRpcConnectionError(err error) bool {
 	return false // Return false if not connectivity error
 }
 
+// Client owns one reconnecting net/rpc connection and its lifecycle
 type Client struct {
-	chNotify       chan chan struct{}  // A channel of channels waiting for a signal after a connection was established
-	serverAddress  string              // RPC server address to connect to
-	serverSsl      bool                // Whether to establish an SSL connection
-	serverCertPath string              // Public key of server to check certificate hash
-	serverSecret   string              // Shared secret sent as a connection handshake to authenticate this client. Empty disables it.
-	ctx            context.Context     // Context of this RPC client
-	ctxCancelFunc  context.CancelFunc  // Function to cancel this RPC client's context in order to shut it down
-	sem            *semaphore.Weighted // RPC semaphore making sure only one goroutine is initiating a connection
-	con            io.ReadWriteCloser  // RPC connection
-	client         *rpc.Client         // RPC client connected
-	wg             sync.WaitGroup      // Wait group indicating whether everything is shut down
+	serverAddress  string // RPC server address to connect to
+	serverSsl      bool   // Whether to establish an SSL connection
+	serverCertPath string // Public key of server to check certificate hash
+	serverSecret   string // Shared secret sent as a connection handshake to authenticate this client. Empty disables it.
+
+	ctx           context.Context    // Context of this RPC client
+	ctxCancelFunc context.CancelFunc // Function to cancel this RPC client's context in order to shut it down
+
+	wg         sync.WaitGroup      // Wait group indicating whether everything is shut down
+	lockState  sync.Mutex          // Lock protecting the connection pointers, state, and waiters
+	semConnect *semaphore.Weighted // RPC semaphore making sure only one goroutine is initiating a connection
+	chNotify   []chan struct{}     // One-shot channels parked by Established() callers until a connection becomes available or the client shuts down
+
+	rpcClient    *rpc.Client        // RPC client connected
+	rpcCon       io.ReadWriteCloser // RPC connection
+	rpcConnected bool               // Whether the currently published RPC client connected successfully
 }
 
 // NewRpcClient prepares an RPC client struct providing connectivity to an RPC server.
@@ -61,14 +68,13 @@ func NewRpcClient(
 ) *Client {
 	ctx, ctxCancelFunc := context.WithCancel(context.Background())
 	return &Client{
-		chNotify:       make(chan chan struct{}),
 		serverAddress:  server,
 		serverSsl:      serverSsl,
 		serverCertPath: serverCertPath,
 		serverSecret:   serverSecret,
 		ctx:            ctx,
 		ctxCancelFunc:  ctxCancelFunc,
-		sem:            semaphore.NewWeighted(int64(1)),
+		semConnect:     semaphore.NewWeighted(int64(1)),
 	}
 }
 
@@ -77,41 +83,64 @@ func NewRpcClient(
 // background sending a notification to current subscribers on success. Subscribe via "Established()".
 func (c *Client) Connect(logger scanUtils.Logger, continueBackground bool) bool {
 
+	// Acquire the lock to prevent Disconnect from racing wg.Wait against this goroutine's wg.Add
+	c.lockState.Lock()
+
+	// Register connection work
+	if c.ctx.Err() != nil {
+		c.lockState.Unlock()
+		return false
+	}
+
 	// Make shutdown wait (just needed to improve order of remaining log messages)
 	c.wg.Add(1)
 
+	// Release lock again
+	c.lockState.Unlock()
+
 	// Make sure only one goroutine is trying to initiate a (re)connection at once
-	if !c.sem.TryAcquire(1) {
+	if !c.semConnect.TryAcquire(1) {
 		logger.Debugf("Connecting RPC already in progress.")
 		c.wg.Done()
 		return false // No semaphore acquired
 	}
 
 	// Try to connect
-	err := c.connect(logger)
-	if err != nil {
+	errConnect := c.connect(logger)
+	if errConnect != nil {
+
+		// Log failed connection attempt
+		logger.Debugf("Connecting RPC failed: %s", errConnect)
 
 		// Return without success if no retry is desired
-		logger.Debugf("Connecting RPC failed: %s", err)
 		if !continueBackground {
-			c.sem.Release(1) // Release semaphore, function does not continue in the background
+			c.semConnect.Release(1) // Release semaphore, function does not continue in the background
 			c.wg.Done()
 			return false
 		}
 
 	} else {
 
-		// Return with success
+		// Log successful connection attempt
 		logger.Debugf("Connecting RPC succeeded.")
-		c.sem.Release(1) // Release semaphore again after successful connection
+
+		// Return with success
+		c.semConnect.Release(1) // Release semaphore again after successful connection
 		c.wg.Done()
 		return true
 	}
 
 	// Keep retrying in background until success or shutdown
 	go func() {
+
+		// Release the connection slot and shutdown waiter on every terminal path
+		defer c.semConnect.Release(1)
+		defer c.wg.Done()
+
+		// Retry at the configured interval until connection or cancellation
 		attempts := 2 // First attempt was above
 		ticker := time.NewTicker(ReconnectInterval)
+		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C: // Wait for next attempt
@@ -119,20 +148,18 @@ func (c *Client) Connect(logger scanUtils.Logger, continueBackground bool) bool 
 				// Retry if connection failed, exit with success otherwise
 				errConnect := c.connect(logger)
 				if errConnect != nil { // Retry
-					logger.Debugf("Connecting RPC failed: %s", err)
+					logger.Debugf("Connecting RPC failed: %s", errConnect)
 				} else { // Return with success
 					logger.Debugf("Connecting RPC succeeded after %d attempt(s).", attempts)
-					c.sem.Release(1) // Release semaphore, function does not continue in the background
-					c.wg.Done()
 					return
 				}
 
 			case <-c.ctx.Done(): // Cancellation signal
 				logger.Infof("Connecting RPC aborted.")
-				c.sem.Release(1) // Release semaphore, function does not continue in the background
-				c.wg.Done()
 				return
 			}
+
+			// Count attempt
 			attempts++
 		}
 	}()
@@ -142,92 +169,174 @@ func (c *Client) Connect(logger scanUtils.Logger, continueBackground bool) bool 
 	return false
 }
 
-// Established returns a notification channel triggering when an RPC connection was (re)established. This can be
-// used to block after connections issues until it re-connection. The channel will not trigger, if a connection
-// is currently established and working!
+// Established returns a channel that signals once an RPC connection is available
+//
+// The returned channel signals immediately if the client is already connected, waits for the next
+// successful connection otherwise, and closes without a value if the client shuts down
 func (c *Client) Established() <-chan struct{} {
-	chNotify := make(chan struct{})
-	go func() {
-		c.chNotify <- chNotify
-	}()
-	return chNotify
+
+	// Prepare memory for establisehd channels
+	chEstablished := make(chan struct{}, 1)
+
+	// Acquire the lock that guards connection state and waiters to avoid missing a
+	// reconnect between the check and the append
+	c.lockState.Lock()
+
+	// Register synchronously
+	if c.ctx.Err() != nil {
+		close(chEstablished)
+	} else if c.rpcConnected {
+		chEstablished <- struct{}{}
+		close(chEstablished)
+	} else {
+		c.chNotify = append(c.chNotify, chEstablished)
+	}
+
+	// Release lock
+	c.lockState.Unlock()
+
+	// Return the one-shot connection notification
+	return chEstablished
 }
 
 // Disconnect disconnects an RPC connection
 func (c *Client) Disconnect() {
 
-	// Close RPC client context to shut it down
+	// Close the RPC client context while holding the admission lock. Connect() either registers
+	// its work before this cancellation or observes the cancelled context and does not register.
+	c.lockState.Lock()
 	if c.ctxCancelFunc != nil {
 		c.ctxCancelFunc()
 	}
+	c.lockState.Unlock()
 
 	// Wait for everything to be shut down
 	c.wg.Wait()
 
-	// Close RPC client
-	if c.client != nil {
-		_ = c.client.Close()
+	// Acquire the lock to detach all resources atomically so callers see a clean nil state.
+	// Closing happens outside the lock to avoid blocking it
+	c.lockState.Lock()
+
+	// Keep references to the client, connection, and waiters for closing after the lock is released
+	rpcClient := c.rpcClient
+	connection := c.rpcCon
+	waiters := c.chNotify
+
+	// Detach all connection resources so subsequent callers see a clean state
+	c.rpcClient = nil
+	c.rpcCon = nil
+	c.rpcConnected = false
+	c.chNotify = nil
+
+	// Release the lock before performing any blocking close operations
+	c.lockState.Unlock()
+
+	// Close all pending Established() waiters without sending a value so callers observe shutdown
+	for _, waiter := range waiters {
+		close(waiter)
 	}
 
-	// Close RPC connection
-	if c.con != nil {
-		_ = c.con.Close()
+	// Close the detached RPC resources
+	if rpcClient != nil {
+		_ = rpcClient.Close()
+	}
+	if connection != nil {
+		_ = connection.Close()
 	}
 }
 
 // Call executes an RPC call and writes back the response into rpcReply. In case of a connection issues, a
-// re-connection loop is started in the background and an error returned. Users can subscribe to and wait for a
-// re-connection notification (via Established()), or just retry later.
+// reconnection loop is started in the background and an error returned. Users can subscribe to and wait for a
+// reconnection notification (via Established()), or just retry later.
 //
 // This function returns:
 //   - nil, if everything went fine
 //   - ErrRpcConnectivity, if something was wrong with the RPC connection
-//   - rpc.ServerError, if the RPC request failed. Unfortunately, net/rpc converts all errors into this type.
+//   - A restored common RPC sentinel error, if the RPC server returned one defined by this package
+//   - rpc.ServerError, if the RPC request failed with an error owned by the called component or an unknown error
 func (c *Client) Call(logger scanUtils.Logger, rpcEndpoint string, rpcArgs interface{}, rpcReply interface{}) error {
 
 	// Send RPC request
 	logger.Debugf("Sending RPC request '%s'.", rpcEndpoint)
+
+	// Acquire the lock to read the current RPC client without racing connect() or Disconnect()
+	c.lockState.Lock()
+	rpcClient := c.rpcClient
+	c.lockState.Unlock()
+
+	// Execute the RPC call, treating a nil client the same as a closed connection
 	var errCall error
-	if c.client == nil { // Seems RPC client wasn't connected before
+	if rpcClient == nil { // Seems RPC client wasn't connected before
 		errCall = rpc.ErrShutdown
 	} else {
-		errCall = c.client.Call(rpcEndpoint, rpcArgs, rpcReply)
+		errCall = rpcClient.Call(rpcEndpoint, rpcArgs, rpcReply)
 	}
 
-	// Retry with quick re-connection (RPC service might just have restarted)
+	// Retry with a quick reconnection (RPC service might just have restarted)
 	if IsRpcConnectionError(errCall) {
+		connectionFailed := c.markConnectionUnavailable(rpcClient)
 
-		select {
-		case <-c.ctx.Done():
-			logger.Infof("RPC call aborted due to shutdown.")
-			return ErrRpcConnectivity
-		default:
+		// Reuse a connection another caller already published instead of replacing that healthy connection
+		if !connectionFailed {
 
-			// Try to re-connect and launch background re-connection loop if re-connection failed
-			// An active and continuous background routine trying to re-connect will speed up all other queries, as
-			// those do not need to attempt to connect and can return (~a second!) faster.
-			success := c.Connect(logger, true)
-			if success {
-				errCall = c.client.Call(rpcEndpoint, rpcArgs, rpcReply) // Retry RPC call
+			// Read the current RPC client under the lock to avoid a data race with connect() and Disconnect()
+			c.lockState.Lock()
+			rpcClient = c.rpcClient
+			c.lockState.Unlock()
+
+			// Execute the RPC call, treating a nil client the same as a closed connection
+			if rpcClient == nil {
+				errCall = rpc.ErrShutdown
 			} else {
+				errCall = rpcClient.Call(rpcEndpoint, rpcArgs, rpcReply)
+			}
+
+		} else {
+			select {
+			case <-c.ctx.Done():
+				logger.Infof("RPC call aborted due to shutdown.")
 				return ErrRpcConnectivity
+			default:
+
+				// Try to reconnect and launch background reconnection if the immediate attempt fails
+				success := c.Connect(logger, true)
+				if success {
+
+					// Read the current RPC client under the lock to avoid a data race with connect() and Disconnect()
+					c.lockState.Lock()
+					rpcClient = c.rpcClient
+					c.lockState.Unlock()
+
+					// Execute the RPC call, treating a nil client the same as a closed connection
+					if rpcClient == nil {
+						errCall = rpc.ErrShutdown
+					} else {
+						errCall = rpcClient.Call(rpcEndpoint, rpcArgs, rpcReply) // Retry RPC call
+					}
+
+				} else {
+					return ErrRpcConnectivity
+				}
 			}
 		}
 	}
 
+	// Restore sentinel identity lost when net/rpc converted the server-side error to rpc.ServerError
+	errCall = restoreRpcServerError(errCall)
+
 	// Handle ultimate RPC call success or error
 	if IsRpcConnectionError(errCall) {
+		if c.markConnectionUnavailable(rpcClient) {
+			_ = c.Connect(logger, true)
+		}
 		logger.Infof("RPC connection lost.")
 		return ErrRpcConnectivity // Return connectivity error
-	} else if errCall != nil && errCall.Error() == ErrRpcCompatibility.Error() { // Error types returned by an RPC call are always of type rpc.ServerError and cannot be compared with errors.Is()
+	} else if errors.Is(errCall, ErrRpcCompatibility) {
 		logger.Errorf("RPC client incompatible.")
-		return ErrRpcCompatibility // Return compatibility error
-	} else if errCall != nil && errCall.Error() == ErrRpcConnectivity.Error() {
-		logger.Infof("RPC server not available.")
-		return ErrRpcConnectivity // Return connectivity error so caller can retry
+		return errCall
 	} else if errCall != nil {
 		logger.Warningf("RPC request '%s' failed: %s", rpcEndpoint, errCall)
-		return errCall // ATTENTION: this error will have lost its original type and be rpc.ServerError!
+		return errCall // Component-specific and unknown server errors remain rpc.ServerError values
 	} else {
 		logger.Debugf("RPC request '%s' succeeded.", rpcEndpoint)
 		return nil
@@ -235,15 +344,31 @@ func (c *Client) Call(logger scanUtils.Logger, rpcEndpoint string, rpcArgs inter
 }
 
 // connect executes a single connection attempt and returns an error if something went wrong.
-// ATTENTION: This may only be called after successfully acquiring the semaphore c.sem
+// ATTENTION: This may only be called after successfully acquiring the semaphore c.semConnect
 func (c *Client) connect(logger scanUtils.Logger) error {
 
-	// Close previous RPC connection (relevant for re-connects)
-	if c.client != nil {
-		_ = c.client.Close()
+	// Acquire the lock to detach the previous resources atomically so callers see a clean nil state.
+	// Closing happens outside the lock to avoid blocking it
+	c.lockState.Lock()
+
+	// Keep references to the previous client and connection for closing after the lock is released
+	previousClient := c.rpcClient
+	previousConnection := c.rpcCon
+
+	// Detach the previous connection resources so subsequent callers see a clean state
+	c.rpcClient = nil
+	c.rpcCon = nil
+	c.rpcConnected = false
+
+	// Release the lock before performing any blocking close operations
+	c.lockState.Unlock()
+
+	// Close the detached RPC resources
+	if previousClient != nil {
+		_ = previousClient.Close()
 	}
-	if c.con != nil {
-		_ = c.con.Close()
+	if previousConnection != nil {
+		_ = previousConnection.Close()
 	}
 
 	// Log step
@@ -258,36 +383,36 @@ func (c *Client) connect(logger scanUtils.Logger) error {
 
 		// Try to connect to RPC server with full certificate verification
 		// Maybe a fully valid public SSL certificate was deployed
-		conn, connErr = tls.Dial("tcp", c.serverAddress, TlsConfigFactory())
+		tlsDialer := tls.Dialer{Config: TlsConfigFactory()}
+		conn, connErr = tlsDialer.DialContext(c.ctx, "tcp", c.serverAddress)
 		if connErr != nil {
 
 			// Log step
 			logger.Debugf("Connecting RPC with pinned certificate.")
 
 			// Get fingerprint-verifying tls config
-			tlsConfig, errConfig := TlsConfigFactoryPinned(c.serverCertPath)
-			if errConfig != nil {
-				logger.Errorf("Could not prepare pinned certificate: %s", errConfig)
-				return errConfig
+			tlsConfig, errTlsConfig := TlsConfigFactoryPinned(c.serverCertPath)
+			if errTlsConfig != nil {
+				logger.Errorf("Could not prepare pinned certificate: %s", errTlsConfig)
+				return errTlsConfig
 			}
 
 			// Try with pinned fingerprint alternatively, there might be a self-signed certificate deployed
-			conn, connErr = tls.Dial("tcp", c.serverAddress, tlsConfig)
+			tlsDialer.Config = tlsConfig
+			conn, connErr = tlsDialer.DialContext(c.ctx, "tcp", c.serverAddress)
 			if connErr != nil {
 				return connErr
 			}
 		}
 	} else {
 
-		// Try to connect to RPC server with plaintext connection
-		conn, connErr = net.Dial("tcp", c.serverAddress)
+		// Try to connect to RPC server with a cancelable plaintext connection
+		dialer := net.Dialer{}
+		conn, connErr = dialer.DialContext(c.ctx, "tcp", c.serverAddress)
 		if connErr != nil {
 			return connErr
 		}
 	}
-
-	// Assign connection to agent
-	c.con = conn
 
 	// Authenticate the connection by sending the shared secret (as a single gob value) before net/rpc takes over, if
 	// one is configured. Clients without a secret (e.g. scan agents authenticating per scope) send no handshake.
@@ -298,25 +423,53 @@ func (c *Client) connect(logger scanUtils.Logger) error {
 		}
 	}
 
-	// Create RPC client
-	c.client = rpc.NewClient(c.con)
+	rpcClient := rpc.NewClient(conn)
 
-	// Notify subscribers about successful (re)connection
-	c.notify()
+	// Acquire the lock to publish new resources and detach waiters atomically so no Established()
+	// caller can miss the transition; also guards the context check to abort cleanly if shutdown
+	// was requested while dialing
+	c.lockState.Lock()
+
+	// Collect pending waiters before potentially aborting, so they can be notified outside the lock
+	waiters := c.chNotify
+
+	// Abort if termination was requested while the dial was in progress
+	if c.ctx.Err() != nil {
+		c.lockState.Unlock()
+		_ = rpcClient.Close()
+		_ = conn.Close()
+		return c.ctx.Err()
+	}
+
+	// Attach the new connection resources and clear the waiters slice so connect() owns notification
+	c.rpcClient = rpcClient
+	c.rpcCon = conn
+	c.rpcConnected = true
+	c.chNotify = nil
+	c.lockState.Unlock()
+
+	// Notify every caller that was waiting for a usable connection
+	for _, waiter := range waiters {
+		waiter <- struct{}{}
+		close(waiter)
+	}
 
 	// Return nil to indicate connection success
 	return nil
 }
 
-// notify sends notification to registered subscribers waiting for a successful re-connection.
-func (c *Client) notify() {
-	for {
-		select {
-		case chSignal := <-c.chNotify:
-			chSignal <- struct{}{}
-			close(chSignal)
-		default:
-			return
-		}
+// markConnectionUnavailable marks a failed published RPC client as disconnected and reports whether it was current
+func (c *Client) markConnectionUnavailable(failedClient *rpc.Client) bool {
+
+	// Acquire the lock to check and update the published client atomically, and make
+	// sure the lock is released again
+	c.lockState.Lock()
+	defer c.lockState.Unlock()
+
+	// Ignore late failures from a connection that another goroutine already replaced
+	if c.rpcClient == failedClient {
+		c.rpcConnected = false
+		return true
 	}
+	return false
 }

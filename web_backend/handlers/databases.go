@@ -1,11 +1,12 @@
 /*
-* Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
-*
-* Copyright (c) Siemens AG, 2016-2026.
-*
-* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
-* directory or visit <https://opensource.org/licenses/MIT>.
-*
+ * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
+ *
+ * Copyright (c) Siemens AG, 2016-2026.
+ *
+ * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+ * directory or visit <https://opensource.org/licenses/MIT>.
+ *
+ * SPDX-License-Identifier: MIT
  */
 
 package handlers
@@ -46,25 +47,21 @@ var Databases = func() gin.HandlerFunc {
 			return
 		}
 
-		// Prepare memory for list of servers
-		var dbServers []managerdb.T_db_server
-		var errDbServers error
-
 		// Request all database servers from manager
-		dbServers, errDbServers = manager.RpcGetDatabases(logger, core.RpcClient())
+		dbServerEntries, errDbServerEntries := manager.RpcGetDatabases(logger, core.RpcClient())
 
 		// Check for errors occurred while querying groups
-		if errors.Is(errDbServers, utils.ErrRpcConnectivity) {
+		if errors.Is(errDbServerEntries, utils.ErrRpcConnectivity) {
 			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
-		} else if errDbServers != nil {
+		} else if errDbServerEntries != nil {
 			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
 		// Prepare response body
 		body := responseBody{
-			Databases: dbServers,
+			Databases: dbServerEntries,
 		}
 
 		// Return response
@@ -123,7 +120,7 @@ var DatabaseRemove = func() gin.HandlerFunc {
 		if errors.Is(errRpc, utils.ErrRpcConnectivity) {
 			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
-		} else if errRpc != nil && errRpc.Error() == manager.ErrDatabaseInUse.Error() {
+		} else if errors.Is(errRpc, manager.ErrDatabaseInUse) {
 			core.Respond(ctx, true, "Database in use.", responseBody{})
 			return
 		} else if errRpc != nil {
@@ -250,7 +247,7 @@ var DatabaseAddUpdate = func() gin.HandlerFunc {
 			}
 
 			// Log event
-			errEvent := database.NewEvent(
+			errEvent := database.LogEvent(
 				contextUser,
 				database.EventDatabaseAdd,
 				fmt.Sprintf("Server: %s; DB: %s", req.Host, req.Name),
@@ -285,7 +282,7 @@ var DatabaseAddUpdate = func() gin.HandlerFunc {
 			if errors.Is(errRpc, utils.ErrRpcConnectivity) {
 				core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 				return
-			} else if errRpc != nil && errRpc.Error() == manager.ErrDatabaseDuplicate.Error() {
+			} else if errors.Is(errRpc, manager.ErrDatabaseDuplicate) {
 				core.Respond(ctx, true, "Duplicate database.", responseBody{})
 				return
 			} else if errRpc != nil {

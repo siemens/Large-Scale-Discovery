@@ -1,11 +1,12 @@
 /*
-* Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
-*
-* Copyright (c) Siemens AG, 2016-2024.
-*
-* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
-* directory or visit <https://opensource.org/licenses/MIT>.
-*
+ * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
+ *
+ * Copyright (c) Siemens AG, 2016-2026.
+ *
+ * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+ * directory or visit <https://opensource.org/licenses/MIT>.
+ *
+ * SPDX-License-Identifier: MIT
  */
 
 package handlers
@@ -50,14 +51,14 @@ var Views = func() gin.HandlerFunc {
 		contextUser := core.GetContextUser(ctx)
 
 		// Prepare memory for list of views
-		var scopeViews []managerdb.T_scope_view
-		var errScopeViews error
+		var viewEntries []managerdb.T_scope_view
+		var errViewEntries error
 
 		// Query groups depending on whether user is admin or not
 		if contextUser.Admin {
 
 			// Request all scope view from manager
-			scopeViews, errScopeViews = manager.RpcGetViews(logger, core.RpcClient())
+			viewEntries, errViewEntries = manager.RpcGetViews(logger, core.RpcClient())
 
 		} else {
 
@@ -68,14 +69,14 @@ var Views = func() gin.HandlerFunc {
 			}
 
 			// Request owned scope view from manager
-			scopeViews, errScopeViews = manager.RpcGetViewsOf(logger, core.RpcClient(), groups)
+			viewEntries, errViewEntries = manager.RpcGetViewsOf(logger, core.RpcClient(), groups)
 		}
 
 		// Check for errors occurred while querying groups
-		if errors.Is(errScopeViews, utils.ErrRpcConnectivity) {
+		if errors.Is(errViewEntries, utils.ErrRpcConnectivity) {
 			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
-		} else if errScopeViews != nil {
+		} else if errViewEntries != nil {
 			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
@@ -110,24 +111,24 @@ var Views = func() gin.HandlerFunc {
 
 		// Prepare customized list of views
 		var views = make([]View, 0, 3) // Initialize empty slice to avoid returning nil to frontend
-		for _, scopeView := range scopeViews {
+		for _, viewEntry := range viewEntries {
 
 			// Check whether group exists. Scope are stored on the manager, while groups are stored locally. There
 			// should not be a discrepancy.
-			group, ok := groupsDict[scopeView.ScanScope.IdTGroup]
+			group, ok := groupsDict[viewEntry.ScanScope.IdTGroup]
 			if !ok {
 				logger.Warningf(
 					"An unknown group ('%d') is set as the owner of view '%s' on scan scope '%s' ('%s').",
-					scopeView.ScanScope.IdTGroup,
-					scopeView.Name,
-					scopeView.ScanScope.Name,
-					scopeView.ScanScope.DbName,
+					viewEntry.ScanScope.IdTGroup,
+					viewEntry.Name,
+					viewEntry.ScanScope.Name,
+					viewEntry.ScanScope.DbName,
 				)
 			}
 
 			// Prepare list of emails of granted users
 			var grants = make([]Grant, 0, 3)
-			for _, grantEntry := range scopeView.Grants {
+			for _, grantEntry := range viewEntry.Grants {
 
 				// Prepare memory for whether grant entry is also referencing a scan scope owner
 				owner := false
@@ -149,9 +150,9 @@ var Views = func() gin.HandlerFunc {
 						logger.Warningf(
 							"An unknown user ('%s') has access to view '%s' on scan scope '%s' ('%s').",
 							grantEntry.Username,
-							scopeView.Name,
-							scopeView.ScanScope.Name,
-							scopeView.ScanScope.DbName,
+							viewEntry.Name,
+							viewEntry.ScanScope.Name,
+							viewEntry.ScanScope.DbName,
 						)
 					}
 
@@ -177,14 +178,14 @@ var Views = func() gin.HandlerFunc {
 			}
 
 			// Remove list of targets as it might be big causing delays and is not required here
-			delete(scopeView.ScanScope.Attributes, "targets")
+			delete(viewEntry.ScanScope.Attributes, "targets")
 
 			// Create and append scope view to response
 			views = append(views, View{
-				T_scope_view: scopeView,
+				T_scope_view: viewEntry,
 				Grants:       grants,
 				ScanScope: Scope{
-					T_scan_scope: scopeView.ScanScope,
+					T_scan_scope: viewEntry.ScanScope,
 					GroupName:    group.Name,
 
 					// Connection: currently not required when requesting views for configuration
@@ -219,6 +220,13 @@ var ViewsGranted = func() gin.HandlerFunc {
 
 		// Get user from context storage
 		contextUser := core.GetContextUser(ctx)
+
+		// Demo users always receive an empty list
+		// They could be granted, but should not be allowed to use their grants.
+		if contextUser.Demo {
+			core.Respond(ctx, false, "Views retrieved.", responseBody{Views: []View{}})
+			return
+		}
 
 		// Request views granted from manager
 		scopeViews, errScopeViews := manager.RpcGetViewsGranted(logger, core.RpcClient(), contextUser.Email)
@@ -337,29 +345,29 @@ var ViewCreate = func() gin.HandlerFunc {
 		}
 
 		// Request scope details from manager
-		scanScope, errScanScope := manager.RpcGetScope(logger, core.RpcClient(), req.ScopeId)
-		if errors.Is(errScanScope, utils.ErrRpcConnectivity) {
+		scopeEntry, errScopeEntry := manager.RpcGetScope(logger, core.RpcClient(), req.ScopeId)
+		if errors.Is(errScopeEntry, utils.ErrRpcConnectivity) {
 			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return
-		} else if errScanScope != nil {
+		} else if errScopeEntry != nil {
 			core.RespondInternalError(ctx) // Return generic error information. Situation already logged!
 			return
 		}
 
 		// Check ID to make sure it existed in the DB
-		if scanScope.Id == 0 {
+		if scopeEntry.Id == 0 {
 			core.Respond(ctx, true, "Invalid ID.", responseBody{})
 			return
 		}
 
 		// Check if user has rights to create view
-		if !core.OwnerOrAdmin(scanScope.IdTGroup, contextUser) {
+		if !core.OwnerOrAdmin(scopeEntry.IdTGroup, contextUser) {
 			core.RespondAuthError(ctx)
 			return
 		}
 
 		// Check if view name is already existing on same scope
-		for _, scopeView := range scanScope.ScopeViews {
+		for _, scopeView := range scopeEntry.ScopeViews {
 			if scopeView.Name == req.ViewName {
 				core.Respond(ctx, true, "Duplicate view name on scan scope.", responseBody{})
 				return
@@ -367,7 +375,7 @@ var ViewCreate = func() gin.HandlerFunc {
 		}
 
 		// Get group to create scope for
-		groupEntry, errGroupEntry := database.GetGroup(scanScope.IdTGroup)
+		groupEntry, errGroupEntry := database.GetGroupById(scopeEntry.IdTGroup)
 		if errGroupEntry != nil {
 			logger.Errorf("Could not query group: %s", errGroupEntry)
 			core.RespondInternalError(ctx) // Return generic error information
@@ -378,26 +386,26 @@ var ViewCreate = func() gin.HandlerFunc {
 		if groupEntry == nil {
 			logger.Errorf(
 				"An unknown group ('%d') is set as the owner of scan scope '%s' ('%s').",
-				scanScope.IdTGroup,
-				scanScope.Name,
-				scanScope.DbName,
+				scopeEntry.IdTGroup,
+				scopeEntry.Name,
+				scopeEntry.DbName,
 			)
 			core.RespondInternalError(ctx) // Return generic error information
 			return
 		}
 
 		// Request owned scan scopes from manager
-		scopes, errScopes := manager.RpcGetScopesOf(logger, core.RpcClient(), []uint64{groupEntry.Id})
-		if errScopes != nil {
-			logger.Errorf("Could not query scopes of group %d: %s", groupEntry.Id, errScopes)
+		scopeEntries, errScopeEntries := manager.RpcGetScopesOf(logger, core.RpcClient(), []uint64{groupEntry.Id})
+		if errScopeEntries != nil {
+			logger.Errorf("Could not query scopes of group %d: %s", groupEntry.Id, errScopeEntries)
 			core.RespondTemporaryError(ctx)
 			return
 		}
 
 		// Count views on group's scopes
 		cntViews := 0
-		for _, scope := range scopes {
-			cntViews += len(scope.ScopeViews)
+		for _, scopeEntry := range scopeEntries {
+			cntViews += len(scopeEntry.ScopeViews)
 		}
 
 		// Check whether limits are exceeded
@@ -407,9 +415,9 @@ var ViewCreate = func() gin.HandlerFunc {
 		}
 
 		// Compile simple regex to filter characters other than insensitive alphanumeric ones and space
-		reg, errRegex := regexp.Compile("[^a-zA-Z0-9-_./ ]+")
-		if errRegex != nil {
-			logger.Errorf("Could not compile regex to check view filters: %s", errRegex)
+		reg, errReg := regexp.Compile("[^a-zA-Z0-9-_./ ]+")
+		if errReg != nil {
+			logger.Errorf("Could not compile regex to check view filters: %s", errReg)
 			core.RespondInternalError(ctx) // Return generic error information.
 			return
 		}
@@ -445,82 +453,82 @@ var ViewCreate = func() gin.HandlerFunc {
 		// Prepare filter definition. Each key is a scopedb column name and a slice of valid values
 		var filters = make(map[string][]string, 12)
 		var values []string
-		var errSanitize error
+		var errValues error
 		if req.FilterInputTargets != nil {
-			values, errSanitize = fnSanitize(req.FilterInputTargets)
-			if errSanitize == nil && len(values) > 0 {
+			values, errValues = fnSanitize(req.FilterInputTargets)
+			if errValues == nil && len(values) > 0 {
 				filters["input"] = values
 			}
 		}
-		if errSanitize == nil && req.FilterInputCountries != nil {
-			values, errSanitize = fnSanitize(req.FilterInputCountries)
-			if errSanitize == nil && len(values) > 0 {
+		if errValues == nil && req.FilterInputCountries != nil {
+			values, errValues = fnSanitize(req.FilterInputCountries)
+			if errValues == nil && len(values) > 0 {
 				filters["input_country"] = values
 			}
 		}
-		if errSanitize == nil && req.FilterInputLocations != nil {
-			values, errSanitize = fnSanitize(req.FilterInputLocations)
-			if errSanitize == nil && len(values) > 0 {
+		if errValues == nil && req.FilterInputLocations != nil {
+			values, errValues = fnSanitize(req.FilterInputLocations)
+			if errValues == nil && len(values) > 0 {
 				filters["input_location"] = values
 			}
 		}
-		if errSanitize == nil && req.FilterInputRoutingDomains != nil {
-			values, errSanitize = fnSanitize(req.FilterInputRoutingDomains)
-			if errSanitize == nil && len(values) > 0 {
+		if errValues == nil && req.FilterInputRoutingDomains != nil {
+			values, errValues = fnSanitize(req.FilterInputRoutingDomains)
+			if errValues == nil && len(values) > 0 {
 				filters["input_routing_domain"] = values
 			}
 		}
-		if errSanitize == nil && req.FilterInputZones != nil {
-			values, errSanitize = fnSanitize(req.FilterInputZones)
-			if errSanitize == nil && len(values) > 0 {
+		if errValues == nil && req.FilterInputZones != nil {
+			values, errValues = fnSanitize(req.FilterInputZones)
+			if errValues == nil && len(values) > 0 {
 				filters["input_zone"] = values
 			}
 		}
-		if errSanitize == nil && req.FilterInputPurposes != nil {
-			values, errSanitize = fnSanitize(req.FilterInputPurposes)
-			if errSanitize == nil && len(values) > 0 {
+		if errValues == nil && req.FilterInputPurposes != nil {
+			values, errValues = fnSanitize(req.FilterInputPurposes)
+			if errValues == nil && len(values) > 0 {
 				filters["input_purpose"] = values
 			}
 		}
-		if errSanitize == nil && req.FilterInputCompanies != nil {
-			values, errSanitize = fnSanitize(req.FilterInputCompanies)
-			if errSanitize == nil && len(values) > 0 {
+		if errValues == nil && req.FilterInputCompanies != nil {
+			values, errValues = fnSanitize(req.FilterInputCompanies)
+			if errValues == nil && len(values) > 0 {
 				filters["input_company"] = values
 			}
 		}
-		if errSanitize == nil && req.FilterInputDepartments != nil {
-			values, errSanitize = fnSanitize(req.FilterInputDepartments)
-			if errSanitize == nil && len(values) > 0 {
+		if errValues == nil && req.FilterInputDepartments != nil {
+			values, errValues = fnSanitize(req.FilterInputDepartments)
+			if errValues == nil && len(values) > 0 {
 				filters["input_department"] = values
 			}
 		}
-		if errSanitize == nil && req.FilterInputManagers != nil {
-			values, errSanitize = fnSanitize(req.FilterInputManagers)
-			if errSanitize == nil && len(values) > 0 {
+		if errValues == nil && req.FilterInputManagers != nil {
+			values, errValues = fnSanitize(req.FilterInputManagers)
+			if errValues == nil && len(values) > 0 {
 				filters["input_manager"] = values
 			}
 		}
-		if errSanitize == nil && req.FilterInputContacts != nil {
-			values, errSanitize = fnSanitize(req.FilterInputContacts)
-			if errSanitize == nil && len(values) > 0 {
+		if errValues == nil && req.FilterInputContacts != nil {
+			values, errValues = fnSanitize(req.FilterInputContacts)
+			if errValues == nil && len(values) > 0 {
 				filters["input_contact"] = values
 			}
 		}
-		if errSanitize == nil && req.FilterInputComments != nil {
-			values, errSanitize = fnSanitize(req.FilterInputComments)
-			if errSanitize == nil && len(values) > 0 {
+		if errValues == nil && req.FilterInputComments != nil {
+			values, errValues = fnSanitize(req.FilterInputComments)
+			if errValues == nil && len(values) > 0 {
 				filters["input_comment"] = values
 			}
 		}
 
 		// Abort with error message
-		if errSanitize != nil {
-			core.Respond(ctx, true, fmt.Sprintf("Illegal filter value '%s'.", errSanitize), responseBody{})
+		if errValues != nil {
+			core.Respond(ctx, true, fmt.Sprintf("Illegal filter value '%s'.", errValues), responseBody{})
 			return
 		}
 
 		// Request view creation from manager
-		errRpc := manager.RpcCreateView(logger, core.RpcClient(), scanScope.Id, req.ViewName, contextUser.Email, filters)
+		errRpc := manager.RpcCreateView(logger, core.RpcClient(), scopeEntry.Id, req.ViewName, contextUser.Email, filters)
 		if errors.Is(errRpc, utils.ErrRpcConnectivity) {
 			core.RespondTemporaryError(ctx) // Return temporary error because of connection issues. Situation already logged!
 			return

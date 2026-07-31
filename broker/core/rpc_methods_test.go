@@ -11,6 +11,9 @@
 package core
 
 import (
+	"errors"
+	"fmt"
+	"net/rpc"
 	"testing"
 
 	"github.com/siemens/GoScans/banner"
@@ -79,6 +82,34 @@ func TestAgentCompatible(t *testing.T) {
 	}
 }
 
+// TestRestoreRpcServerError verifies broker sentinel errors regain their identity after net/rpc transport.
+func TestRestoreRpcServerError(t *testing.T) {
+	unknownServerError := rpc.ServerError("unknown broker RPC error")
+	localError := errors.New(errInvalidScopeSecret.Error())
+	wrappedKnownError := fmt.Errorf("wrapped broker RPC error: %w", rpc.ServerError(errInvalidScopeSecret.Error()))
+	wrappedUnknownError := fmt.Errorf("wrapped broker RPC error: %w", unknownServerError)
+	tests := []struct {
+		name string
+		err  error
+		want error
+	}{
+		{name: "nil", err: nil, want: nil},
+		{name: "local error", err: localError, want: localError},
+		{name: "invalid scope secret", err: rpc.ServerError(errInvalidScopeSecret.Error()), want: errInvalidScopeSecret},
+		{name: "wrapped invalid scope secret", err: wrappedKnownError, want: errInvalidScopeSecret},
+		{name: "unknown server error", err: unknownServerError, want: unknownServerError},
+		{name: "wrapped unknown server error", err: wrappedUnknownError, want: wrappedUnknownError},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := restoreRpcServerError(test.err); got != test.want {
+				t.Errorf("restoreRpcServerError() = %v (%T), want %v (%T)", got, got, test.want, test.want)
+			}
+		})
+	}
+}
+
 // TestLockUnlock verifies lock/unlock complete without deadlock or panic and release the slot correctly.
 func TestLockUnlock(t *testing.T) {
 
@@ -132,7 +163,7 @@ func TestRequestScanTasks_IncompatibleVersion(t *testing.T) {
 	errRequest := b.RequestScanTasks(args, reply)
 
 	// Verify results
-	if errRequest != utils.ErrRpcCompatibility {
+	if !errors.Is(errRequest, utils.ErrRpcCompatibility) {
 		t.Errorf("RequestScanTasks() err = '%v', want = '%v'", errRequest, utils.ErrRpcCompatibility)
 	}
 	if len(reply.ScanTasks) != 0 {
@@ -351,7 +382,7 @@ func TestSubmitScanResult_IncompatibleVersion(t *testing.T) {
 	errSubmit := b.SubmitScanResult(args, &struct{}{})
 
 	// Verify results
-	if errSubmit != utils.ErrRpcCompatibility {
+	if !errors.Is(errSubmit, utils.ErrRpcCompatibility) {
 		t.Errorf("SubmitScanResult() err = '%v', want = '%v'", errSubmit, utils.ErrRpcCompatibility)
 	}
 }
@@ -360,6 +391,16 @@ func TestSubmitScanResult_IncompatibleVersion(t *testing.T) {
 func TestSubmitScanResult_CompatibleVersionDiscoveryResult(t *testing.T) {
 
 	// Prepare unit test data
+	const secret = "discovery-result-secret-thea14"
+	memory.AddScope(secret, managerdb.T_scan_scope{
+		Id:      201,
+		Name:    "discovery-result-scope",
+		Enabled: true,
+	})
+
+	// Prepare cleanup
+	defer memory.RemoveScope(secret)
+
 	b := &Broker{}
 	args := &ArgsSaveScanResult{
 		AgentInfo: AgentInfo{
@@ -368,7 +409,7 @@ func TestSubmitScanResult_CompatibleVersionDiscoveryResult(t *testing.T) {
 			Host:       "localhost",
 			Ip:         "127.0.0.1",
 		},
-		ScopeSecret: "discovery-result-secret-thea14",
+		ScopeSecret: secret,
 		Id:          1,
 		Result:      discovery.Result{},
 	}
@@ -386,6 +427,16 @@ func TestSubmitScanResult_CompatibleVersionDiscoveryResult(t *testing.T) {
 func TestSubmitScanResult_CompatibleVersionSubResult(t *testing.T) {
 
 	// Prepare unit test data
+	const secret = "sub-result-secret-thea14"
+	memory.AddScope(secret, managerdb.T_scan_scope{
+		Id:      202,
+		Name:    "sub-result-scope",
+		Enabled: true,
+	})
+
+	// Prepare cleanup
+	defer memory.RemoveScope(secret)
+
 	b := &Broker{}
 	args := &ArgsSaveScanResult{
 		AgentInfo: AgentInfo{
@@ -394,7 +445,7 @@ func TestSubmitScanResult_CompatibleVersionSubResult(t *testing.T) {
 			Host:       "localhost",
 			Ip:         "127.0.0.1",
 		},
-		ScopeSecret: "sub-result-secret-thea14",
+		ScopeSecret: secret,
 		Id:          2,
 		Result:      nil, // nil matches the default branch
 	}
@@ -445,7 +496,7 @@ func TestRequestScanTasks_UnknownModuleLabelReturnsError(t *testing.T) {
 	errRequest := b.RequestScanTasks(args, reply)
 
 	// Verify results
-	if errRequest != utils.ErrRpcGeneric {
+	if !errors.Is(errRequest, utils.ErrRpcGeneric) {
 		t.Errorf("RequestScanTasks() err = '%v', want = '%v'", errRequest, utils.ErrRpcGeneric)
 	}
 	if len(reply.ScanTasks) != 0 {

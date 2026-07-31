@@ -40,17 +40,18 @@ const taskRequestInterval = time.Second * 5 // Interval in which to ask the brok
 const saveRequestsMax = 10                  // Maximum number scan results sent to the broker in parallel
 const instanceFile = ".instance"            // File storing a generated agent instance name to distinguish multiple scan agents on the same machine
 
-var coreCtx, coreCtxCancelFunc = context.WithCancel(context.Background()) // Agent context and cancellation function. Agent should terminate when context is closed
+var coreCtx, coreCtxCancelFunc = context.WithCancel(context.Background()) // Agent context and cancellation function. Agent should terminate when the context is closed.
 var shutdownOnce sync.Once                                                // Helper variable to prevent shutdown from doing its work multiple times.
 var instanceInfo broker.AgentInfo                                         // Agent instance info holding static information like ip, hostname, compatibility version,...
 var rpcClient *utils.Client                                               // RPC client struct handling RPC connections and requests
 var sysMon *utils.SystemMonitor                                           // Monitoring service collecting information about system utilization, e.g. CPU, memory,...)
 
-var instanceIp string
-var instanceHostname string
-var versionNmap string   // Nmap version detected once at agent startup
-var versionNpcap string  // Npcap version detected once at agent startup (Windows only; empty on Linux)
-var versionSslyze string // SSLyze version detected once at agent startup
+var instanceIp string       // IP address identifying this agent instance
+var instanceHostname string // Hostname identifying this agent instance
+var versionNmap string      // Nmap version detected once at agent startup
+var versionNpcap string     // Npcap version detected once at agent startup (Windows only; empty on Linux)
+var versionSslyze string    // SSLyze version detected once at agent startup
+var versionPython string    // Python interpreter version detected once at agent startup
 
 // Init initializes the agent and all of its parameters
 func Init(buildCommit string, buildTimestamp string) error {
@@ -64,24 +65,24 @@ func Init(buildCommit string, buildTimestamp string) error {
 	// Lookup agent IP
 	instanceIp = utils.GetOutboundIP()
 	if instanceIp == "" {
-		var errIp error
-		instanceIp, errIp = utils.GetLocalIp()
-		if errIp != nil {
-			return fmt.Errorf("could not read local ip: %s", errIp)
+		var errInstanceIp error
+		instanceIp, errInstanceIp = utils.GetLocalIp()
+		if errInstanceIp != nil {
+			return fmt.Errorf("could not read local ip: %s", errInstanceIp)
 		}
 	}
 
 	// Lookup agent
-	var errHostname error
-	instanceHostname, errHostname = os.Hostname()
-	if errHostname != nil {
-		return fmt.Errorf("could not read local hostname: %s", errHostname)
+	var errInstanceHostname error
+	instanceHostname, errInstanceHostname = os.Hostname()
+	if errInstanceHostname != nil {
+		return fmt.Errorf("could not read local hostname: %s", errInstanceHostname)
 	}
 
 	// Load agent instance name. Generate new one if not existing.
-	instanceName, errName := loadInstanceName()
-	if errName != nil {
-		return errName
+	instanceName, errInstanceName := loadInstanceName()
+	if errInstanceName != nil {
+		return errInstanceName
 	}
 
 	// Prepare anonymized scope secret strings
@@ -102,13 +103,23 @@ func Init(buildCommit string, buildTimestamp string) error {
 	logger.Infof("Agent IP      : %s", instanceIp)
 	logger.Infof("Scope Secrets : %s", strings.Join(secrets, ", "))
 
-	// Detect tool versions once at startup; results are cached and included in every RPC request
-	versionNmap, versionNpcap, versionSslyze = versions(conf.Paths)
+	// Detect tool versions once at startup; results are cached and included in every RPC request.
+	// Abort startup if any tool command fails to execute.
+	var errVersions error
+	versionNmap, versionNpcap, versionSslyze, versionPython, errVersions = versions(conf.Paths)
+	if errVersions != nil {
+		return fmt.Errorf("could not detect tool versions: %s", errVersions)
+	}
+
+	// Log tool versions
 	logger.Infof("Nmap version  : %s", versionNmap)
 	if versionNpcap != "" {
 		logger.Infof("Npcap version : %s", versionNpcap)
 	}
 	logger.Infof("SSLyze version: %s", versionSslyze)
+	if versionPython != "" {
+		logger.Infof("Python version: %s", versionPython)
+	}
 
 	// Check whether scan agent has dedicated limits configured
 	limits := false
@@ -163,7 +174,12 @@ func Init(buildCommit string, buildTimestamp string) error {
 		select {
 		case <-coreCtx.Done():
 			return nil
-		case <-rpcClient.Established():
+		case _, ok := <-rpcClient.Established():
+
+			// Stop when the RPC client terminates
+			if !ok {
+				return nil
+			}
 		}
 	}
 
@@ -176,10 +192,8 @@ func Init(buildCommit string, buildTimestamp string) error {
 func Run() {
 
 	// Only launch if shutdown is not already in progress
-	select {
-	case <-coreCtx.Done():
+	if coreCtx.Err() != nil {
 		return
-	default:
 	}
 
 	// Creates a wait group for goroutines
@@ -260,15 +274,15 @@ func loadInstanceName() (string, error) {
 	_ = l.Unlock() // Unlock to allow reading agent identifier
 
 	// Load agent instance name
-	content, errRead := os.ReadFile(instanceFile)
-	if errRead != nil {
-		return "", fmt.Errorf("could not load agent idientifier: %s", errRead)
+	content, errContent := os.ReadFile(instanceFile)
+	if errContent != nil {
+		return "", fmt.Errorf("could not load agent identifier: %s", errContent)
 	}
 
 	// Get current location
 	instanceFilePath, errInstanceFilePath := filepath.Abs(instanceFile)
 	if errInstanceFilePath != nil {
-		return "", fmt.Errorf("could retrieve instance file path: %s", errInstanceFilePath)
+		return "", fmt.Errorf("could not retrieve instance file path: %s", errInstanceFilePath)
 	}
 
 	// Hash current location
@@ -305,9 +319,9 @@ func loadInstanceName() (string, error) {
 		output := []byte(instanceName + "|" + currentLocation)
 
 		// Persist new name
-		err := os.WriteFile(instanceFile, output, 0660)
-		if err != nil {
-			return "", fmt.Errorf("could not create agent idientifier: %s", err)
+		errWriteFile := os.WriteFile(instanceFile, output, 0660)
+		if errWriteFile != nil {
+			return "", fmt.Errorf("could not create agent identifier: %s", errWriteFile)
 		}
 	}
 
@@ -332,7 +346,7 @@ func scanTaskLoader(wg *sync.WaitGroup, chOut chan broker.ScanTask) {
 	// Get tagged logger
 	logger := log.GetLogger().Tagged("scanTaskLoader")
 
-	// Catch potential panics to gracefully log issue
+	// Log potential panics before letting them move on
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -355,8 +369,9 @@ func scanTaskLoader(wg *sync.WaitGroup, chOut chan broker.ScanTask) {
 		systemData.VersionNmap = versionNmap
 		systemData.VersionNpcap = versionNpcap
 		systemData.VersionSslyze = versionSslyze
+		systemData.VersionPython = versionPython
 
-		// Get Overall scan agent module instances counts
+		// Get overall scan agent module instance counts
 		totalInstances := GetTotalInstanceCounts()
 
 		// Count total amount of currently running instances across all configured scan scopes
@@ -413,7 +428,7 @@ func scanTaskLoader(wg *sync.WaitGroup, chOut chan broker.ScanTask) {
 				SystemData:  systemData,
 			}
 
-			// Send RPC request for scan targets
+			// Send RPC request
 			scanTasks, errScanTasks := broker.RpcRequestScanTasks(logger, rpcClient, coreCtx, &rpcArgs)
 			if errors.Is(errScanTasks, utils.ErrRpcCompatibility) { // Just address compatibility errors. Ignore other server-side errors to retry again later.
 				Shutdown()
@@ -441,6 +456,9 @@ func scanTaskLoader(wg *sync.WaitGroup, chOut chan broker.ScanTask) {
 	// Initialize retry interval ticker
 	ticker := time.NewTicker(taskRequestInterval)
 
+	// Make sure retry interval ticker is stopped at the end
+	defer ticker.Stop()
+
 	// Loop until agent termination signal
 	for {
 		select {
@@ -463,7 +481,7 @@ func scanTaskLauncher(wg *sync.WaitGroup, chIn chan broker.ScanTask, chOut chan 
 	// Get tagged logger
 	logger := log.GetLogger().Tagged("scanTaskLauncher")
 
-	// Catch potential panics to gracefully log issue
+	// Log potential panics before letting them move on
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)
@@ -509,7 +527,7 @@ func scanTaskSaver(wg *sync.WaitGroup, wgSave *sync.WaitGroup, chIn chan broker.
 	// Get tagged logger
 	logger := log.GetLogger().Tagged("scanTaskSaver")
 
-	// Catch potential panics to gracefully log issue
+	// Log potential panics before letting them move on
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic: %s", r)

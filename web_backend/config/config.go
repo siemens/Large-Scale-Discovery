@@ -1,11 +1,12 @@
 /*
-* Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
-*
-* Copyright (c) Siemens AG, 2016-2026.
-*
-* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
-* directory or visit <https://opensource.org/licenses/MIT>.
-*
+ * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
+ *
+ * Copyright (c) Siemens AG, 2016-2026.
+ *
+ * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+ * directory or visit <https://opensource.org/licenses/MIT>.
+ *
+ * SPDX-License-Identifier: MIT
  */
 
 package config
@@ -13,119 +14,39 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
-	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/Large-Scale-Discovery/_build"
 	"github.com/siemens/Large-Scale-Discovery/log"
 	"github.com/siemens/Large-Scale-Discovery/utils"
+	"github.com/siemens/Large-Scale-Discovery/utils/config"
 	"go.uber.org/zap/zapcore"
 )
 
-var webConfig = &WebConfig{} // Global configuration
-var webConfigLock sync.Mutex // Lock required to avoid simultaneous requesting/updating of config
+// configWeb stores the loaded web backend configuration
+var configWeb = config.NewConfig[Web]()
 
-// Init initializes the configuration module and loads a JSON configuration. If JSON is not existing, a default
-// configuration will be generated.
-func Init(configFile string) error {
-	if errFile := scanUtils.IsValidFile(configFile); errFile != nil {
-		defaultConf := defaultWebConfigFactory()
-		errSave := Save(&defaultConf, configFile)
-		if errSave != nil {
-			return fmt.Errorf("could not initialize configuration in '%s': %s", configFile, errSave)
-		} else {
-			return fmt.Errorf("no configuration, created default in '%s'", configFile)
-		}
-	} else {
-		errLoad := Load(configFile)
-		if errLoad != nil {
-			return errLoad
-		} else {
-			return nil
-		}
-	}
-}
+// Init initializes the configuration module and loads a JSON configuration. If the file does not exist, a default
+// configuration is generated.
+func Init(confPath string) error { return configWeb.Init(confPath, defaultWebConfigFactory) }
 
-// Load reads a configuration from a file, de-serializes it and sets it as the global configuration
-func Load(path string) error {
+// Load reads a configuration from a file, deserializes it, and sets it as the global configuration.
+func Load(confPath string) error { return configWeb.Load(confPath) }
 
-	// Lock global config before initializing an update
-	webConfigLock.Lock()
-	defer webConfigLock.Unlock()
+// Set sets a passed configuration as the global configuration.
+func Set(conf *Web) { configWeb.Set(conf) }
 
-	// Prepare new config, don't work on the global values
-	newConfig := &WebConfig{}
-
-	// Read file content
-	rawJson, errLoad := os.ReadFile(path)
-	if errLoad != nil {
-		return errLoad
-	}
-
-	// Parse JSON
-	errUnmarshal := json.Unmarshal(rawJson, newConfig)
-	if errUnmarshal != nil {
-		return errUnmarshal
-	}
-
-	// Replace global configuration with new one
-	webConfig = newConfig
-
-	// Return nil to indicate successful config update
-	return nil
-}
-
-// Set sets a passed configuration as the global configuration
-func Set(conf *WebConfig) {
-
-	// Lock global config before initializing an update
-	webConfigLock.Lock()
-	defer webConfigLock.Unlock()
-
-	// Replace global configuration with new one
-	webConfig = conf
-}
-
-// Save serializes a given configuration and writes it to a file
-func Save(conf *WebConfig, path string) error {
-
-	// Lock global config, because the given config pointer might be the global config
-	webConfigLock.Lock()
-	defer webConfigLock.Unlock()
-
-	// Serialize to JSON
-	file, errMarshal := json.MarshalIndent(conf, "", "    ")
-	if errMarshal != nil {
-		return errMarshal
-	}
-
-	// Write JSON to file
-	errWrite := os.WriteFile(path, file, 0644)
-	if errWrite != nil {
-		return errWrite
-	}
-
-	// Return nil to indicate successful storage
-	return nil
-}
+// Save serializes a given configuration and writes it to a file.
+func Save(conf *Web, path string) error { return configWeb.Save(conf, path) }
 
 // GetConfig returns a pointer to the current global configuration.
-func GetConfig() *WebConfig {
+func GetConfig() *Web { return configWeb.Get() }
 
-	// The global configuration might get updated regularly to allow user updating settings without aborting scans
-	webConfigLock.Lock()
-	defer webConfigLock.Unlock()
+// defaultWebConfigFactory returns a new backend configuration with safe defaults
+func defaultWebConfigFactory() Web {
 
-	// Return current global configuration
-	return webConfig
-}
-
-func defaultWebConfigFactory() WebConfig {
-
-	// Prepare default logging settings and adapt web
+	// Prepare default logging settings and adapt for backend
 	logging := log.DefaultLogSettingsFactory()
 	logging.File.Path = filepath.Join("logs", "backend.log")
 	logging.Smtp.Connector.Subject = "Backend Error Log"
@@ -168,8 +89,9 @@ func defaultWebConfigFactory() WebConfig {
 			},
 		},
 	}
-	jwtLifetime := time.Minute * 20  // 20 minutes
-	jwtLifetimeMax := time.Hour * 12 // 12 hours until fresh authentication is required
+	jwtLifetime := time.Minute * 20              // 20 minutes
+	jwtLifetimeMax := time.Hour * 12             // 12 hours until fresh authentication is required
+	accessTokenMaxExpiry := time.Hour * 24 * 365 // Maximum allowed lifetime for a view access token (enforced before passing to manager)
 	jwtSecret, _ := utils.GenerateToken(utils.AlphaNumCaseSymbol, 64)
 
 	// Prepare default settings for development
@@ -180,11 +102,11 @@ func defaultWebConfigFactory() WebConfig {
 	}
 
 	// Prepare default web config
-	conf := WebConfig{
+	conf := Web{
 		ListenAddressHttps: "localhost:443",
 		ListenAddressHttp:  "", // Leave empty to disable HTTP endpoint
 		ManagerAddress:     "localhost:2222",
-		ManagerSsl:         true, // Encrypted endpoint be used, unless within a secure network or with a TLS load balancer is in front.
+		ManagerSsl:         true, // TLS should remain enabled unless a trusted network or TLS terminator protects the connection.
 		ManagerSecret:      managerSecret,
 		FrontendLinks:      frontendLinks,
 		RateLimit: RateLimit{
@@ -200,6 +122,8 @@ func defaultWebConfigFactory() WebConfig {
 			Refresh:        jwtLifetimeMax,
 			ExpiryApiDays:  365,
 		},
+		ExpiryTokenMaxDays: int(accessTokenMaxExpiry.Hours() / 24),
+		ExpiryTokenMax:     accessTokenMaxExpiry,
 		Authenticator: map[string]interface{}{ // Flexible map of arguments as needed by integrated authenticators
 			"credentials_registration": false,
 			"oauth": map[string]interface{}{ // A name for the oauth authenticator so that there can be multiple ones initialized for different customers
@@ -214,6 +138,7 @@ func defaultWebConfigFactory() WebConfig {
 					"user_surname":    "family_name",
 					"user_company":    "company",
 					"user_department": "org_code",
+					"user_gid":        "gid",
 				},
 			},
 		},
@@ -236,31 +161,34 @@ func defaultWebConfigFactory() WebConfig {
 // JSON structure of configuration
 //
 
-type WebConfig struct {
-	// The root configuration object tying all configuration segments together.
+// Web is the root configuration object tying all backend settings together.
+type Web struct {
 	ListenAddressHttps string                 `json:"listen_address_https"` // Leave empty to disable TLS endpoint
-	ListenAddressHttp  string                 `json:"listen_address_http"`  // Leave empty to disable unencrypted endpoint. Encrypted endpoint be used, unless a TLS load balancer is in front.
+	ListenAddressHttp  string                 `json:"listen_address_http"`  // Leave empty to disable HTTP; HTTPS should remain enabled unless a TLS terminator protects the connection.
 	ManagerAddress     string                 `json:"manager_address"`
-	ManagerSsl         bool                   `json:"manager_ssl"`    // Encrypted endpoint be used, unless within a secure network or with a TLS load balancer is in front.
+	ManagerSsl         bool                   `json:"manager_ssl"`    // TLS should remain enabled unless a trusted network or TLS terminator protects the connection.
 	ManagerSecret      string                 `json:"manager_secret"` // Token to authorize RPC connections to invoke manager RPC methods.
 	FrontendLinks      map[string][]Link      `json:"frontend_links"`
 	RateLimit          RateLimit              `json:"rate_limit"`
 	Jwt                Jwt                    `json:"jwt"`
-	Authenticator      map[string]interface{} `json:"authenticator"` // Arbitrary arguments passed to authenticators. Flexible for own authenticator integrations.
-	Loader             map[string]interface{} `json:"loader"`        // Arbitrary arguments passed to connectors. Flexible for own connector integrations.
+	ExpiryTokenMaxDays int                    `json:"expiry_token_max_days"` // Maximum allowed lifetime of a view access token (enforced before passing to manager)
+	ExpiryTokenMax     time.Duration          `json:"-"`                     //
+	Authenticator      map[string]interface{} `json:"authenticator"`         // Arbitrary arguments passed to authenticators. Flexible for own authenticator integrations.
+	Loader             map[string]interface{} `json:"loader"`                // Arbitrary arguments passed to connectors. Flexible for own connector integrations.
 	Logging            log.Settings           `json:"logging"`
 }
 
-func (c *WebConfig) UnmarshalJSON(b []byte) error {
+// UnmarshalJSON applies defaults before decoding a backend configuration
+func (conf *Web) UnmarshalJSON(b []byte) error {
 
 	// Prepare temporary auxiliary data structure to load raw JSON data
-	type aux WebConfig
+	type aux Web
 	var raw aux
 
 	// Unmarshal serialized JSON into temporary auxiliary structure
-	err := json.Unmarshal(b, &raw)
-	if err != nil {
-		return err
+	errUnmarshal := json.Unmarshal(b, &raw)
+	if errUnmarshal != nil {
+		return errUnmarshal
 	}
 
 	// Do input validation
@@ -268,13 +196,22 @@ func (c *WebConfig) UnmarshalJSON(b []byte) error {
 		return fmt.Errorf("manager secret required")
 	}
 
+	// Do input validation
+	if raw.ExpiryTokenMaxDays <= 0 {
+		return fmt.Errorf("invalid maximum access token expiry duration")
+	}
+
 	// Copy loaded JSON values to actual config
-	*c = WebConfig(raw)
+	*conf = Web(raw)
+
+	// Set unserializable values
+	conf.ExpiryTokenMax = time.Duration(raw.ExpiryTokenMaxDays) * 24 * time.Hour
 
 	// Return nil as everything is valid
 	return nil
 }
 
+// Link defines a frontend navigation link supplied by the backend
 type Link struct {
 	Icon   string `json:"icon"`
 	Text   string `json:"text"`
@@ -282,11 +219,13 @@ type Link struct {
 	Target string `json:"target"`
 }
 
+// RateLimit configures request limits for an endpoint group
 type RateLimit struct {
 	AuthRequestsPerMinute int `json:"auth_requests_per_minute"` // AuthRequestsPerMinute limits login/auth endpoint requests per source IP. Zero disables the limit.
 	ApiRequestsPerMinute  int `json:"api_requests_per_minute"`  // ApiRequestsPerMinute limits general authenticated API requests per user. Zero disables the limit.
 }
 
+// Jwt configures JSON Web Token creation and refresh behavior
 type Jwt struct {
 	Secret         string        `json:"secret"`          // Secret to encrypt JWT token with
 	Algorithm      string        `json:"algorithm"`       // Algorithm to encrypt JWT token with
@@ -298,6 +237,7 @@ type Jwt struct {
 	ExpiryApi      time.Duration `json:"-"`               //
 }
 
+// UnmarshalJSON applies defaults before decoding JSON Web Token settings
 func (j *Jwt) UnmarshalJSON(b []byte) error {
 
 	// Prepare temporary auxiliary data structure to load raw JSON data
@@ -305,9 +245,9 @@ func (j *Jwt) UnmarshalJSON(b []byte) error {
 	var raw aux
 
 	// Unmarshal serialized JSON into temporary auxiliary structure
-	err := json.Unmarshal(b, &raw)
-	if err != nil {
-		return err
+	errUnmarshal := json.Unmarshal(b, &raw)
+	if errUnmarshal != nil {
+		return errUnmarshal
 	}
 
 	// Copy loaded JSON values to actual config

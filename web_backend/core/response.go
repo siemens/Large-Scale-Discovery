@@ -1,11 +1,12 @@
 /*
-* Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
-*
-* Copyright (c) Siemens AG, 2016-2024.
-*
-* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
-* directory or visit <https://opensource.org/licenses/MIT>.
-*
+ * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
+ *
+ * Copyright (c) Siemens AG, 2016-2026.
+ *
+ * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+ * directory or visit <https://opensource.org/licenses/MIT>.
+ *
+ * SPDX-License-Identifier: MIT
  */
 
 package core
@@ -18,11 +19,13 @@ import (
 	"github.com/siemens/Large-Scale-Discovery/web_backend/config"
 )
 
+// Token contains a refreshed access token and its expiration time
 type Token struct {
 	AccessToken string    `json:"access_token"`
 	Expire      time.Time `json:"expire"`
 }
 
+// BaseResponse is the common envelope returned by backend API endpoints
 type BaseResponse struct {
 	Error   bool        `json:"error"`
 	Message string      `json:"message"`
@@ -80,6 +83,27 @@ func Respond(ctx *gin.Context, error bool, message string, body interface{}) {
 
 	// Send JSON response
 	ctx.JSON(http.StatusOK, resp)
+}
+
+// RespondAccepted returns a 202 Accepted status with message and body. Use when a resource exists
+// but is not yet ready (e.g. scan still running, client can poll).
+func RespondAccepted(ctx *gin.Context, message string, body interface{}) {
+
+	// Get logger for current request context
+	logger := GetContextLogger(ctx)
+
+	// Log request
+	logger.Debugf("Request accepted: %s", message)
+
+	// Prepare response body
+	resp := BaseResponse{
+		Error:   false,
+		Message: message,
+		Body:    body,
+	}
+
+	// Send JSON response
+	ctx.JSON(http.StatusAccepted, resp)
 }
 
 // RespondAuthError returns a 401 UNAUTHORIZED http error code and should be used whenever there is an

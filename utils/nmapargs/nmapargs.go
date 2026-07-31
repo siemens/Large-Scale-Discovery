@@ -35,9 +35,9 @@ func Validate(args string, optionFunctions ...OptionFunc) Result {
 	}
 
 	// Lex the raw string into individual tokens.
-	tokens, errLex := lex(args)
-	if errLex != nil {
-		return Result{Valid: false, Errors: []string{errLex.Error()}}
+	tokens, errTokens := lex(args)
+	if errTokens != nil {
+		return Result{Valid: false, Errors: []string{errTokens.Error()}}
 	}
 
 	// Build a set of blocked flags from the resolved config for O(1) lookup.

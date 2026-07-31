@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="PrettierConfiguration">
+    <option name="myConfigurationMode" value="AUTOMATIC" />
+    <option name="myFilesPattern" value="{web_frontend/**/*,web_frontend/*}.{js,ts,jsx,tsx,cjs,cts,mjs,mts,vue,json,jsonc,css,scss,sass,html,md,yml,yaml}" />
+    <option name="myRunOnReformat" value="true" />
+    <option name="myRunOnSave" value="true" />
+  </component>
+</project>

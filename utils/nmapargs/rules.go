@@ -12,10 +12,6 @@ package nmapargs
 
 import "fmt"
 
-// rule inspects the full set of parsed flags and returns any logical
-// conflict messages it finds. An empty slice means no conflict was detected.
-type rule func(flags map[string]bool) []string
-
 var allRules = []rule{
 
 	// Only one TCP scan type may be used at a time.
@@ -284,3 +280,7 @@ var allRules = []rule{
 		return nil
 	},
 }
+
+// rule inspects the full set of parsed flags and returns any logical
+// conflict messages it finds. An empty slice means no conflict was detected.
+type rule func(flags map[string]bool) []string

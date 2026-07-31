@@ -1,11 +1,12 @@
 /*
-* Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
-*
-* Copyright (c) Siemens AG, 2016-2026.
-*
-* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
-* directory or visit <https://opensource.org/licenses/MIT>.
-*
+ * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
+ *
+ * Copyright (c) Siemens AG, 2016-2026.
+ *
+ * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+ * directory or visit <https://opensource.org/licenses/MIT>.
+ *
+ * SPDX-License-Identifier: MIT
  */
 
 package database
@@ -19,12 +20,12 @@ import (
 // OpenForTesting opens a shared in-memory SQLite database for use in tests.
 // Call AutoMigrate after this to create the schema.
 func OpenForTesting() error {
-	var errOpen error
-	backendDb, errOpen = gorm.Open(
+	var errBackendDb error
+	backendDb, errBackendDb = gorm.Open(
 		sqlite.Open("file::memory:?cache=shared&_pragma=foreign_keys(1)"),
 		&gorm.Config{
 			Logger: gormlog.Default.LogMode(gormlog.Silent),
 		},
 	)
-	return errOpen
+	return errBackendDb
 }

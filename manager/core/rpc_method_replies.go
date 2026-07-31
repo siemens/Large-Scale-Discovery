@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2025.
+* Copyright (c) Siemens AG, 2016-2024.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -12,6 +12,7 @@ package core
 
 import (
 	"github.com/siemens/Large-Scale-Discovery/manager/database"
+	"github.com/siemens/Large-Scale-Discovery/manager/scopedb"
 )
 
 type ReplyNotification struct {
@@ -33,7 +34,7 @@ type ReplyScopeIds struct {
 
 type ReplyScopeTargets struct {
 	Synchronization bool // Flag indicating whether previous synchronization is still ongoing (no targets in that case)
-	Targets         []database.T_discovery
+	Targets         []scopedb.T_discovery
 }
 
 type ReplyScopeSecret struct {
@@ -73,5 +74,5 @@ type ReplyScanAgents struct {
 }
 
 type ReplySqlLogs struct {
-	Logs []database.T_sql_log
+	Logs []scopedb.T_sql_log
 }

@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2024.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -65,8 +65,8 @@ type interfaceSubnet struct {
 // name is contained in the list are returned (if they qualify).
 func getInterfaces(filterNames []string) []interfaceSubnet {
 	var result []interfaceSubnet
-	ifaces, err := net.Interfaces()
-	if err != nil {
+	ifaces, errIfaces := net.Interfaces()
+	if errIfaces != nil {
 		return result
 	}
 	filterSet := make(map[string]struct{}, len(filterNames))
@@ -84,8 +84,8 @@ func getInterfaces(filterNames []string) []interfaceSubnet {
 				continue
 			}
 		}
-		addrs, errAddr := iface.Addrs()
-		if errAddr != nil {
+		addrs, errAddrs := iface.Addrs()
+		if errAddrs != nil {
 			continue
 		}
 		for _, addr := range addrs {
@@ -133,8 +133,8 @@ func classifyInput(target string) (hasV4Ips bool, hasV6Ips bool) {
 	}
 
 	// Check if input is a hostname and resolve it to IPv4 or IPv6 addresses
-	ips, errHostname := net.LookupIP(target)
-	if errHostname == nil {
+	ips, errIps := net.LookupIP(target)
+	if errIps == nil {
 
 		// Iterate resolved IPs to check whether there are IPv4 and IPv6 ones
 		for _, ip := range ips {
@@ -161,25 +161,25 @@ func executeDiscoveryScan(
 	label string,
 	scanTargetsV4 []string,
 	scanTargetsV6 []string,
-	conf *config.AgentConfig,
+	conf *config.Agent,
 	networkTimeout time.Duration,
 	nmapArgs []string,
 	excludeDomains []string,
 	otInterface string, // Network interface name to execute OT discovery on. Empty interface disables the OT discovery.
-) (result *discovery.Result, errScan error) {
+) (result *discovery.Result, errResult error) {
 
 	// Execute necessary scans, execute two scans if IPv4 and IPv6 addresses are mixed
 	if len(scanTargetsV4) > 0 && len(scanTargetsV6) == 0 {
-		result, errScan = executeNmapScan(logger, label, scanTargetsV4, nmapArgs, conf, networkTimeout, excludeDomains, otInterface)
+		result, errResult = executeNmapScan(logger, label, scanTargetsV4, nmapArgs, conf, networkTimeout, excludeDomains, otInterface)
 	} else if len(scanTargetsV6) > 0 && len(scanTargetsV4) == 0 {
 		nmapArgs = append(nmapArgs, "-6")
-		result, errScan = executeNmapScan(logger, label, scanTargetsV6, nmapArgs, conf, networkTimeout, excludeDomains, otInterface)
+		result, errResult = executeNmapScan(logger, label, scanTargetsV6, nmapArgs, conf, networkTimeout, excludeDomains, otInterface)
 	} else if len(scanTargetsV4) > 0 && len(scanTargetsV6) > 0 { // Execute two scans if hostname has IPv4 and IPv6 IPs
 
 		// Execute IPv4 scan
-		result, errScan = executeNmapScan(logger, label, scanTargetsV4, nmapArgs, conf, networkTimeout, excludeDomains, otInterface)
-		if errScan != nil {
-			return result, errScan
+		result, errResult = executeNmapScan(logger, label, scanTargetsV4, nmapArgs, conf, networkTimeout, excludeDomains, otInterface)
+		if errResult != nil {
+			return result, errResult
 		}
 
 		// Execute IPv6 scan
@@ -193,7 +193,7 @@ func executeDiscoveryScan(
 	}
 
 	// Return scan results or error
-	return result, errScan
+	return result, errResult
 }
 
 // executeNmapScan scan initializes the discovery scanner and runs it.
@@ -204,7 +204,7 @@ func executeNmapScan(
 	label string,
 	scanTargets []string,
 	nmapArgs []string,
-	conf *config.AgentConfig,
+	conf *config.Agent,
 	networkTimeout time.Duration,
 	excludeDomains []string,
 	otInterface string, // Network interface name to execute OT discovery on. Empty interface disables the OT discovery.
@@ -241,11 +241,9 @@ func executeNmapScan(
 	}
 
 	// Only launch if shutdown is not already in progress
-	select {
-	case <-coreCtx.Done():
+	if coreCtx.Err() != nil {
 		logger.Infof("Omitting discovery scan due to agent shutdown.")
 		return nil, nil
-	default:
 	}
 
 	// Execute the scan.
@@ -256,11 +254,9 @@ func executeNmapScan(
 	// the scan agent itself. The scan agent might be able to process the broken Nmap output and return it as an
 	// exception.
 	if scanResult.Exception {
-		select {
-		case <-coreCtx.Done():
+		if coreCtx.Err() != nil {
 			logger.Debugf("Dropping broken discovery result, caused by agent shutdown.")
 			return nil, nil
-		default:
 		}
 	}
 

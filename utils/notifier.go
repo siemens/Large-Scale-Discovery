@@ -17,6 +17,7 @@ import (
 	"time"
 )
 
+// ErrNotifierShuttingDown indicates that a notifier is already shutting down
 var ErrNotifierShuttingDown = fmt.Errorf("notifier shutting down")
 
 // Notifier allows to send a notification message to all current subscribers. Subscribers must subscribe *again*, if

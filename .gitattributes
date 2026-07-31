@@ -1,0 +1,6 @@
+# Keep frontend text files consistent across Windows and Linux. `text=auto`
+# preserves binary assets while overriding local core.autocrlf for text files.
+/web_frontend/** text=auto eol=lf
+
+# Keep Go backend sources compatible with gofmt on every development platform.
+/web_backend/** text=auto eol=lf

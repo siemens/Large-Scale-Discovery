@@ -1,16 +1,18 @@
 /*
-* Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
-*
-* Copyright (c) Siemens AG, 2016-2026.
-*
-* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
-* directory or visit <https://opensource.org/licenses/MIT>.
-*
+ * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
+ *
+ * Copyright (c) Siemens AG, 2016-2026.
+ *
+ * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+ * directory or visit <https://opensource.org/licenses/MIT>.
+ *
+ * SPDX-License-Identifier: MIT
  */
 
 package core
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -30,19 +32,18 @@ type rateLimitEntry struct {
 	lastSeen time.Time
 }
 
-// rateLimiterStore manages per-key token bucket limiters with periodic cleanup.
+// rateLimiterStore manages token bucket limiters for each key with lifecycle cleanup
 type rateLimiterStore struct {
-	mu       sync.Mutex
-	entries  map[string]*rateLimitEntry
-	rps      rate.Limit // tokens per second
-	burst    int        // max burst size (= per-minute limit)
-	ttl      time.Duration
-	stopOnce sync.Once
-	stopCh   chan struct{}
+	mu      sync.Mutex
+	entries map[string]*rateLimitEntry
+	rps     rate.Limit // tokens per second
+	burst   int        // max burst size (= per-minute limit)
+	ttl     time.Duration
+	ctx     context.Context
 }
 
-// newRateLimiterStore creates a new rate limiter store with a background cleanup goroutine.
-func newRateLimiterStore(requestsPerMinute int, ttl time.Duration) *rateLimiterStore {
+// newRateLimiterStore creates a rate limiter store with periodic cleanup of stale entries
+func newRateLimiterStore(ctx context.Context, requestsPerMinute int, ttl time.Duration) *rateLimiterStore {
 
 	// Convert requests-per-minute to a per-second rate. Use infinite rate when limiting is disabled.
 	rps := rate.Inf
@@ -50,77 +51,68 @@ func newRateLimiterStore(requestsPerMinute int, ttl time.Duration) *rateLimiterS
 		rps = rate.Limit(float64(requestsPerMinute) / 60.0)
 	}
 
-	// Initialize the store and allocate the stop channel used by the cleanup goroutine.
-	s := &rateLimiterStore{
+	// Initialize the store
+	rateLimiter := &rateLimiterStore{
 		entries: make(map[string]*rateLimitEntry),
 		rps:     rps,
 		burst:   requestsPerMinute,
 		ttl:     ttl,
-		stopCh:  make(chan struct{}),
+		ctx:     ctx,
 	}
 
-	// Start the background goroutine that periodically evicts stale entries.
-	go s.cleanup()
+	// Start periodic cleanup only when the configured lifetime is positive
+	if ttl > 0 {
+		go rateLimiter.cleanup()
+	}
 
-	// Return store
-	return s
+	// Return the initialized store
+	return rateLimiter
 }
 
 // get returns the rate limit entry for the given key, creating one if it does not exist.
-func (s *rateLimiterStore) get(key string) *rateLimitEntry {
+func (rateLimiter *rateLimiterStore) get(key string) *rateLimitEntry {
 
 	// Serialize all access to the shared entries map.
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	rateLimiter.mu.Lock()
+	defer rateLimiter.mu.Unlock()
 
 	// Create a new limiter entry for keys that have not been seen before.
-	entry, ok := s.entries[key]
+	entry, ok := rateLimiter.entries[key]
 	if !ok {
 		entry = &rateLimitEntry{
-			limiter: rate.NewLimiter(s.rps, s.burst),
+			limiter: rate.NewLimiter(rateLimiter.rps, rateLimiter.burst),
 		}
-		s.entries[key] = entry
+		rateLimiter.entries[key] = entry
 	}
 
-	// Refresh the timestamp to prevent premature eviction by the cleanup goroutine.
+	// Refresh the timestamp to prevent premature eviction by the cleanup worker
 	entry.lastSeen = time.Now()
 
 	// Return entry
 	return entry
 }
 
-// cleanup runs as a goroutine and periodically removes entries not accessed within the TTL.
-func (s *rateLimiterStore) cleanup() {
+// cleanup removes stale entries periodically
+func (rateLimiter *rateLimiterStore) cleanup() {
 
-	// Tick at the TTL interval so every entry is eligible for eviction after one full period.
-	ticker := time.NewTicker(s.ttl)
+	ticker := time.NewTicker(rateLimiter.ttl)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-ticker.C:
-
-			// Remove all entries that have not been accessed within the TTL window.
-			cutoff := time.Now().Add(-s.ttl)
-			s.mu.Lock()
-			for key, entry := range s.entries {
+		case now := <-ticker.C:
+			cutoff := now.Add(-rateLimiter.ttl)
+			rateLimiter.mu.Lock()
+			for key, entry := range rateLimiter.entries {
 				if entry.lastSeen.Before(cutoff) {
-					delete(s.entries, key)
+					delete(rateLimiter.entries, key)
 				}
 			}
-			s.mu.Unlock()
-
-		case <-s.stopCh:
+			rateLimiter.mu.Unlock()
+		case <-rateLimiter.ctx.Done():
 			return
 		}
 	}
-}
-
-// stop signals the cleanup goroutine to exit.
-func (s *rateLimiterStore) stop() {
-
-	// Close the stop channel exactly once to signal the cleanup goroutine to exit.
-	s.stopOnce.Do(func() { close(s.stopCh) })
 }
 
 // isApiPath checks whether the URI is an API URI.
@@ -155,8 +147,8 @@ func MwRateLimit() gin.HandlerFunc {
 	var apiLimit = conf.RateLimit.ApiRequestsPerMinute
 
 	// Prepare memory
-	var authStore = newRateLimiterStore(authLimit, 5*time.Minute)
-	var apiStore = newRateLimiterStore(apiLimit, 5*time.Minute)
+	var authStore = newRateLimiterStore(coreCtx, authLimit, 5*time.Minute)
+	var apiStore = newRateLimiterStore(coreCtx, apiLimit, 5*time.Minute)
 
 	// Return request handling function
 	return func(ctx *gin.Context) {

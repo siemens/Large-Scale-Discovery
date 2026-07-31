@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/siemens/Large-Scale-Discovery/manager/database"
+	"github.com/siemens/Large-Scale-Discovery/manager/scopedb"
 	"github.com/siemens/Large-Scale-Discovery/utils"
 )
 
@@ -55,6 +56,7 @@ type ArgsScopeDetails struct {
 	OtSettings      bool          // Whether the scan scope should be created as an OT discovery scope (zero input targets, special scan settings, agent auto-detects subnets)
 	Cycles          bool          // Whether scan scope should run in cycles
 	CyclesRetention int           // Amount of previous scan cycles to keep. Older ones will be cleaned up.
+	SplitSize       uint32        // Maximum amount of IPs contained in one scan target after large networks are split
 	Attributes      utils.JsonMap // Key value pairs of scan scope attributes to update
 }
 
@@ -64,13 +66,14 @@ type ArgsScopeUpdate struct {
 	Name            string
 	Cycles          bool
 	CyclesRetention int            // Amount of previous scan cycles to keep. Older ones will be cleaned up.
+	SplitSize       uint32         // Maximum amount of IPs contained in one scan target after large networks are split
 	Attributes      *utils.JsonMap // Key value pairs of scan scope attributes to update
 }
 
 type ArgsTargetsUpdate struct {
-	IdTScanScopes uint64                 // The ID of the scan scope to update
-	Targets       []database.T_discovery // Scope targets to set in the scopedb. Empty list will remove all.
-	Blocking      bool                   // Whether to wait for update result
+	IdTScanScopes uint64                // The ID of the scan scope to update
+	Targets       []scopedb.T_discovery // Scope targets to set in the scopedb. Empty list will remove all.
+	Blocking      bool                  // Whether to wait for update result
 }
 
 type ArgsScopeTargetUpdateOt struct {
@@ -128,7 +131,7 @@ type ArgsGrantToken struct {
 
 type ArgsGrantUsers struct {
 	ViewId        uint64
-	DbCredentials []database.DbCredentials
+	DbCredentials []scopedb.DbCredentials
 	GrantedBy     string
 }
 
@@ -141,7 +144,8 @@ type ArgsAgentId struct {
 	AgentId uint64
 }
 
-type ArgsSqlLogCreate database.T_sql_log
+// ArgsSqlLogCreate is the RPC argument type for creating a SQL log entry
+type ArgsSqlLogCreate scopedb.T_sql_log
 
 type ArgsSqlLogsFilter struct {
 	DbName string

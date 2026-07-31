@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2025.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -121,9 +121,9 @@ func windowsExportTrustStore(outputFile string, appendFile bool, version string,
 	ptrStr, _ := syscall.UTF16PtrFromString(certstore)
 
 	// Open windows cert store
-	store, err := syscall.CertOpenSystemStore(0, ptrStr)
-	if err != nil {
-		return err
+	store, errStore := syscall.CertOpenSystemStore(0, ptrStr)
+	if errStore != nil {
+		return errStore
 	}
 
 	// Make sure cert store is closed at the end
@@ -131,6 +131,7 @@ func windowsExportTrustStore(outputFile string, appendFile bool, version string,
 
 	// Initialize certificate memory and certificate counter
 	var cert *syscall.CertContext
+	var errCert error
 	certCount := 0
 
 	// Decide file mode
@@ -139,26 +140,26 @@ func windowsExportTrustStore(outputFile string, appendFile bool, version string,
 	}
 
 	// Open/Create custom pem file
-	f, errF := os.OpenFile(outputFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0660)
-	if errF != nil {
-		return errF
+	outputFileHandle, errOutputFileHandle := os.OpenFile(outputFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0660)
+	if errOutputFileHandle != nil {
+		return errOutputFileHandle
 	}
 
 	// Make sure file gets closed on exit
-	defer func() { _ = f.Close() }()
+	defer func() { _ = outputFileHandle.Close() }()
 
 	// Iterate through the certificates
 	for {
 
-		cert, err = syscall.CertEnumCertificatesInStore(store, cert)
+		cert, errCert = syscall.CertEnumCertificatesInStore(store, cert)
 
-		if err != nil {
-			if errno, ok := err.(syscall.Errno); ok {
+		if errCert != nil {
+			if errno, ok := errCert.(syscall.Errno); ok {
 				if errno == CryptENotFound {
 					break
 				}
 			}
-			return err
+			return errCert
 		}
 		if cert == nil {
 			break
@@ -170,8 +171,8 @@ func windowsExportTrustStore(outputFile string, appendFile bool, version string,
 		copy(buf2, buf)
 
 		// Parsed certificate from the bytes
-		_, errC := x509.ParseCertificate(buf2)
-		if errC != nil {
+		_, errCertificate := x509.ParseCertificate(buf2)
+		if errCertificate != nil {
 			continue
 		}
 
@@ -179,8 +180,8 @@ func windowsExportTrustStore(outputFile string, appendFile bool, version string,
 		certCount++
 
 		// Append the certificate to the file
-		_ = pem.Encode(f, &pem.Block{Type: "CERTIFICATE", Bytes: buf2})
-		_, _ = f.Write([]byte("\r\n"))
+		_ = pem.Encode(outputFileHandle, &pem.Block{Type: "CERTIFICATE", Bytes: buf2})
+		_, _ = outputFileHandle.Write([]byte("\r\n"))
 
 		/*
 			YAML generation disabled for now... as it looks like is not needed

@@ -1,11 +1,12 @@
 /*
-* Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
-*
-* Copyright (c) Siemens AG, 2016-2026.
-*
-* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
-* directory or visit <https://opensource.org/licenses/MIT>.
-*
+ * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
+ *
+ * Copyright (c) Siemens AG, 2016-2026.
+ *
+ * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+ * directory or visit <https://opensource.org/licenses/MIT>.
+ *
+ * SPDX-License-Identifier: MIT
  */
 
 package core
@@ -23,7 +24,7 @@ import (
 )
 
 // mwInjectContext sets up the context storage expected by MwRateLimit. Call this before MwRateLimit.
-func mwInjectContext(user *database.T_user) gin.HandlerFunc {
+func mwInjectContext(userEntry *database.T_user) gin.HandlerFunc {
 
 	// Return a middleware handler that populates the request context storage.
 	return func(ctx *gin.Context) {
@@ -31,7 +32,7 @@ func mwInjectContext(user *database.T_user) gin.HandlerFunc {
 		// Attach a test logger and the configured user to the shared context storage.
 		SetContextStorage(ctx, &ContextStorage{
 			Logger:      scanUtils.NewTestLogger(),
-			CurrentUser: user,
+			CurrentUser: userEntry,
 		})
 		ctx.Next()
 	}
@@ -40,7 +41,17 @@ func mwInjectContext(user *database.T_user) gin.HandlerFunc {
 // newTestRouter builds a minimal Gin router for rate limit testing.
 // noAuthPaths is registered in apiEndpointsNoAuth so the middleware treats them accordingly.
 // user is attached to the context (nil = unauthenticated).
-func newTestRouter(rateLimitConf config.RateLimit, noAuthPaths []string, user *database.T_user) *gin.Engine {
+func newTestRouter(
+	t *testing.T,
+	rateLimitConf config.RateLimit,
+	noAuthPaths []string,
+	userEntry *database.T_user,
+) *gin.Engine {
+
+	// Bind cleanup workers created by this router to the current test lifecycle.
+	previousCoreCtx := coreCtx
+	coreCtx = t.Context()
+	t.Cleanup(func() { coreCtx = previousCoreCtx })
 
 	// Switch gin to test mode to suppress debug output.
 	gin.SetMode(gin.TestMode)
@@ -49,19 +60,19 @@ func newTestRouter(rateLimitConf config.RateLimit, noAuthPaths []string, user *d
 	apiEndpointsNoAuth = noAuthPaths
 
 	// Install the rate limit config.
-	config.Set(&config.WebConfig{
+	config.Set(&config.Web{
 		RateLimit: rateLimitConf,
 	})
 
 	// Build a minimal router with context injection and rate limiting.
-	r := gin.New()
-	r.Use(mwInjectContext(user))
-	r.Use(MwRateLimit())
-	r.GET("/api/v1/noauth", func(c *gin.Context) { c.Status(http.StatusOK) })
-	r.GET("/api/v1/auth", func(c *gin.Context) { c.Status(http.StatusOK) })
+	router := gin.New()
+	router.Use(mwInjectContext(userEntry))
+	router.Use(MwRateLimit())
+	router.GET("/api/v1/noauth", func(ctx *gin.Context) { ctx.Status(http.StatusOK) })
+	router.GET("/api/v1/auth", func(ctx *gin.Context) { ctx.Status(http.StatusOK) })
 
 	// Return router
-	return r
+	return router
 }
 
 // do sends a GET request to the router and returns the recorded response.
@@ -82,13 +93,12 @@ func do(r *gin.Engine, path, clientIP string) *httptest.ResponseRecorder {
 // TestRateLimiterStore_GetCreatesEntry verifies that get creates a new entry for an unseen key.
 func TestRateLimiterStore_GetCreatesEntry(t *testing.T) {
 
-	// Initialize the store and release it at end of test.
-	s := newRateLimiterStore(60, time.Minute)
-	defer s.stop()
+	// Initialize the store
+	store := newRateLimiterStore(t.Context(), 60, time.Minute)
 
 	// Verify that get creates an entry for a new key.
-	e := s.get("key1")
-	if e == nil {
+	entry := store.get("key1")
+	if entry == nil {
 		t.Fatal("expected entry, got nil")
 	}
 }
@@ -96,14 +106,13 @@ func TestRateLimiterStore_GetCreatesEntry(t *testing.T) {
 // TestRateLimiterStore_GetReusesEntry verifies that get returns the same entry for repeated calls.
 func TestRateLimiterStore_GetReusesEntry(t *testing.T) {
 
-	// Initialize the store and release it at end of test.
-	s := newRateLimiterStore(60, time.Minute)
-	defer s.stop()
+	// Initialize the store
+	store := newRateLimiterStore(t.Context(), 60, time.Minute)
 
 	// Verify that get returns the same pointer for repeated calls with the same key.
-	e1 := s.get("key1")
-	e2 := s.get("key1")
-	if e1 != e2 {
+	firstEntry := store.get("key1")
+	secondEntry := store.get("key1")
+	if firstEntry != secondEntry {
 		t.Error("expected same entry to be returned on second call")
 	}
 }
@@ -111,34 +120,32 @@ func TestRateLimiterStore_GetReusesEntry(t *testing.T) {
 // TestRateLimiterStore_SeparateKeys verifies that different keys produce independent limiter entries.
 func TestRateLimiterStore_SeparateKeys(t *testing.T) {
 
-	// Initialize the store and release it at end of test.
-	s := newRateLimiterStore(60, time.Minute)
-	defer s.stop()
+	// Initialize the store
+	store := newRateLimiterStore(t.Context(), 60, time.Minute)
 
 	// Verify that different keys produce independent entries.
-	e1 := s.get("key1")
-	e2 := s.get("key2")
-	if e1 == e2 {
+	firstEntry := store.get("key1")
+	secondEntry := store.get("key2")
+	if firstEntry == secondEntry {
 		t.Error("expected distinct entries for different keys")
 	}
 }
 
-// TestRateLimiterStore_Cleanup verifies that stale entries are evicted after the TTL elapses.
-func TestRateLimiterStore_Cleanup(t *testing.T) {
+// TestRateLimiterStore_Cleanup_EvictsIdleEntries verifies cleanup does not require a subsequent request
+func TestRateLimiterStore_Cleanup_EvictsIdleEntries(t *testing.T) {
 
 	// Use a short TTL so cleanup runs within the test duration.
 	ttl := 50 * time.Millisecond
-	s := newRateLimiterStore(60, ttl)
-	defer s.stop()
+	store := newRateLimiterStore(t.Context(), 60, ttl)
 
-	// Populate the store with one entry, then wait long enough for cleanup to evict it.
-	s.get("key1")
+	// Populate the store with one entry, then wait long enough for background cleanup
+	store.get("key1")
 	time.Sleep(3 * ttl)
 
-	// Verify the stale entry was removed.
-	s.mu.Lock()
-	_, still := s.entries["key1"]
-	s.mu.Unlock()
+	// Verify cleanup evicts the stale entry even while request traffic is idle
+	store.mu.Lock()
+	_, still := store.entries["key1"]
+	store.mu.Unlock()
 
 	if still {
 		t.Error("expected stale entry to be cleaned up")
@@ -149,14 +156,14 @@ func TestRateLimiterStore_Cleanup(t *testing.T) {
 func TestMwRateLimit_AuthEndpoint_AllowsUpToLimit(t *testing.T) {
 
 	// Build a router limited to 3 auth requests per minute.
-	r := newTestRouter(config.RateLimit{
+	router := newTestRouter(t, config.RateLimit{
 		AuthRequestsPerMinute: 3,
 		ApiRequestsPerMinute:  120,
 	}, []string{"/api/v1/noauth"}, nil)
 
 	// All requests within the burst limit must succeed.
 	for i := 0; i < 3; i++ {
-		w := do(r, "/api/v1/noauth", "10.0.0.1")
+		w := do(router, "/api/v1/noauth", "192.0.2.1")
 		if w.Code != http.StatusOK {
 			t.Errorf("request %d: want 200, got %d", i+1, w.Code)
 		}
@@ -167,17 +174,17 @@ func TestMwRateLimit_AuthEndpoint_AllowsUpToLimit(t *testing.T) {
 func TestMwRateLimit_AuthEndpoint_Returns429WhenExceeded(t *testing.T) {
 
 	// Build a router limited to 2 auth requests per minute.
-	r := newTestRouter(config.RateLimit{
+	router := newTestRouter(t, config.RateLimit{
 		AuthRequestsPerMinute: 2,
 		ApiRequestsPerMinute:  120,
 	}, []string{"/api/v1/noauth"}, nil)
 
 	// Exhaust the 2-request burst.
-	do(r, "/api/v1/noauth", "10.1.0.1")
-	do(r, "/api/v1/noauth", "10.1.0.1")
+	do(router, "/api/v1/noauth", "192.0.2.2")
+	do(router, "/api/v1/noauth", "192.0.2.2")
 
 	// Third request must be rate-limited.
-	w := do(r, "/api/v1/noauth", "10.1.0.1")
+	w := do(router, "/api/v1/noauth", "192.0.2.2")
 	if w.Code != http.StatusTooManyRequests {
 		t.Errorf("want 429, got %d", w.Code)
 	}
@@ -187,17 +194,17 @@ func TestMwRateLimit_AuthEndpoint_Returns429WhenExceeded(t *testing.T) {
 func TestMwRateLimit_AuthEndpoint_SeparatesIPs(t *testing.T) {
 
 	// Build a router limited to 1 auth request per minute per IP.
-	r := newTestRouter(config.RateLimit{
+	router := newTestRouter(t, config.RateLimit{
 		AuthRequestsPerMinute: 1,
 		ApiRequestsPerMinute:  120,
 	}, []string{"/api/v1/noauth"}, nil)
 
 	// IP A exhausts its bucket.
-	do(r, "/api/v1/noauth", "10.2.0.1")
-	wA := do(r, "/api/v1/noauth", "10.2.0.1")
+	do(router, "/api/v1/noauth", "192.0.2.3")
+	wA := do(router, "/api/v1/noauth", "192.0.2.3")
 
 	// IP B should still succeed since it has its own independent bucket.
-	wB := do(r, "/api/v1/noauth", "10.2.0.2")
+	wB := do(router, "/api/v1/noauth", "192.0.2.4")
 
 	if wA.Code != http.StatusTooManyRequests {
 		t.Errorf("IP A: want 429, got %d", wA.Code)
@@ -212,17 +219,17 @@ func TestMwRateLimit_ApiEndpoint_Returns429WhenExceeded(t *testing.T) {
 
 	// Build a router limited to 2 authenticated API requests per minute.
 	user := &database.T_user{Id: 42}
-	r := newTestRouter(config.RateLimit{
+	router := newTestRouter(t, config.RateLimit{
 		AuthRequestsPerMinute: 10,
 		ApiRequestsPerMinute:  2,
 	}, []string{"/api/v1/noauth"}, user)
 
 	// Exhaust the 2-request burst.
-	do(r, "/api/v1/auth", "")
-	do(r, "/api/v1/auth", "")
+	do(router, "/api/v1/auth", "")
+	do(router, "/api/v1/auth", "")
 
 	// Third request must be rate-limited.
-	w := do(r, "/api/v1/auth", "")
+	w := do(router, "/api/v1/auth", "")
 	if w.Code != http.StatusTooManyRequests {
 		t.Errorf("want 429, got %d", w.Code)
 	}
@@ -232,12 +239,12 @@ func TestMwRateLimit_ApiEndpoint_Returns429WhenExceeded(t *testing.T) {
 func TestMwRateLimit_RateLimitHeaders_Present(t *testing.T) {
 
 	// Build a router and send one authenticated request.
-	r := newTestRouter(config.RateLimit{
+	router := newTestRouter(t, config.RateLimit{
 		AuthRequestsPerMinute: 10,
 		ApiRequestsPerMinute:  120,
 	}, []string{"/api/v1/noauth"}, &database.T_user{Id: 1})
 
-	w := do(r, "/api/v1/auth", "")
+	w := do(router, "/api/v1/auth", "")
 
 	// Verify all three rate limit headers are present.
 	if w.Header().Get("X-RateLimit-Limit") == "" {
@@ -255,14 +262,14 @@ func TestMwRateLimit_RateLimitHeaders_Present(t *testing.T) {
 func TestMwRateLimit_ZeroLimit_Disabled(t *testing.T) {
 
 	// Build a router with both limits set to zero, which disables rate limiting.
-	r := newTestRouter(config.RateLimit{
+	router := newTestRouter(t, config.RateLimit{
 		AuthRequestsPerMinute: 0,
 		ApiRequestsPerMinute:  0,
 	}, []string{"/api/v1/noauth"}, nil)
 
 	// Many requests should all succeed when limiting is disabled.
 	for i := 0; i < 20; i++ {
-		w := do(r, "/api/v1/noauth", "10.3.0.1")
+		w := do(router, "/api/v1/noauth", "192.0.2.5")
 		if w.Code != http.StatusOK {
 			t.Errorf("request %d: want 200 (limit disabled), got %d", i+1, w.Code)
 		}
@@ -273,15 +280,15 @@ func TestMwRateLimit_ZeroLimit_Disabled(t *testing.T) {
 func TestMwRateLimit_NonApiPath_PassesThrough(t *testing.T) {
 
 	// Build a router with aggressive limits and register a static-file route.
-	r := newTestRouter(config.RateLimit{
+	router := newTestRouter(t, config.RateLimit{
 		AuthRequestsPerMinute: 1,
 		ApiRequestsPerMinute:  1,
 	}, []string{}, nil)
-	r.GET("/static/app.js", func(c *gin.Context) { c.Status(http.StatusOK) })
+	router.GET("/static/app.js", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	// All static-file requests must pass through regardless of the limit.
 	for i := 0; i < 5; i++ {
-		w := do(r, "/static/app.js", "10.4.0.1")
+		w := do(router, "/static/app.js", "192.0.2.6")
 		if w.Code != http.StatusOK {
 			t.Errorf("request %d: want 200 for static path, got %d", i+1, w.Code)
 		}
@@ -292,14 +299,14 @@ func TestMwRateLimit_NonApiPath_PassesThrough(t *testing.T) {
 func TestMwRateLimit_429Response_HasRetryAfterHeader(t *testing.T) {
 
 	// Build a router limited to 1 auth request per minute.
-	r := newTestRouter(config.RateLimit{
+	router := newTestRouter(t, config.RateLimit{
 		AuthRequestsPerMinute: 1,
 		ApiRequestsPerMinute:  120,
 	}, []string{"/api/v1/noauth"}, nil)
 
 	// Consume the single available token, then trigger a 429.
-	do(r, "/api/v1/noauth", "10.5.0.1")
-	w := do(r, "/api/v1/noauth", "10.5.0.1")
+	do(router, "/api/v1/noauth", "192.0.2.7")
+	w := do(router, "/api/v1/noauth", "192.0.2.7")
 
 	if w.Code != http.StatusTooManyRequests {
 		t.Fatalf("want 429, got %d", w.Code)
@@ -315,13 +322,13 @@ func TestMwRateLimit_429Response_HasRetryAfterHeader(t *testing.T) {
 func TestMwRateLimit_LooksLikeApiButNotApi_PassesThrough(t *testing.T) {
 
 	// Build a router with aggressive limits so any accidentally rate-limited request surfaces as non-200.
-	r := newTestRouter(config.RateLimit{
+	router := newTestRouter(t, config.RateLimit{
 		AuthRequestsPerMinute: 1,
 		ApiRequestsPerMinute:  1,
 	}, []string{}, nil)
-	r.GET("/api-docs/", func(c *gin.Context) { c.Status(http.StatusOK) })
-	r.GET("/apidocs/", func(c *gin.Context) { c.Status(http.StatusOK) })
-	r.GET("/api-versioning", func(c *gin.Context) { c.Status(http.StatusOK) })
+	router.GET("/api-docs/", func(c *gin.Context) { c.Status(http.StatusOK) })
+	router.GET("/apidocs/", func(c *gin.Context) { c.Status(http.StatusOK) })
+	router.GET("/api-versioning", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	// Prepare and run test cases
 	tests := []struct {
@@ -337,7 +344,7 @@ func TestMwRateLimit_LooksLikeApiButNotApi_PassesThrough(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 
 			// Verify the path passes through without triggering rate limiting or panicking.
-			w := do(r, tc.path, "10.6.0.1")
+			w := do(router, tc.path, "192.0.2.8")
 			if w.Code != http.StatusOK {
 				t.Errorf("MwRateLimit() code = '%v', want = '200'", w.Code)
 			}
@@ -349,13 +356,13 @@ func TestMwRateLimit_LooksLikeApiButNotApi_PassesThrough(t *testing.T) {
 func TestMwRateLimit_AuthRouteWithoutUser_DoesNotPanic(t *testing.T) {
 
 	// Build a router with nil user to simulate a request that bypassed JWT authentication.
-	r := newTestRouter(config.RateLimit{
+	router := newTestRouter(t, config.RateLimit{
 		AuthRequestsPerMinute: 10,
 		ApiRequestsPerMinute:  10,
 	}, []string{}, nil)
 
 	// Verify the middleware responds with 401 instead of panicking.
-	w := do(r, "/api/v1/auth", "")
+	w := do(router, "/api/v1/auth", "")
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("MwRateLimit() code = '%v', want = '401'", w.Code)
 	}

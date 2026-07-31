@@ -1,0 +1,10 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": ["tests/unit/**/*.spec.ts", "tests/e2e/**/*.spec.ts", "tests/vite.config.smoke.ts"],
+  "project": ["src/**/*.{ts,vue}", "tests/**/*.ts", "*.config.ts"],
+  "ignoreIssues": {
+    "src/composables/useSectionScroll.ts": ["exports"],
+    "src/lib/collections.ts": ["exports"],
+    "src/lib/colors.ts": ["exports"]
+  }
+}

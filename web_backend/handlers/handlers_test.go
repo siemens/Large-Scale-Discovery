@@ -1,11 +1,12 @@
 /*
-* Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
-*
-* Copyright (c) Siemens AG, 2016-2026.
-*
-* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
-* directory or visit <https://opensource.org/licenses/MIT>.
-*
+ * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
+ *
+ * Copyright (c) Siemens AG, 2016-2026.
+ *
+ * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+ * directory or visit <https://opensource.org/licenses/MIT>.
+ *
+ * SPDX-License-Identifier: MIT
  */
 
 package handlers
@@ -24,6 +25,7 @@ import (
 	scanUtils "github.com/siemens/GoScans/utils"
 	"github.com/siemens/Large-Scale-Discovery/_test"
 	"github.com/siemens/Large-Scale-Discovery/utils"
+	"github.com/siemens/Large-Scale-Discovery/web_backend/config"
 	"github.com/siemens/Large-Scale-Discovery/web_backend/core"
 	"github.com/siemens/Large-Scale-Discovery/web_backend/database"
 )
@@ -42,12 +44,18 @@ func TestMain(m *testing.M) {
 
 	gin.SetMode(gin.TestMode)
 
-	if err := database.OpenForTesting(); err != nil {
-		panic("test DB open failed: " + err.Error())
+	if errOpenForTesting := database.OpenForTesting(); errOpenForTesting != nil {
+		panic("test DB open failed: " + errOpenForTesting.Error())
 	}
-	if err := database.AutoMigrate(); err != nil {
-		panic("test DB migrate failed: " + err.Error())
+	if errAutoMigrate := database.AutoMigrate(); errAutoMigrate != nil {
+		panic("test DB migrate failed: " + errAutoMigrate.Error())
 	}
+
+	// Initialise a minimal web config so handlers that read it (e.g. ViewGrantToken
+	// validates ExpiryTokenMax before making an RPC call) don't short-circuit.
+	config.Set(&config.Web{
+		ExpiryTokenMax: 365 * 24 * time.Hour,
+	})
 
 	// Port 1 is reserved and won't be reachable; the RPC client will return
 	// ErrRpcConnectivity on every call, exercising the connectivity-error paths.
@@ -57,7 +65,7 @@ func TestMain(m *testing.M) {
 }
 
 // newCtx builds a Gin test context with the given JSON body and authenticated user.
-func newCtx(body interface{}, user *database.T_user) (*gin.Context, *httptest.ResponseRecorder) {
+func newCtx(body interface{}, userEntry *database.T_user) (*gin.Context, *httptest.ResponseRecorder) {
 	w := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(w)
 
@@ -75,13 +83,13 @@ func newCtx(body interface{}, user *database.T_user) (*gin.Context, *httptest.Re
 
 	core.SetContextStorage(ctx, &core.ContextStorage{
 		Logger:      scanUtils.NewTestLogger(),
-		CurrentUser: user,
+		CurrentUser: userEntry,
 	})
 	return ctx, w
 }
 
 // badBodyCtx creates a context whose request body is intentionally malformed JSON.
-func badBodyCtx(user *database.T_user) (*gin.Context, *httptest.ResponseRecorder) {
+func badBodyCtx(userEntry *database.T_user) (*gin.Context, *httptest.ResponseRecorder) {
 	w := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(w)
 
@@ -91,7 +99,7 @@ func badBodyCtx(user *database.T_user) (*gin.Context, *httptest.ResponseRecorder
 
 	core.SetContextStorage(ctx, &core.ContextStorage{
 		Logger:      scanUtils.NewTestLogger(),
-		CurrentUser: user,
+		CurrentUser: userEntry,
 	})
 	return ctx, w
 }
@@ -118,7 +126,7 @@ func regularUser() *database.T_user {
 	}
 }
 
-// TestBackendSettings verifies that the settings endpoint returns 200 with no authentication required.
+// TestBackendSettings_Returns200 verifies that the settings endpoint returns 200 with no authentication required.
 func TestBackendSettings_Returns200(t *testing.T) {
 	ctx, w := newCtx(nil, nil)
 	BackendSettings()(ctx)
@@ -127,7 +135,7 @@ func TestBackendSettings_Returns200(t *testing.T) {
 	}
 }
 
-// TestBackendAuthenticator_EmptyEmail verifies that an empty email returns 200 with an error flag.
+// TestBackendAuthenticator_EmptyEmail_Returns200Error verifies that an empty email returns 200 with an error flag.
 func TestBackendAuthenticator_EmptyEmail_Returns200Error(t *testing.T) {
 	type req struct {
 		Email string `json:"email"`
@@ -139,7 +147,7 @@ func TestBackendAuthenticator_EmptyEmail_Returns200Error(t *testing.T) {
 	}
 }
 
-// TestBackendAuthenticator_InvalidEmail verifies that a non-email string returns 401.
+// TestBackendAuthenticator_InvalidEmail_Returns401 verifies that a non-email string returns 401.
 func TestBackendAuthenticator_InvalidEmail_Returns401(t *testing.T) {
 	type req struct {
 		Email string `json:"email"`
@@ -151,11 +159,28 @@ func TestBackendAuthenticator_InvalidEmail_Returns401(t *testing.T) {
 	}
 }
 
-// TestBackendAuthenticator_BadBody verifies that a malformed request body returns 400.
+// TestBackendAuthenticator_BadBody_Returns400 verifies that a malformed request body returns 400.
 func TestBackendAuthenticator_BadBody_Returns400(t *testing.T) {
 	ctx, w := badBodyCtx(nil)
 	BackendAuthenticator()(ctx)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("BackendAuthenticator() status = '%v', want = '400'", w.Code)
+	}
+}
+
+// TestUserResetDbPassword_DemoUser_Returns401 verifies that demo accounts cannot create database credentials.
+func TestUserResetDbPassword_DemoUser_Returns401(t *testing.T) {
+
+	// Prepare unit test data
+	user := regularUser()
+	user.Demo = true
+	ctx, recorder := newCtx(nil, user)
+
+	// Invoke the protected handler
+	UserResetDbPassword(nil)(ctx)
+
+	// Verify demo access is rejected before password side effects begin
+	if recorder.Code != http.StatusUnauthorized {
+		t.Errorf("UserResetDbPassword() status = '%v', want = '401'", recorder.Code)
 	}
 }
